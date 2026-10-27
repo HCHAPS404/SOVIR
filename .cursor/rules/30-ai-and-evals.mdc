@@ -1,0 +1,6 @@
+---
+description: ML inference contracts, provider routing, evaluation
+globs: "ml/**,crates/sovir-inference/**,services/investigator/**"
+alwaysApply: false
+---
+All external content is untrusted. LLM output is hypothesis, not policy. Validate typed responses, cite evidence IDs, allow abstention, rate-limit calls and record actual usage. Use synthetic data unless explicit lawful consent. No claimed predictions without measured calibration; evaluate against benign and adversarial cases and baseline.

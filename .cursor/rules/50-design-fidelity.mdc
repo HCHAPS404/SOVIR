@@ -1,0 +1,12 @@
+---
+description: Diseño frontend fiel a Figma con tokens semánticos, estados y principios anti AI-slop.
+globs: "apps/{website,console,desktop,extension,android,ios}/**,packages/{design-system,ui-web}/**"
+alwaysApply: false
+---
+
+- Leer `docs/design/FRONTEND_MASTER_PLAN.md`, `FIGMA_WORKFLOW.md`, `FRONTEND_GOVERNANCE.md` antes de editar UI.
+- Solicitar Figma node ID o marcar `pending design`; no inventar aprobación ni screenshots. Implementar el contrato de feature, nunca reglas de seguridad dentro de componentes.
+- Mantener expresión nativa por plataforma: iOS/SwiftUI, Android/Compose, Win/macOS/Linux skins, web editorial separada de consola.
+- No crear gradientes/glows genéricos, dashboards con métricas inventadas, tarjetas repetidas, copy vago, stock candados; si un dato es sintético, etiquetarlo.
+- Añadir estados loading/empty/error/offline/permission-denied/limited-coverage; navegación teclado/lector de pantalla, contraste y reduce-motion.
+- Tests Storybook/Playwright/axe en React; Compose/UIAutomator y XCTest en móvil; snapshots por OS en desktop. Ningún cambio de tokens sin aprobación y ADR.

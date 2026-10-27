@@ -1,0 +1,2 @@
+# SOVIR public website (placeholder de arquitectura)
+**Todavía no hay app ejecutable.** Se implementará Next.js App Router + TypeScript strict; URL pública `www`, separación de `apps/console` (`app`). Ver `docs/design/FRONTEND_MASTER_PLAN.md` y ADR-0004. La landing, páginas de producto, seguridad, privacidad, plataformas, descarga y enterprise deben utilizar contenido verificable y diseño editorial aprobado en Figma. Sin dependencia de tokens remotos para renderizar. No integrar trackers sin aprobación legal/consentimiento.

@@ -1,0 +1,72 @@
+openapi: 3.1.0
+info:
+  title: SOVIR Backend Development API
+  version: 0.1.0
+  description: >-
+    Local, synthetic-only API, not a production auth or remote sensor API.
+    Only binds to loopback. Future cloud APIs MUST use real principals,
+    tenancy, delegated consent and storage isolation.
+servers:
+  - url: http://127.0.0.1:8787
+components:
+  securitySchemes:
+    devBearer:
+      type: http
+      scheme: bearer
+  schemas:
+    ConsentGrant:
+      type: object
+      additionalProperties: false
+      required: [grant_id, source_id, expires_at_ms]
+      properties:
+        grant_id: {type: string}
+        source_id: {type: string}
+        expires_at_ms: {type: integer, format: int64}
+        revoked: {type: boolean, default: false}
+    ObservedEvent:
+      $ref: '../schemas/observed-event.schema.json'
+security:
+  - devBearer: []
+paths:
+  /health/live:
+    get:
+      security: []
+      responses:
+        '200': {description: Process is alive}
+  /v1/consents:
+    post:
+      summary: Create a demo-only source consent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConsentGrant'}
+      responses:
+        '201': {description: Consent stored in memory}
+        '400': {description: Invalid grant}
+        '401': {description: Missing or invalid token}
+  /v1/consents/{id}/revoke:
+    post:
+      summary: Revoke demonstration consent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+      responses:
+        '204': {description: Revoked}
+        '404': {description: Not found}
+  /v1/events:
+    post:
+      summary: Ingest synthetic metadata after consent validation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ObservedEvent'}
+      responses:
+        '201': {description: Stored metadata and returned conservative analysis}
+        '400': {description: Invalid or prohibited data}
+        '401': {description: Not authorized}
+        '403': {description: Consent missing, expired, mismatched or revoked}
+        '409': {description: Duplicate event ID}

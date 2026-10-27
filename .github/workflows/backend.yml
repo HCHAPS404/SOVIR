@@ -1,0 +1,39 @@
+name: SOVIR Backend Gate
+on:
+  push:
+    paths:
+      - 'Cargo.toml'
+      - 'rust-toolchain.toml'
+      - 'crates/**'
+      - 'services/api/**'
+      - 'packages/contracts/**'
+      - 'scripts/backend_harness.py'
+      - '.github/workflows/backend.yml'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'rust-toolchain.toml'
+      - 'crates/**'
+      - 'services/api/**'
+      - 'packages/contracts/**'
+      - 'scripts/backend_harness.py'
+      - '.github/workflows/backend.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate Rust workspace, architectural boundaries, contracts, tests
+        env:
+          SOVIR_BACKEND_REQUIRE_RUST: '1'
+        run: python3 scripts/backend_harness.py

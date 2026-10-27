@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "0.1",
+  "figma": {
+    "brandFileKey": null,
+    "productFileKey": null,
+    "status": "not-created",
+    "designApproval": "pending"
+  },
+  "screens": [
+    {
+      "id": "MarketingHome",
+      "platform": "web-public",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "MarketingPlatforms",
+      "platform": "web-public",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "AuthSignIn",
+      "platform": "web-auth",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "ControlOverview",
+      "platform": "web-app",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "IncidentEvidence",
+      "platform": "web-app",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "ExtensionPopup",
+      "platform": "browser",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "ExtensionPanel",
+      "platform": "browser",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "iOSOverview",
+      "platform": "ios",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "iOSConsent",
+      "platform": "ios",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "AndroidOverview",
+      "platform": "android",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "AndroidCaptureConsent",
+      "platform": "android",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "macOSOverview",
+      "platform": "macos",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "WindowsOverview",
+      "platform": "windows",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "LinuxGNOMEOverview",
+      "platform": "linux-gnome",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    },
+    {
+      "id": "LinuxKDEOverview",
+      "platform": "linux-kde",
+      "nodeId": null,
+      "approval": "pending",
+      "revision": null
+    }
+  ]
+}

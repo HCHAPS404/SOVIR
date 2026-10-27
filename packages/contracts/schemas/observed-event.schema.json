@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.sovir.dev/v0/observed-event.schema.json",
+  "title": "ObservedEvent v0 — proposed contract",
+  "description": "Synthetic-first contract. Does not grant permissions or authorize collection.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "source_id",
+    "observed_at_ms",
+    "modality",
+    "content_digest",
+    "consent_grant_id",
+    "sensitive_data_class"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "observed_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "modality": {
+      "enum": [
+        "TEXT",
+        "UI_TREE",
+        "IMAGE_REGION",
+        "URL",
+        "NOTIFICATION"
+      ]
+    },
+    "content_digest": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "consent_grant_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "sensitive_data_class": {
+      "enum": [
+        "PUBLIC",
+        "PERSONAL",
+        "SENSITIVE",
+        "SECRET"
+      ]
+    },
+    "payload_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "signals": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "CREDENTIAL_REQUEST",
+          "PAYMENT_REQUEST",
+          "URGENT_ACTION",
+          "IDENTITY_UNVERIFIED",
+          "TRACKING_OBSERVED",
+          "HIDDEN_FEE_PATTERN",
+          "CONSENT_DARK_PATTERN",
+          "USER_DEFINED_EXPOSURE_LIMIT"
+        ]
+      },
+      "uniqueItems": true,
+      "maxItems": 8
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "status": "EXPLORATION_NOT_APPROVED",
+  "version": "0.1",
+  "candidates": {
+    "mineral": {
+      "bg": "#151E20",
+      "fg": "#F0F2EE",
+      "accent": "#B99973",
+      "font": "IBM Plex Sans",
+      "mono": "IBM Plex Mono"
+    },
+    "cartographic": {
+      "bg": "#16202B",
+      "fg": "#E9ECEF",
+      "accent": "#6F97A6",
+      "font": "Public Sans",
+      "mono": "IBM Plex Mono"
+    },
+    "editorial": {
+      "bg": "#F5F1E9",
+      "fg": "#24292C",
+      "accent": "#A95C43",
+      "font": "Source Sans 3",
+      "display": "Newsreader"
+    }
+  },
+  "policy": {
+    "alertColorsIndependentOfBrand": true,
+    "requiresHumanApproval": true,
+    "fontLicensesRequireReview": true
+  }
+}

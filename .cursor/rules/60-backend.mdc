@@ -1,0 +1,13 @@
+---
+description: Backend ports, tenant boundaries, consent, inference budgets and production claims
+globs: "crates/**/*.rs,services/**/*.rs,infra/**/*,packages/contracts/**/*"
+alwaysApply: false
+---
+Before backend work, read `docs/backend/BACKEND_MASTER_PLAN.md` and ADR-0005.
+- Domain pure; application depends on ports; infrastructure implements ports.
+- Never accept self-declared tenant or consent as proof of authorization in production.
+- Consent + revocation fail closed; no remote inference without explicit gate.
+- Treat UI and model inputs as untrusted; deterministic policy authority.
+- NO real user content in tests/logs. No tokens or provider keys in repositories.
+- Tests must show denial and happy path; no stub endpoint marked production-ready.
+- PR must report budget impact, model usage and permissions reviewed.

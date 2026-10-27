@@ -1,0 +1,8 @@
+[package]
+name = "sovir-ports"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+[dependencies]
+sovir-domain = { path = "../sovir-domain" }
+thiserror.workspace = true

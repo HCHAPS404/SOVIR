@@ -1,0 +1,24 @@
+name: SOVIR Scaffold Gate
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  governance-and-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify architectural scaffold
+        run: python3 scripts/harness.py check
+      - name: Verify frontend design scaffold
+        run: python3 scripts/design_harness.py
+      - name: Verify synthetic fixture contracts
+        run: python3 scripts/harness.py eval
+  # Add Rust, JS, Android, iOS, Windows and macOS jobs when actual projects exist.
+  # Never mark them green by executing echo "pass".

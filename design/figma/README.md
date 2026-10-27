@@ -1,0 +1,2 @@
+# Figma blueprint (aún no creado)
+Hay dos espacios Figma visibles desde la conexión y debe seleccionarse el equipo de destino antes de crear archivos. Las cuentas aparecen con asiento `View`, por lo que se deberá comprobar la capacidad de edición/creación. Los documentos en `docs/design` son base de trabajo offline. No inventar enlaces ni IDs de Figma. Guardar `fileKey`/`nodeId` *únicamente* cuando las herramientas devuelvan valores reales.

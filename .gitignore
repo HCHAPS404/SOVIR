@@ -1,0 +1,45 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.keystore
+*.jks
+*.mobileprovision
+**/secrets/**
+
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+
+# Rust
+/target/
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+coverage/
+
+# Apple / Android
+DerivedData/
+.gradle/
+**/.idea/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.apk
+*.aab
+*.ipa
+
+# Runtime (private)
+private-data/
+private-fixtures/
+recordings/
+screenshots-private/
+.cache/
+.DS_Store

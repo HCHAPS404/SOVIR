@@ -1,0 +1,11 @@
+---
+description: Web de marca, identidad, landing y privacidad editorial de SOVIR.
+globs: "apps/website/**,docs/design/BRAND_DECISION_WORKSHOP.md,packages/design-system/tokens/**"
+alwaysApply: false
+---
+
+- La identidad visual es propuesta hasta sign-off humano; no declarar logo o paleta definitiva.
+- Separar `apps/website` de `apps/console` por despliegue. El CTA de login va a la app autenticada.
+- Copy verificable y preciso; sin claims de eficacia, compatibilidad o privacidad no comprobados.
+- Marketing no incorpora SDKs de tracking silencioso; evitar dark patterns y consentimiento engañoso.
+- Revisión editorial de espaciado, ritmo, composición, tipografía, fotografías/ilustraciones con licencia, responsive y accesibilidad. No replicar plantilla SaaS genérica.

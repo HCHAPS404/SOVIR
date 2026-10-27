@@ -1,0 +1,5 @@
+---
+description: SOVIR global invariants, agent responsibility, test gating
+alwaysApply: true
+---
+Read `AGENTS.md`, `README.md`, ADRs and ticket before editing. This is a scaffold, not a finished app. Follow consent, local-first, hexagonal architecture and privacy invariants. No remote calls with real user data by default. A ticket owns one bounded context and clear editable paths. Report exactly which tests ran and which are NOT_IMPLEMENTED. Never merge without maintainer review.

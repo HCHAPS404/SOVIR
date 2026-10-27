@@ -1,0 +1,11 @@
+{
+  "event_id": "synthetic-001",
+  "source_id": "browser.synthetic",
+  "observed_at_ms": 0,
+  "modality": "URL",
+  "content_digest": "sha256:synthetic-not-a-real-hash",
+  "consent_grant_id": "grant-001",
+  "sensitive_data_class": "PUBLIC",
+  "payload_ref": null,
+  "signals": ["PAYMENT_REQUEST", "IDENTITY_UNVERIFIED"]
+}

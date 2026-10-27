@@ -1,0 +1,6 @@
+---
+description: Rust domain and hexagonal boundaries
+globs: "crates/**/*.rs,services/api/**/*.rs"
+alwaysApply: false
+---
+Do not import network, UI, SQL or provider-specific crates from `sovir-domain`. Domain models have no I/O; application services depend on ports. Adapters implement ports and hold SDK dependencies. Use deterministic Clock/Test doubles and meaningful errors. Add unit and contract tests. ADR required to change ports or persist sensitive content.

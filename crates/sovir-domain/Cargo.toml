@@ -1,0 +1,11 @@
+[package]
+name = "sovir-domain"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -1,0 +1,174 @@
+{
+  "schemaVersion": "0.1",
+  "status": "SPEC_ONLY",
+  "primitives": [
+    {
+      "name": "Button",
+      "requiredStates": [
+        "default",
+        "hover",
+        "focus",
+        "disabled",
+        "loading"
+      ],
+      "platformExpression": "native-adaptive"
+    },
+    {
+      "name": "Field",
+      "requiredStates": [
+        "default",
+        "hover",
+        "focus",
+        "disabled",
+        "loading"
+      ],
+      "platformExpression": "native-adaptive"
+    },
+    {
+      "name": "Select",
+      "requiredStates": [
+        "default",
+        "focus",
+        "disabled"
+      ],
+      "platformExpression": "native-adaptive"
+    },
+    {
+      "name": "Checkbox",
+      "requiredStates": [
+        "default",
+        "focus",
+        "disabled"
+      ],
+      "platformExpression": "native-adaptive"
+    },
+    {
+      "name": "Dialog",
+      "requiredStates": [
+        "default",
+        "focus",
+        "disabled"
+      ],
+      "platformExpression": "native-adaptive"
+    },
+    {
+      "name": "Toast",
+      "requiredStates": [
+        "default",
+        "focus",
+        "disabled"
+      ],
+      "platformExpression": "native-adaptive"
+    },
+    {
+      "name": "Badge",
+      "requiredStates": [
+        "default",
+        "focus",
+        "disabled"
+      ],
+      "platformExpression": "native-adaptive"
+    },
+    {
+      "name": "Tabs",
+      "requiredStates": [
+        "default",
+        "focus",
+        "disabled"
+      ],
+      "platformExpression": "native-adaptive"
+    },
+    {
+      "name": "Navigation",
+      "requiredStates": [
+        "default",
+        "focus",
+        "disabled"
+      ],
+      "platformExpression": "native-adaptive"
+    },
+    {
+      "name": "StatusIndicator",
+      "requiredStates": [
+        "default",
+        "focus",
+        "disabled"
+      ],
+      "platformExpression": "native-adaptive"
+    }
+  ],
+  "patterns": [
+    {
+      "name": "RiskEvidenceCard",
+      "requiredStates": [
+        "loading",
+        "ready",
+        "empty",
+        "offline",
+        "error",
+        "permission-denied"
+      ]
+    },
+    {
+      "name": "ConsentScopePicker",
+      "requiredStates": [
+        "loading",
+        "ready",
+        "empty",
+        "offline",
+        "error",
+        "permission-denied"
+      ]
+    },
+    {
+      "name": "InvestigationTimeline",
+      "requiredStates": [
+        "loading",
+        "ready",
+        "empty",
+        "offline",
+        "error",
+        "permission-denied"
+      ]
+    },
+    {
+      "name": "ResourceUsagePanel",
+      "requiredStates": [
+        "loading",
+        "ready",
+        "empty",
+        "offline",
+        "error",
+        "permission-denied"
+      ]
+    },
+    {
+      "name": "PlatformCoverage",
+      "requiredStates": [
+        "loading",
+        "ready",
+        "empty",
+        "offline",
+        "error",
+        "permission-denied"
+      ]
+    },
+    {
+      "name": "PrivacyControl",
+      "requiredStates": [
+        "loading",
+        "ready",
+        "empty",
+        "offline",
+        "error",
+        "permission-denied"
+      ]
+    }
+  ],
+  "forbidden": [
+    "fakeMetrics",
+    "undisclosedScreenRecording",
+    "unverifiedThreatClaims",
+    "darkPatterns"
+  ]
+}

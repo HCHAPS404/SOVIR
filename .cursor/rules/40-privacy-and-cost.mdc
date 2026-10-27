@@ -1,0 +1,6 @@
+---
+description: Privacy and cost boundaries for storage, telemetry and vendor APIs
+globs: "services/**,crates/sovir-privacy/**,crates/sovir-adapters/**,infra/**"
+alwaysApply: false
+---
+Never log captures/messages/PII. Default external inference disabled and budget zero in local environment. Use server-side hard budgets, source-scoped consent, retention TTL and encryption for persisted private data. Verify provider mode/terms before enabling. Cost/energy effects documented in PR.

@@ -1,0 +1,6 @@
+---
+description: Native sensors, screen capture and permissions
+globs: "apps/android/**,apps/ios/**,apps/desktop/**,apps/extension/**"
+alwaysApply: false
+---
+Use OS-supported permissions and user-visible capture controls. No capture before consent, no bypass of secure windows or sandbox. Distinguish screen capture from internal app access. When platform limits access, show honest coverage. Minimize and redact sensitive data before serializing or transmitting. Test stop/revoke lifecycle and resource release.
