@@ -1,0 +1,11 @@
+{
+  "name": "sovir",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev:website": "pnpm --filter @sovir/website dev",
+    "dev:console": "pnpm --filter @sovir/console dev",
+    "test:ui": "pnpm --filter @sovir/ui-tests test",
+    "sovir": "node apps/cli/sovir.mjs"
+  }
+}

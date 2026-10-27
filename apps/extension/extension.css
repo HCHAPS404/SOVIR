@@ -1,0 +1,24 @@
+:root { color-scheme: light; --bg: #f4f0e6; --text: #1a1714; --muted: #5e584e; --border: #d8d0c3; }
+:root[data-theme="dark"] { color-scheme: dark; --bg: #141311; --text: #f4f0e6; --muted: #c4bbae; --border: #3c3832; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { color-scheme: dark; --bg: #141311; --text: #f4f0e6; --muted: #c4bbae; --border: #3c3832; }
+}
+body { margin: 0; font: 16px "Source Sans 3", "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+main { width: 360px; padding: 16px; }
+h1 { font-size: 1.3rem; font-weight: 500; margin: 0 0 8px; }
+p { margin: 0 0 12px; }
+button { font: inherit; background: var(--text); color: var(--bg); border: 0; border-radius: 2px; padding: 8px 10px; }
+.theme-switch { display: flex; gap: 6px; margin: 0 0 12px; }
+.theme-switch button { background: transparent; color: var(--text); border: 1px solid var(--border); padding: 4px 8px; font-size: 12px; }
+.theme-switch button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+.note { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+.brand-lockup { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+.brand-name { font-weight: 500; font-size: 14px; letter-spacing: 0.16em; line-height: 1; text-transform: uppercase; }
+.mark {
+  width: 28px;
+  height: 22px;
+  flex: none;
+  background: currentColor;
+  -webkit-mask: url("icons/sovir-symbol-white.png") center / contain no-repeat;
+  mask: url("icons/sovir-symbol-white.png") center / contain no-repeat;
+}

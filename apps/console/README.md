@@ -1,3 +1,3 @@
 # apps/console
 
-Status: NOT_IMPLEMENTED. Reserved by the SOVIR architecture charter. See repository README.md, AGENTS.md and active ADR/ticket before initializing. Do not claim production support or tests until this component is actually built and verified. No real personal data belongs in this folder.
+Demostración local en el puerto 3001, separada del sitio público. La sesión es una cookie HttpOnly de fixture sintético, no una cuenta real. No indexar.

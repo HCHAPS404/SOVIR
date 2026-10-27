@@ -1,116 +1,185 @@
 {
-  "schemaVersion": "0.1",
+  "schemaVersion": "0.2",
   "figma": {
-    "brandFileKey": null,
-    "productFileKey": null,
-    "status": "not-created",
+    "brandFileKey": "ugk030WRnYLejNPEj0kV0K",
+    "productFileKey": "ugk030WRnYLejNPEj0kV0K",
+    "fileUrl": "https://www.figma.com/design/ugk030WRnYLejNPEj0kV0K",
+    "status": "in-progress",
     "designApproval": "pending"
   },
   "screens": [
     {
       "id": "MarketingHome",
       "platform": "web-public",
-      "nodeId": null,
+      "route": "/",
+      "nodeId": "3:2",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "none",
+      "contract": null,
+      "states": ["ready", "error"]
     },
     {
       "id": "MarketingPlatforms",
       "platform": "web-public",
-      "nodeId": null,
+      "route": "/platforms",
+      "nodeId": "5:53",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "none",
+      "contract": null,
+      "states": ["ready"]
     },
     {
       "id": "AuthSignIn",
       "platform": "web-auth",
-      "nodeId": null,
+      "route": "/sign-in",
+      "nodeId": "6:68",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "none",
+      "contract": null,
+      "states": ["ready", "error"]
     },
     {
       "id": "ControlOverview",
       "platform": "web-app",
-      "nodeId": null,
+      "route": "/",
+      "nodeId": "3:30",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "session-demo",
+      "contract": "packages/contracts/schemas/observed-event.schema.json",
+      "states": ["loading", "empty", "permission-required", "limited-coverage", "degraded-offline", "success", "error", "revoked"]
     },
     {
       "id": "IncidentEvidence",
       "platform": "web-app",
-      "nodeId": null,
+      "route": "/incidents",
+      "nodeId": "6:126",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "session-demo",
+      "contract": "packages/contracts/schemas/observed-event.schema.json",
+      "states": ["loading", "empty", "risk-review", "error", "revoked"]
     },
     {
       "id": "ExtensionPopup",
       "platform": "browser",
-      "nodeId": null,
+      "route": "popup.html",
+      "nodeId": "10:3",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "optional-host",
+      "contract": null,
+      "states": ["ready", "permission-required", "revoked"]
     },
     {
       "id": "ExtensionPanel",
       "platform": "browser",
-      "nodeId": null,
+      "route": "sidepanel.html",
+      "nodeId": "10:12",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "optional-host",
+      "contract": null,
+      "states": ["ready", "empty", "error"]
     },
     {
       "id": "iOSOverview",
       "platform": "ios",
-      "nodeId": null,
+      "route": "apps/ios",
+      "nodeId": "13:65",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "screencapturekit-picker",
+      "contract": "apps/ios/screen-contracts.json",
+      "implementation": "NOT_IMPLEMENTED",
+      "states": ["empty", "permission-required", "limited-coverage"]
     },
     {
       "id": "iOSConsent",
       "platform": "ios",
-      "nodeId": null,
+      "route": "apps/ios",
+      "nodeId": "13:91",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "screencapturekit-picker",
+      "contract": "apps/ios/screen-contracts.json",
+      "implementation": "NOT_IMPLEMENTED",
+      "states": ["permission-required", "revoked"]
     },
     {
       "id": "AndroidOverview",
       "platform": "android",
-      "nodeId": null,
+      "route": "apps/android",
+      "nodeId": "13:13",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "mediaprojection-session",
+      "contract": "apps/android/screen-contracts.json",
+      "implementation": "NOT_IMPLEMENTED",
+      "states": ["empty", "permission-required", "limited-coverage"]
     },
     {
       "id": "AndroidCaptureConsent",
       "platform": "android",
-      "nodeId": null,
+      "route": "apps/android",
+      "nodeId": "13:39",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "mediaprojection-session",
+      "contract": "apps/android/screen-contracts.json",
+      "implementation": "NOT_IMPLEMENTED",
+      "states": ["permission-required", "revoked"]
     },
     {
       "id": "macOSOverview",
       "platform": "macos",
-      "nodeId": null,
+      "route": "apps/desktop/shell/index.html",
+      "nodeId": "13:117",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "screen-recording",
+      "contract": null,
+      "implementation": "shell-ui-only",
+      "states": ["permission-required", "limited-coverage"]
     },
     {
       "id": "WindowsOverview",
       "platform": "windows",
-      "nodeId": null,
+      "route": "apps/desktop/shell/index.html",
+      "nodeId": "13:140",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "graphics-capture",
+      "contract": null,
+      "implementation": "shell-ui-only",
+      "states": ["permission-required", "limited-coverage"]
     },
     {
       "id": "LinuxGNOMEOverview",
       "platform": "linux-gnome",
-      "nodeId": null,
+      "route": "apps/desktop/shell/index.html",
+      "nodeId": "13:163",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "xdg-portal-screencast",
+      "contract": null,
+      "implementation": "shell-ui-only",
+      "states": ["permission-required", "limited-coverage"]
     },
     {
       "id": "LinuxKDEOverview",
       "platform": "linux-kde",
-      "nodeId": null,
+      "route": "apps/desktop/shell/index.html",
+      "nodeId": "13:186",
       "approval": "pending",
-      "revision": null
+      "revision": null,
+      "permission": "xdg-portal-screencast",
+      "contract": null,
+      "implementation": "shell-ui-only",
+      "states": ["permission-required", "limited-coverage"]
     }
   ]
 }

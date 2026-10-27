@@ -1,0 +1,19 @@
+{
+  "name": "@sovir/ui-web",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./tokens.css": "./src/tokens.css",
+    "./patterns": "./src/patterns.tsx",
+    "./section": "./src/section.tsx",
+    "./theme": "./src/ThemeSwitch.tsx",
+    "./catalog.json": "./src/catalog.json"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.13",
+    "react": "^19.1.1"
+  }
+}

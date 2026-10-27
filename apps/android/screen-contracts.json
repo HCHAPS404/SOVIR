@@ -1,0 +1,17 @@
+{
+  "implementation": "NOT_IMPLEMENTED",
+  "toolchain": "Android SDK diferido",
+  "permission": "MediaProjection por sesión. El diálogo es el del sistema.",
+  "screens": [
+    {
+      "id": "AndroidOverview",
+      "states": ["empty", "permission-required", "limited-coverage", "revoked"],
+      "copy": "Sin captura. Vacío no significa protegido."
+    },
+    {
+      "id": "AndroidCaptureConsent",
+      "states": ["permission-required", "revoked"],
+      "copy": "La app explica el alcance. El permiso lo muestra Android."
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "status": "UMBRAL_FINAL",
+  "brandDecision": "DEFINED_BY_MAINTAINER",
+  "definedOn": "2026-10-27",
+  "note": "El responsable definió Umbral como identidad final del esqueleto. Claro es papel de lectura y oscuro es el instrumento. El bronce es marca y no tiñe peligro, aviso, éxito ni desconocido. brand-candidates.json guarda las tres rutas anteriores y no es la paleta en uso.",
+  "roles": ["bg", "surface", "text", "text-muted", "border", "brand", "focus", "success", "warning", "danger", "unknown"],
+  "independentOfBrand": ["success", "warning", "danger", "unknown"],
+  "typographyRoles": ["display", "title", "body", "label", "mono"],
+  "typography": {
+    "brand": "Outfit",
+    "display": "Newsreader",
+    "body": "Source Sans 3",
+    "mono": "IBM Plex Mono",
+    "license": "OFL",
+    "shippingApproval": "defined-for-skeleton"
+  },
+  "density": ["comfortable", "compact"],
+  "motion": ["standard", "reduced"],
+  "values": {
+    "light": {
+      "bg": "#F4F0E6",
+      "surface": "#FBF7F0",
+      "text": "#1A1714",
+      "text-muted": "#5E584E",
+      "border": "#D8D0C3",
+      "brand": "#7A5B3A",
+      "focus": "#1A1714",
+      "success": "#1A6840",
+      "warning": "#8A5610",
+      "danger": "#8C2E2A",
+      "unknown": "#4E5964"
+    },
+    "dark": {
+      "bg": "#141311",
+      "surface": "#1E1C19",
+      "text": "#F4F0E6",
+      "text-muted": "#C4BBAE",
+      "border": "#3C3832",
+      "brand": "#D4B48A",
+      "focus": "#F4F0E6",
+      "success": "#9ED4B6",
+      "warning": "#E7C48A",
+      "danger": "#F0B2AC",
+      "unknown": "#C5CED6"
+    }
+  }
+}

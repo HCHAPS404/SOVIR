@@ -24,6 +24,8 @@ node_modules/
 dist/
 build/
 coverage/
+tests/ui/test-results/
+tests/ui/playwright-report/
 
 # Apple / Android
 DerivedData/

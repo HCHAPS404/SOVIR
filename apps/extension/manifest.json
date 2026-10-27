@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "SOVIR",
+  "version": "0.1.0",
+  "description": "Estado local provisional. No lee sitios hasta que concedas un permiso opcional.",
+  "icons": {
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SOVIR",
+    "default_icon": "icons/icon-128.png"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "permissions": ["storage"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
