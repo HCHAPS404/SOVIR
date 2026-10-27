@@ -3,7 +3,7 @@
 # SOVIR — Digital Autonomy Intelligence
 
 > **Nombre de trabajo, pendiente de comprobación de marca.**  
-> **Estado:** especificación maestra de producto y arquitectura; no representa funcionalidades ya implementadas.  
+> **Estado:** especificación maestra, más un esqueleto local de frontend. No es una aplicación de protección en producción. Avance y fase siguiente: [§0.2](#02-avance-del-esqueleto-27-oct-2026).  
 > **Versión del documento:** 0.1.0 · **Fecha base:** 27 de octubre de 2026  
 > **Modalidades objetivo:** Personal · Plus · Enterprise / B2B2C  
 > **Ámbito:** Android · iOS · Windows · macOS · Linux · navegadores  
@@ -25,6 +25,20 @@ Las afirmaciones de este README pertenecen a uno de cuatro estados:
 - **RESTRICCIÓN VERIFICADA:** limitación de API o condiciones reportadas por documentación de proveedores, sujetas a versiones y políticas futuras.
 
 **Regla de veracidad:** ningún colaborador humano o agente debe declarar una función como «implementada», «compatible», «detectada» o «probada» sin código, evidencia y pruebas reproducibles. En particular, «multiplataforma» significa arquitectura preparada para diversas plataformas, no permisos universales de lectura de todas las apps.
+
+### 0.2 Avance del esqueleto (27 oct 2026)
+
+Hecho en local, en `feat/design-foundations-dx01`:
+
+- Identidad **Umbral** definida para el esqueleto: símbolo entregado por el responsable, paleta clara y oscura, nombre en Outfit, títulos en Newsreader, texto en Source Sans 3 y etiquetas en IBM Plex Mono. Peligro, aviso, éxito y desconocido no usan el color de marca.
+- Sitio público en `apps/website` y consola en `apps/console`, con registro y entrada simulados. No hay cuentas, precios publicados ni binarios.
+- Catálogo de 16 secciones y 9 estados de simulación, compartido por la consola, Android, iOS y el escritorio.
+- Extensión con popup, panel y opciones. No observa sitios hasta un permiso opcional.
+- Vistas de Android, iOS y escritorio. Su compilación y Tauri siguen en `NOT_IMPLEMENTED`.
+- Tema claro/oscuro en cada superficie. CLI: `pnpm sovir list`, `show`, `open`, `theme`, `status`.
+- Archivo Figma [SOVIR Umbral](https://www.figma.com/design/ugk030WRnYLejNPEj0kV0K). No hay un frame por cada sección y estado.
+
+La fase siguiente, pedida por el responsable, es el frente de la landing y la consola, el frente de la extensión, y la arquitectura backend-frontend de esas superficies para marcar hitos. El detalle está en [`docs/operations/NEXT_PHASE.md`](docs/operations/NEXT_PHASE.md). El pendiente por rama está en [`docs/operations/BRANCHES.md`](docs/operations/BRANCHES.md).
 
 ### 0.1 ADRs fundamentales
 
@@ -1497,11 +1511,11 @@ Las referencias de mercado (fraude, dark patterns, salud digital, créditos coac
 
 ## 28. Frontend Experience Architecture — Marca, Figma y expresiones nativas (nuevo)
 
-**DECISIÓN PROPUESTA; identidad pendiente de aprobación humana.** SOVIR tiene una marca y un núcleo técnico, pero **no** una UI clonada en todos los sistemas. La capa de presentación es un adaptador hexagonal: ningún componente React/SwiftUI/Compose decide la lógica de riesgo ni permisos reales del OS. Diseño y frontend tienen el mismo rigor que backend: diseño versionado, contratos, QA, accesibilidad, rendimiento y ownership.
+**Identidad Umbral definida para el esqueleto el 27 oct 2026.** SOVIR tiene una marca de esqueleto y un núcleo técnico, pero **no** una UI clonada en todos los sistemas. La capa de presentación es un adaptador hexagonal: ningún componente React/SwiftUI/Compose decide la lógica de riesgo ni permisos reales del OS. Diseño y frontend tienen el mismo rigor que backend: diseño versionado, contratos, QA, accesibilidad, rendimiento y ownership.
 
 **Superficies:** `apps/website` marketing público (`www`, landing, marca, plataformas, privacidad, precios sin inventar, descarga, enterprise, login); `apps/console` app web con autenticación (`app`); `apps/extension` popup/side panel/options; `apps/ios` SwiftUI; `apps/android` Compose; `apps/desktop` Tauri/React con expresiones y adaptadores Windows, macOS y Linux GNOME/KDE. Shell de escritorio compartido, patrones nativos diferenciados y feature flags por capacidades, jamás fingir permisos del sistema.
 
-**Sistema visual:** `Brand → Semantic Tokens → Platform Expressions → Feature Patterns → Screens`. Tres rutas exploratorias (Mineral, Cartográfica, Editorial) esperan votación humana de marca, paleta, logo, tipografía y voz. Tokens programáticos se congelan mediante ADR; colores de alertas no dependen de marca. Archivo Figma de biblioteca y otro de experiencias (o páginas equivalentes), con capas editables, variables, auto-layout, componentes, estados y prototipos. Conectar con Code Connect sólo si acceso/licencia lo habilita; como fallback, manifest de node IDs reales y mapeo manual.
+**Sistema visual:** `Brand → Semantic Tokens → Platform Expressions → Feature Patterns → Screens`. Umbral es la identidad en uso. Mineral, Cartográfica y Editorial quedan archivadas en `packages/design-system/tokens/brand-candidates.json`. Tokens programáticos se congelan mediante ADR; colores de alertas no dependen de marca. Archivo Figma de biblioteca y otro de experiencias (o páginas equivalentes), con capas editables, variables, auto-layout, componentes, estados y prototipos. Conectar con Code Connect sólo si acceso/licencia lo habilita; como fallback, manifest de node IDs reales y mapeo manual.
 
 **Trabajo multiagente:** humano aprueba marca y releases; ChatGPT desarrolla arquitectura y specs; Claude audita contratos/tokens; Cursor implementa UI por plataforma; Devin mantiene CI visual/accesibilidad; Figma es herramienta de composición/handoff. Ramas cortas por feature, no ramas permanentes `frontend` ni por OS. Cualquier pantalla requiere referencia y estado Figma, copy, pruebas de estados, a11y y evidencia visual.
 
@@ -1518,7 +1532,7 @@ Las referencias de mercado (fraude, dark patterns, salud digital, créditos coac
 - `design/figma/screen-manifest.json` y `packages/design-system/*` — fuentes de verdad pendientes de Figma y cierre de marca.
 - `scripts/design_harness.py` — validación de consistencia mínima de scaffold y tokens; no sustituye tests E2E.
 
-**Nota de Figma:** se comprobó que la cuenta conectada tiene múltiples teams y asiento `View`. No se ha creado un archivo ni se han generado node IDs de Figma: se requiere elegir equipo y verificar permisos de edición antes de construir allí. El kit técnico/design y planes están listos offline para llevarlos a Figma.
+**Nota de Figma:** el archivo editable es [SOVIR Umbral](https://www.figma.com/design/ugk030WRnYLejNPEj0kV0K), en el equipo personal de la cuenta conectada. Los node IDs reales están en `design/figma/screen-manifest.json` y `design/figma/HANDOFF.md`. Falta un frame por cada sección y estado.
 
 
 
