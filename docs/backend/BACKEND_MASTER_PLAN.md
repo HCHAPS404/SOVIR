@@ -135,3 +135,25 @@ No production database adapter, identity/OIDC, real platform watcher, private us
 real Meta/Baseten/Modal/Fireworks API integration, ML prediction, fraud detection accuracy,
 production-grade RLS/tenancy, telemetry SLAs, secure device capture, migrations runner,
 full audit/consent UX, key lifecycle, or end-to-end deployed service.
+
+
+## 14. Actualización de dominios de backend B1–B21 (2026-10-28)
+
+**Estado:** diseño organizativo confirmado como referencias Git, **no** implementación funcional. Esta ampliación precisa el mapa B0–B7 previo; no sustituye sus hitos técnicos ni cambia la arquitectura modular hexagonal.
+
+| Grupo | IDs | Responsabilidad principal | Restricción |
+|---|---|---|---|
+| Identidad, autorización y dispositivos | B8, B1, B9 | Principal autenticado, consentimiento granular, dispositivo y fuente | Revocación efectiva y aislamiento por identidad |
+| Observación y persistencia | B11, B10, B2 | Runtime local eficiente, ingestión validada y evidencia de procedencia | No capturas crudas ni secretos en logs predeterminados |
+| Memoria y análisis | B12, B13, B14 | Contexto temporal, detectores especializados y modelos predictivos evaluados | No inferencias clínicas, acusaciones sin corroboración o predicción no calibrada |
+| Decisión e intervención | B3, B15 | Políticas deterministas y acciones autorizadas | El LLM propone, las políticas gobiernan |
+| Investigación e IA | B4, B5, B18 | Proveedores, presupuestos, investigación e indicadores verificados | Privacidad, procedencia y límites de gastos por paso |
+| Datos y seguridad | B16, B17 | Minimización, retención, borrado, cifrado y claves | Garantías transversales, no etapa opcional |
+| Servicios y empresa | B6, B7, B19, B20 | Sincronización, monetización, tenant y APIs/SDKs | Acceso por necesidad y no compartición de conversaciones personales |
+| Plataforma operativa | B21 | CI/CD, persistencia, telemetría y recuperación | Métricas sin contenido de pantalla |
+
+Las 21 referencias remotas se listan con nombre exacto, ownership, prioridad y reglas de PR en [`docs/operations/BRANCHES.md`](../operations/BRANCHES.md). El registro de creación y sus límites están en [`docs/operations/BACKEND_BRANCH_CREATION_LOG_2026-10-28.md`](../operations/BACKEND_BRANCH_CREATION_LOG_2026-10-28.md).
+
+**Orden lógico de dependencias:** B8/B1/B9 + B16/B17 → B11/B10/B2 → B12/B13 → B3/B15, usando B4/B5 solo cuando haga falta; B14/B18/B6/B7/B19/B20 se integran sobre contratos maduros. B21 se desarrolla transversalmente. Las ramas no deben llevar cambios de contrato incompatibles sin ADR y revisión.
+
+**Regla de transición:** `main` aún debe incorporar mediante PR la fundación `84ebf5581538c68d515e34e2e1493cd4f496c53d`. No empezar cambios divergentes sin resolver ese merge base. Mantener las ramas cortas; los IDs son dominios, no microservicios.
