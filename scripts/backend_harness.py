@@ -12,7 +12,8 @@ EXPECTED = [
  'crates/sovir-application/src/lib.rs','crates/sovir-adapters/src/lib.rs',
  'crates/sovir-inference/src/lib.rs','services/api/src/main.rs',
  'packages/contracts/openapi/backend-dev.v0.yaml',
- 'infra/postgres/migrations/0001_initial.sql',
+ 'infra/postgres/migrations/0001_initial.up.sql',
+ 'infra/postgres/migrations/0001_initial.down.sql',
  'docs/backend/BACKEND_MASTER_PLAN.md'
 ]
 def main():

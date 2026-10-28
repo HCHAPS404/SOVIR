@@ -111,6 +111,21 @@ def synthetic_cases_checks() -> None:
         check(case.get("data_policy") == "synthetic-only", f"synthetic_cases: {cid} is synthetic-only")
 
 
+MIGRATIONS_DIR = ROOT / "infra/postgres/migrations"
+
+
+def migration_checks() -> None:
+    ups = {p.stem[:-3]: p for p in MIGRATIONS_DIR.glob("*.up.sql")}
+    downs = {p.stem[:-5]: p for p in MIGRATIONS_DIR.glob("*.down.sql")}
+    check(len(ups) > 0, f"migrations: {len(ups)} up migration(s) present")
+    for base in sorted(ups):
+        check(base in downs, f"migrations: {base} has a matching .down.sql (reversible)")
+        up_sql = ups[base].read_text(encoding="utf-8")
+        check(len(up_sql.strip()) > 0, f"migrations: {base}.up.sql is non-empty")
+        down_sql = downs[base].read_text(encoding="utf-8") if base in downs else ""
+        check(len(down_sql.strip()) > 0, f"migrations: {base}.down.sql is non-empty")
+
+
 def self_test(validator: Draft202012Validator) -> None:
     valid = json.loads((FIXTURE_DIR / "observation.synthetic.json").read_text(encoding="utf-8"))
     variants = {
@@ -133,6 +148,7 @@ def main() -> int:
     validator = schema_checks()
     fixture_checks(validator)
     synthetic_cases_checks()
+    migration_checks()
     if args.self_test:
         self_test(validator)
 
