@@ -206,6 +206,71 @@ pub struct EventDecision {
     pub protected_action_executed: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InterventionKind {
+    /// Ambient notification; no blocking.
+    Notify,
+    /// Prominent warning surface; still no enforced action by itself.
+    WarnBanner,
+    /// The event requires explicit human review before any later action.
+    RequireReview,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryState {
+    Pending,
+    Delivered,
+    Failed,
+    Expired,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeliveryAuditEntry {
+    pub at_ms: u64,
+    pub from: DeliveryState,
+    pub to: DeliveryState,
+    pub detail: String,
+}
+
+/// One delivery attempt chain for a policy-produced intervention.
+/// `attempts`/`next_attempt_at_ms` are managed by the application layer's
+/// retry policy; the audit trail records every state transition.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Intervention {
+    pub intervention_id: String,
+    pub event_id: String,
+    pub principal_id: String,
+    pub device_id: String,
+    pub kind: InterventionKind,
+    pub state: DeliveryState,
+    pub attempts: u32,
+    pub created_at_ms: u64,
+    pub next_attempt_at_ms: u64,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    #[serde(default)]
+    pub audit: Vec<DeliveryAuditEntry>,
+}
+
+/// Deterministic policy: which intervention (if any) a decision produces.
+/// `Observe` produces nothing — there is no automated block path.
+pub fn intervention_for(decision: &EventDecision) -> Option<InterventionKind> {
+    match decision.assessment.decision {
+        DecisionKind::Warn => Some(InterventionKind::WarnBanner),
+        DecisionKind::Review => Some(InterventionKind::RequireReview),
+        DecisionKind::Observe => None,
+    }
+}
+
+/// Retry policy: 1s, 2s, 4s, ... capped at 60s. Dev-scale, deterministic.
+pub fn next_attempt_ms(attempts: u32, now_ms: u64) -> u64 {
+    let delay = 1_000u64.saturating_mul(1u64 << attempts.min(6));
+    now_ms.saturating_add(delay.min(60_000))
+}
+pub const MAX_DELIVERY_ATTEMPTS: u32 = 4;
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum DomainError {
     #[error("invalid identifier or digest")]

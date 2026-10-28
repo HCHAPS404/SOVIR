@@ -1,11 +1,12 @@
 use sovir_adapters::{
     DeterministicRiskAnalyzer, InMemoryConsentRepository, InMemoryDeviceRegistry,
-    InMemoryEventRepository, InMemorySessionStore,
+    InMemoryEventRepository, InMemoryInterventionSink, InMemorySessionStore,
+    RecordingDeliveryChannel,
 };
-use sovir_application::{AppError, SovirService};
+use sovir_application::{AppError, ServicePorts, SovirService};
 use sovir_domain::{
-    ConsentGrant, DomainError, Modality, ObservedEvent, Platform, Principal, RiskLevel, RiskSignal,
-    Scope, SensitiveDataClass,
+    ConsentGrant, DeliveryState, DomainError, InterventionKind, Modality, ObservedEvent, Platform,
+    Principal, RiskLevel, RiskSignal, Scope, SensitiveDataClass,
 };
 use sovir_ports::Clock;
 use std::sync::Arc;
@@ -18,11 +19,15 @@ impl Clock for FixedClock {
 fn service() -> SovirService {
     SovirService::new(
         Arc::new(FixedClock),
-        Arc::new(InMemoryConsentRepository::default()),
-        Arc::new(InMemoryEventRepository::default()),
-        Arc::new(DeterministicRiskAnalyzer),
-        Arc::new(InMemorySessionStore::default()),
-        Arc::new(InMemoryDeviceRegistry::default()),
+        ServicePorts {
+            grants: Arc::new(InMemoryConsentRepository::default()),
+            events: Arc::new(InMemoryEventRepository::default()),
+            risk: Arc::new(DeterministicRiskAnalyzer),
+            sessions: Arc::new(InMemorySessionStore::default()),
+            devices: Arc::new(InMemoryDeviceRegistry::default()),
+            sink: Arc::new(InMemoryInterventionSink::default()),
+            channel: Arc::new(RecordingDeliveryChannel::default()),
+        },
     )
 }
 fn principal(id: &str) -> Principal {
@@ -149,4 +154,36 @@ fn dev_session_lifecycle_and_device_revocation_fail_closed() {
         service.issue_dev_session("p-1", "dev-device"),
         Err(AppError::DeviceRevoked)
     ));
+}
+#[test]
+fn warn_decision_enqueues_intervention_and_dispatch_delivers() {
+    let service = service();
+    let p = principal("p-1");
+    service.grant(&p, grant()).unwrap();
+    let decision = service.ingest(&p, event()).unwrap();
+    assert_eq!(
+        decision.assessment.decision,
+        sovir_domain::DecisionKind::Warn
+    );
+    let pending = service.list_interventions(&p).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].kind, InterventionKind::WarnBanner);
+    assert_eq!(pending[0].state, DeliveryState::Pending);
+    assert_eq!(service.dispatch_due(&p).unwrap(), 1);
+    let done = service.list_interventions(&p).unwrap();
+    assert_eq!(done[0].state, DeliveryState::Delivered);
+    assert_eq!(done[0].attempts, 1);
+    assert_eq!(done[0].audit.len(), 1);
+    // Nothing left due.
+    assert_eq!(service.dispatch_due(&p).unwrap(), 0);
+}
+#[test]
+fn observe_decision_enqueues_nothing() {
+    let service = service();
+    let p = principal("p-1");
+    service.grant(&p, grant()).unwrap();
+    let mut e = event();
+    e.signals = vec![];
+    service.ingest(&p, e).unwrap();
+    assert!(service.list_interventions(&p).unwrap().is_empty());
 }
