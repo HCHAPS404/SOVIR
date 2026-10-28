@@ -1,7 +1,7 @@
 :root { color-scheme: light; --bg: #f4f0e6; --text: #1a1714; --muted: #5e584e; --border: #d8d0c3; }
-:root[data-theme="dark"] { color-scheme: dark; --bg: #141311; --text: #f4f0e6; --muted: #c4bbae; --border: #3c3832; }
+:root[data-theme="dark"] { color-scheme: dark; --bg: #000000; --text: #f4f0e6; --muted: #c4bbae; --border: #3c3832; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { color-scheme: dark; --bg: #141311; --text: #f4f0e6; --muted: #c4bbae; --border: #3c3832; }
+  :root:not([data-theme="light"]) { color-scheme: dark; --bg: #000000; --text: #f4f0e6; --muted: #c4bbae; --border: #3c3832; }
 }
 body { margin: 0; font: 16px "Source Sans 3", "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
 main { width: 360px; padding: 16px; }

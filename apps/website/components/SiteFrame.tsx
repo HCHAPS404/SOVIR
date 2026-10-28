@@ -1,48 +1,59 @@
-import { ThemeSwitch } from "@sovir/ui-web/theme";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { nav, type PageCopy } from "../lib/content";
+import { footerColumns, type PageCopy } from "../lib/content";
+import { Masthead } from "./SiteMenu";
 
 export function SiteFrame({
   current,
+  landing = false,
   children,
 }: {
   current: string;
+  landing?: boolean;
   children: ReactNode;
 }) {
   return (
-    <>
+    <div className={landing ? "site is-landing" : "site"}>
       <a className="skip" href="#contenido">
         Saltar al contenido
       </a>
-      <p className="banner">Umbral. Sin métricas de producto.</p>
-      <header className="topbar">
-        <Link className="brand-lockup" href="/">
-          <span className="mark" aria-hidden="true" />
-          <span className="brand-name">SOVIR</span>
-        </Link>
-        <nav className="nav" aria-label="Secciones">
-          {nav.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={item.href === current ? "page" : undefined}
-            >
-              {item.label}
-            </Link>
-          ))}
-          <Link href="/sign-in">Entrar</Link>
-          <Link href="/registro">Registro</Link>
-        </nav>
-        <ThemeSwitch />
-      </header>
+      <Masthead current={current} />
       <main id="contenido" className="content">
         {children}
       </main>
       <footer className="footer">
-        <p>Nombre de trabajo. La consola está en otro origen y no se indexa desde aquí.</p>
+        <div className="footer-grid">
+          {footerColumns.map((column) => (
+            <nav key={column.heading} aria-label={column.heading}>
+              <p className="kicker">{column.heading}</p>
+              <ul>
+                {column.links.map((link) => (
+                  <li key={link.href}>
+                    {link.external ? (
+                      <a href={link.href}>{link.label}</a>
+                    ) : (
+                      <Link href={link.href} aria-current={link.href === current ? "page" : undefined}>
+                        {link.label}
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ))}
+        </div>
+        <div className="footer-figure">
+          <img src="/brand/footer-wave.webp" alt="" width={5120} height={1869} />
+          <div className="footer-end">
+            <Link className="brand-lockup" href="/">
+              <span className="mark" aria-hidden="true" />
+              <span className="brand-name">SOVIR</span>
+            </Link>
+            <span className="footer-year">Sovir 2026</span>
+          </div>
+        </div>
       </footer>
-    </>
+    </div>
   );
 }
 

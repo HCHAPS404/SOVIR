@@ -27,7 +27,7 @@ Contraste medido texto/fondo, WCAG 2.2 AA, todos por encima de 4.5:1.
 
 | Rol | Claro | Oscuro | Uso |
 |---|---|---|---|
-| Fondo | `#F4F0E6` | `#141311` | Página |
+| Fondo | `#F4F0E6` | `#000000` | Página |
 | Superficie | `#FBF7F0` | `#1E1C19` | Un escalón, sin sombra |
 | Texto | `#1A1714` | `#F4F0E6` | Cuerpo y títulos |
 | Texto secundario | `#5E584E` | `#C4BBAE` | Notas, 4.5:1 |

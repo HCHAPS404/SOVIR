@@ -31,7 +31,7 @@
       "unknown": "#4E5964"
     },
     "dark": {
-      "bg": "#141311",
+      "bg": "#000000",
       "surface": "#1E1C19",
       "text": "#F4F0E6",
       "text-muted": "#C4BBAE",

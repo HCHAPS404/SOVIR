@@ -7,7 +7,8 @@ Pantallas con node ID real:
 | Pantalla | Nodo |
 |---|---|
 | Fundamentos | `2:44` |
-| Inicio | `3:2` |
+| Inicio anterior | `3:2` |
+| Inicio portada, fondo negro y pie actual | `24:2` |
 | Producto | `5:3` |
 | Cómo funciona | `5:28` |
 | Plataformas | `5:53` |

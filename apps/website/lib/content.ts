@@ -129,3 +129,170 @@ export const nav = [
   pages.research,
   { href: "/download", label: "Descarga", title: "Descarga", lede: "", sections: [] },
 ];
+
+export type SiteLink = { href: string; label: string; note: string };
+
+export type SiteEntry =
+  | { kind: "menu"; id: string; label: string; columns: { heading: string; items: SiteLink[] }[] }
+  | { kind: "link"; href: string; label: string };
+
+export const siteNav: SiteEntry[] = [
+  {
+    kind: "menu",
+    id: "producto",
+    label: "Producto",
+    columns: [
+      {
+        heading: "Sistema",
+        items: [
+          { href: "/product", label: "Producto", note: "Qué puede observar, y qué no" },
+          { href: "/how-it-works", label: "Cómo funciona", note: "Primero en el dispositivo" },
+        ],
+      },
+      {
+        heading: "Cobertura",
+        items: [
+          { href: "/platforms", label: "Plataformas", note: "Cobertura por sistema" },
+          { href: "/download", label: "Descarga", note: "No hay binarios publicados" },
+        ],
+      },
+    ],
+  },
+  {
+    kind: "menu",
+    id: "documentacion",
+    label: "Documentación",
+    columns: [
+      {
+        heading: "Guía de uso",
+        items: [
+          { href: "/docs", label: "Guía", note: "Cómo moverse por este sitio" },
+          { href: "/docs/privacidad", label: "Privacidad de uso", note: "Qué recuerda este navegador" },
+          { href: "/docs/investigacion", label: "Cómo leer", note: "Hecho, hipótesis y desconocido" },
+          { href: "/docs/diseno", label: "Interfaz", note: "Claro, oscuro y la acción principal" },
+        ],
+      },
+      {
+        heading: "Criterio",
+        items: [
+          { href: "/security", label: "Seguridad", note: "El agente también es una superficie de ataque" },
+          { href: "/privacy", label: "Privacidad", note: "Cuatro permisos distintos" },
+          { href: "/trust", label: "Confianza", note: "Hecho, hipótesis y desconocido" },
+          { href: "/research", label: "Investigación", note: "Método antes que cifras" },
+        ],
+      },
+    ],
+  },
+  { kind: "link", href: "/enterprise", label: "Organizaciones" },
+  { kind: "link", href: "/pricing", label: "Precios" },
+];
+
+export const landingStages = [
+  {
+    index: "01",
+    title: "Dispositivo",
+    body: "El filtro previsto ocurre en el aparato. Observar exige permiso del sistema y otro permiso, revocable, dentro de la aplicación.",
+    href: "/product",
+    label: "Producto",
+  },
+  {
+    index: "02",
+    title: "Política",
+    body: "Autoriza, se abstiene o pide una decisión. Una instrucción escrita en la pantalla no gobierna la política interna.",
+    href: "/how-it-works",
+    label: "Cómo funciona",
+  },
+  {
+    index: "03",
+    title: "Remoto",
+    body: "Salir del dispositivo es excepcional, con presupuesto y contexto minimizado. Esta demostración no llama a proveedores: el costo remoto es cero.",
+    href: "/security",
+    label: "Seguridad",
+  },
+];
+
+export const landingPortal = [
+  { href: "/product", label: "Producto", note: "Qué puede observar, y qué no" },
+  { href: "/how-it-works", label: "Cómo funciona", note: "Primero en el dispositivo" },
+  { href: "/platforms", label: "Plataformas", note: "Cobertura por sistema" },
+  { href: "/download", label: "Descarga", note: "No hay binarios publicados" },
+  { href: "/security", label: "Seguridad", note: "El agente también es una superficie de ataque" },
+  { href: "/privacy", label: "Privacidad", note: "Cuatro permisos distintos" },
+  { href: "/trust", label: "Confianza", note: "Hecho, hipótesis y desconocido" },
+  { href: "/research", label: "Investigación", note: "Método antes que cifras" },
+  { href: "/enterprise", label: "Organizaciones", note: "Agregados, no vigilancia de personas" },
+  { href: "/pricing", label: "Precios", note: "No hay precios publicados" },
+];
+
+export const landingReadings = [
+  {
+    title: "Hecho",
+    body: "Lo observado, dicho con su origen.",
+    href: "/trust",
+  },
+  {
+    title: "Hipótesis",
+    body: "Lo inferido. No es una medición.",
+    href: "/trust",
+  },
+  {
+    title: "Desconocido",
+    body: "Lo que no se pudo comprobar.",
+    href: "/trust",
+  },
+];
+
+export const footerColumns: { heading: string; links: { href: string; label: string; external?: boolean }[] }[] = [
+  {
+    heading: "Sistema",
+    links: [
+      { href: "/product", label: "Producto" },
+      { href: "/how-it-works", label: "Cómo funciona" },
+      { href: "/platforms", label: "Plataformas" },
+      { href: "/download", label: "Descarga" },
+    ],
+  },
+  {
+    heading: "Límites",
+    links: [
+      { href: "/security", label: "Seguridad" },
+      { href: "/privacy", label: "Privacidad" },
+    ],
+  },
+  {
+    heading: "Criterio",
+    links: [
+      { href: "/trust", label: "Confianza" },
+      { href: "/research", label: "Investigación" },
+    ],
+  },
+  {
+    heading: "Uso",
+    links: [
+      { href: "/enterprise", label: "Organizaciones" },
+      { href: "/pricing", label: "Precios" },
+      { href: "/sign-in", label: "Entrar" },
+      { href: "/registro", label: "Registro" },
+    ],
+  },
+  {
+    heading: "Documentación",
+    links: [
+      { href: "/docs", label: "Guía" },
+      { href: "/docs/privacidad", label: "Privacidad" },
+      { href: "/docs/investigacion", label: "Investigación" },
+      { href: "/docs/diseno", label: "Diseño" },
+    ],
+  },
+  {
+    heading: "Redes",
+    links: [
+      { href: "https://www.instagram.com/sovir", label: "Instagram", external: true },
+      { href: "https://www.facebook.com/sovir", label: "Facebook", external: true },
+      { href: "https://www.tiktok.com/@sovir", label: "TikTok", external: true },
+      { href: "https://x.com/sovir", label: "X", external: true },
+      { href: "https://www.youtube.com/@sovir", label: "YouTube", external: true },
+      { href: "https://github.com/HCHAPS404/SOVIR", label: "GitHub", external: true },
+    ],
+  },
+];

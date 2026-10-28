@@ -8,11 +8,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/platforms",
     "/security",
     "/privacy",
+    "/terminos",
     "/trust",
     "/enterprise",
     "/pricing",
     "/research",
     "/download",
+    "/docs",
+    "/docs/privacidad",
+    "/docs/investigacion",
+    "/docs/diseno",
   ];
   return paths.map((path) => ({
     url: `http://127.0.0.1:3000${path || "/"}`,
