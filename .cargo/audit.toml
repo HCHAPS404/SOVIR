@@ -1,0 +1,10 @@
+# cargo-audit configuration for SOVIR.
+[advisories]
+# RUSTSEC-2023-0071 (rsa Marvin Attack): `rsa` is locked only as an OPTIONAL,
+# never-enabled dependency of `sqlx` (we enable `postgres` only — no `mysql`
+# feature anywhere in the workspace; `cargo tree -i rsa` is empty). It is
+# never compiled into any SOVIR binary, and the timing side-channel requires
+# an RSA decryption oracle we do not have. Ignore until sqlx drops the dep.
+ignore = [
+    "RUSTSEC-2023-0071",
+]
