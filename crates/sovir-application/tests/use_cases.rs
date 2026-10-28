@@ -1,7 +1,8 @@
 use sovir_adapters::{
-    DeterministicRiskAnalyzer, InMemoryConsentRepository, InMemoryDeviceRegistry,
-    InMemoryEventRepository, InMemoryInterventionSink, InMemorySessionStore,
-    RecordingDeliveryChannel,
+    CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryConsentRepository,
+    InMemoryDeviceRegistry, InMemoryEventRepository, InMemoryInterventionSink,
+    InMemorySessionStore, InMemoryWebhookRegistry, RecordingDeliveryChannel, RecordingHttpEgress,
+    WebhookChannel,
 };
 use sovir_application::{AppError, ServicePorts, SovirService};
 use sovir_domain::{
@@ -27,6 +28,7 @@ fn service() -> SovirService {
             devices: Arc::new(InMemoryDeviceRegistry::default()),
             sink: Arc::new(InMemoryInterventionSink::default()),
             channel: Arc::new(RecordingDeliveryChannel::default()),
+            webhooks: Arc::new(InMemoryWebhookRegistry::default()),
         },
     )
 }
@@ -229,4 +231,72 @@ fn revoking_device_expires_its_pending_interventions() {
     let after = service.list_interventions(&p).unwrap();
     assert_eq!(after[0].state, DeliveryState::Expired);
     assert_eq!(after[0].audit.last().unwrap().detail, "device revoked");
+}
+#[test]
+fn webhook_delivery_signs_and_honors_allowlist_and_revocation() {
+    let registry = Arc::new(InMemoryWebhookRegistry::default());
+    let egress = Arc::new(RecordingHttpEgress::default());
+    let service = SovirService::new(
+        Arc::new(FixedClock),
+        ServicePorts {
+            grants: Arc::new(InMemoryConsentRepository::default()),
+            events: Arc::new(InMemoryEventRepository::default()),
+            risk: Arc::new(DeterministicRiskAnalyzer),
+            sessions: Arc::new(InMemorySessionStore::default()),
+            devices: Arc::new(InMemoryDeviceRegistry::default()),
+            sink: Arc::new(InMemoryInterventionSink::default()),
+            channel: Arc::new(CompositeDeliveryChannel(vec![
+                Arc::new(RecordingDeliveryChannel::default()),
+                Arc::new(WebhookChannel::new(registry.clone(), egress.clone())),
+            ])),
+            webhooks: registry,
+        },
+    );
+    let p = principal("p-1");
+    let allow = vec!["127.0.0.1".to_string(), "localhost".to_string()];
+    // SSRF guard: external host rejected.
+    assert!(service
+        .register_webhook(
+            &p,
+            "https://evil.example.com/hook",
+            vec![InterventionKind::WarnBanner],
+            &allow
+        )
+        .is_err());
+    let ep = service
+        .register_webhook(
+            &p,
+            "http://127.0.0.1:9999/hook",
+            vec![InterventionKind::WarnBanner],
+            &allow,
+        )
+        .unwrap();
+    service.grant(&p, grant()).unwrap();
+    service.ingest(&p, event()).unwrap(); // warn -> intervention
+    assert_eq!(service.dispatch_due(&p).unwrap(), 1);
+    let sent = egress.0.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].url, "http://127.0.0.1:9999/hook");
+    let expected = format!("sha256={}", WebhookChannel::sign(&ep.secret, &sent[0].body));
+    assert!(sent[0]
+        .headers
+        .iter()
+        .any(|(k, v)| k == "x-sovir-signature" && *v == expected));
+    drop(sent);
+    // Revoked endpoint receives nothing on the next intervention.
+    service.revoke_webhook(&p, &ep.endpoint_id).unwrap();
+    service.revoke(&p, "grant-1").unwrap();
+    service
+        .grant(&p, {
+            let mut g = grant();
+            g.grant_id = "grant-2".into();
+            g
+        })
+        .unwrap();
+    let mut e2 = event();
+    e2.event_id = "event-2".into();
+    e2.consent_grant_id = "grant-2".into();
+    service.ingest(&p, e2).unwrap();
+    service.dispatch_due(&p).unwrap();
+    assert_eq!(egress.0.lock().unwrap().len(), 1);
 }

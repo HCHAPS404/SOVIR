@@ -1,13 +1,13 @@
 //! Use cases and orchestrated policy checks. No Axum, SQL or model SDK dependencies.
 use sovir_domain::{
     intervention_for, next_attempt_ms, valid_identifier, validate_consent, validate_device,
-    validate_event, ConsentGrant, DeliveryAuditEntry, DeliveryState, Device, DomainError,
-    EventDecision, Intervention, ObservedEvent, Platform, Principal, Scope, Session,
-    MAX_DELIVERY_ATTEMPTS,
+    validate_event, validate_url_for_egress, ConsentGrant, DeliveryAuditEntry, DeliveryState,
+    Device, DomainError, EventDecision, Intervention, ObservedEvent, Platform, Principal, Scope,
+    Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
 };
 use sovir_ports::{
     Clock, ConsentRepository, DeliveryChannel, DeviceRegistry, EventRepository, InterventionSink,
-    PortError, RiskAnalyzer, SessionStore,
+    PortError, RiskAnalyzer, SessionStore, WebhookRegistry,
 };
 use std::sync::Arc;
 use thiserror::Error;
@@ -62,6 +62,7 @@ pub struct ServicePorts {
     pub devices: Arc<dyn DeviceRegistry>,
     pub sink: Arc<dyn InterventionSink>,
     pub channel: Arc<dyn DeliveryChannel>,
+    pub webhooks: Arc<dyn WebhookRegistry>,
 }
 
 #[derive(Clone)]
@@ -74,6 +75,7 @@ pub struct SovirService {
     devices: Arc<dyn DeviceRegistry>,
     sink: Arc<dyn InterventionSink>,
     channel: Arc<dyn DeliveryChannel>,
+    webhooks: Arc<dyn WebhookRegistry>,
 }
 impl SovirService {
     pub fn new(clock: Arc<dyn Clock>, ports: ServicePorts) -> Self {
@@ -86,6 +88,7 @@ impl SovirService {
             devices: ports.devices,
             sink: ports.sink,
             channel: ports.channel,
+            webhooks: ports.webhooks,
         }
     }
 
@@ -304,6 +307,45 @@ impl SovirService {
 
     pub fn list_interventions(&self, principal: &Principal) -> Result<Vec<Intervention>, AppError> {
         Ok(self.sink.list(&principal.principal_id)?)
+    }
+
+    /// Registers an outbound webhook endpoint (B20). The URL must pass the
+    /// egress allowlist; the secret is generated, returned once and stored
+    /// with the endpoint (dev-grade; production must use managed secrets).
+    pub fn register_webhook(
+        &self,
+        principal: &Principal,
+        url: &str,
+        kinds: Vec<sovir_domain::InterventionKind>,
+        allowed_hosts: &[String],
+    ) -> Result<WebhookEndpoint, AppError> {
+        if kinds.is_empty() {
+            return Err(AppError::InvalidRequest);
+        }
+        validate_url_for_egress(url, allowed_hosts)?;
+        let ep = WebhookEndpoint {
+            endpoint_id: self.dev_token("wh", &[]),
+            principal_id: principal.principal_id.clone(),
+            url: url.to_string(),
+            secret: uuid::Uuid::new_v4().simple().to_string(),
+            kinds,
+            created_at_ms: self.clock.now_ms(),
+            revoked_at_ms: None,
+        };
+        self.webhooks.register(ep.clone())?;
+        Ok(ep)
+    }
+    pub fn list_webhooks(&self, principal: &Principal) -> Result<Vec<WebhookEndpoint>, AppError> {
+        Ok(self.webhooks.list(&principal.principal_id)?)
+    }
+    pub fn revoke_webhook(
+        &self,
+        principal: &Principal,
+        endpoint_id: &str,
+    ) -> Result<bool, AppError> {
+        Ok(self
+            .webhooks
+            .revoke(&principal.principal_id, endpoint_id, self.clock.now_ms())?)
     }
 
     /// Data governance (B16): everything stored for a principal — metadata

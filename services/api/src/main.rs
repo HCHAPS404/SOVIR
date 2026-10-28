@@ -7,14 +7,15 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sovir_adapters::{
-    DeterministicRiskAnalyzer, InMemoryConsentRepository, InMemoryDeviceRegistry,
-    InMemoryEventRepository, InMemoryInterventionSink, InMemorySessionStore,
-    RecordingDeliveryChannel, SystemClock,
+    CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryConsentRepository,
+    InMemoryDeviceRegistry, InMemoryEventRepository, InMemoryInterventionSink,
+    InMemorySessionStore, InMemoryWebhookRegistry, RecordingDeliveryChannel, RecordingHttpEgress,
+    SystemClock, WebhookChannel,
 };
 use sovir_application::{AppError, PrincipalDataExport, PurgeReport, ServicePorts, SovirService};
 use sovir_domain::{
-    ConsentGrant, Device, DomainError, EventDecision, Intervention, ObservedEvent, Platform,
-    Principal, Session,
+    ConsentGrant, Device, DomainError, EventDecision, Intervention, InterventionKind,
+    ObservedEvent, Platform, Principal, Session, WebhookEndpoint,
 };
 use sovir_persistence::PgStore;
 use sovir_ports::PortError;
@@ -47,6 +48,8 @@ struct AppState {
     /// response). In-memory only; durable dedup is the EventRepository's job
     /// (event_id uniqueness) plus a future idempotency table.
     idem: std::sync::Arc<Mutex<HashMap<String, (u64, serde_json::Value)>>>,
+    /// Webhook egress allowlist (SSRF guard) for endpoint registration.
+    webhook_allowlist: Vec<String>,
 }
 #[derive(Serialize)]
 struct ApiMessage {
@@ -177,6 +180,10 @@ async fn compose_service(database_url: Option<&str>) -> (SovirService, Option<Pg
         let pg = PgStore::connect(url)
             .await
             .expect("DATABASE_URL is set but Postgres is unreachable; refusing to start");
+        // Webhook registry/egress stay in-memory in dev even with durable
+        // storage (no webhook table yet — see ADR-0007 scope).
+        let registry = std::sync::Arc::new(InMemoryWebhookRegistry::default());
+        let egress = std::sync::Arc::new(RecordingHttpEgress::default());
         let service = SovirService::new(
             Arc::new(SystemClock),
             ServicePorts {
@@ -186,25 +193,55 @@ async fn compose_service(database_url: Option<&str>) -> (SovirService, Option<Pg
                 sessions: Arc::new(pg.clone()),
                 devices: Arc::new(pg.clone()),
                 sink: Arc::new(pg.clone()),
-                channel: Arc::new(RecordingDeliveryChannel::default()),
+                channel: Arc::new(CompositeDeliveryChannel(vec![
+                    Arc::new(RecordingDeliveryChannel::default()),
+                    Arc::new(WebhookChannel::new(registry.clone(), egress.clone())),
+                ])),
+                webhooks: registry,
             },
         );
         return (service, Some(pg));
     }
-    (dev_service(), None)
+    let registry = std::sync::Arc::new(InMemoryWebhookRegistry::default());
+    let egress = std::sync::Arc::new(RecordingHttpEgress::default());
+    (dev_service_with(Some((registry, egress))).0, None)
 }
-fn dev_service() -> SovirService {
-    SovirService::new(
-        Arc::new(SystemClock),
-        ServicePorts {
-            grants: Arc::new(InMemoryConsentRepository::default()),
-            events: Arc::new(InMemoryEventRepository::default()),
-            risk: Arc::new(DeterministicRiskAnalyzer),
-            sessions: Arc::new(InMemorySessionStore::default()),
-            devices: Arc::new(InMemoryDeviceRegistry::default()),
-            sink: Arc::new(InMemoryInterventionSink::default()),
-            channel: Arc::new(RecordingDeliveryChannel::default()),
-        },
+/// Builds the service; when a registry/egress pair is supplied the delivery
+/// channel fans out to the recording channel AND signed webhook egress.
+fn dev_service_with(
+    webhooks: Option<(
+        std::sync::Arc<InMemoryWebhookRegistry>,
+        std::sync::Arc<RecordingHttpEgress>,
+    )>,
+) -> (
+    SovirService,
+    Option<std::sync::Arc<InMemoryWebhookRegistry>>,
+) {
+    let registry = webhooks.as_ref().map(|(r, _)| r.clone());
+    let channel: Arc<dyn sovir_ports::DeliveryChannel> = match webhooks {
+        Some((r, e)) => Arc::new(CompositeDeliveryChannel(vec![
+            Arc::new(RecordingDeliveryChannel::default()),
+            Arc::new(WebhookChannel::new(r, e)),
+        ])),
+        None => Arc::new(RecordingDeliveryChannel::default()),
+    };
+    (
+        SovirService::new(
+            Arc::new(SystemClock),
+            ServicePorts {
+                grants: Arc::new(InMemoryConsentRepository::default()),
+                events: Arc::new(InMemoryEventRepository::default()),
+                risk: Arc::new(DeterministicRiskAnalyzer),
+                sessions: Arc::new(InMemorySessionStore::default()),
+                devices: Arc::new(InMemoryDeviceRegistry::default()),
+                sink: Arc::new(InMemoryInterventionSink::default()),
+                channel,
+                webhooks: registry
+                    .clone()
+                    .unwrap_or_else(|| Arc::new(InMemoryWebhookRegistry::default())),
+            },
+        ),
+        registry,
     )
 }
 async fn live() -> Json<ApiMessage> {
@@ -437,6 +474,49 @@ async fn dispatch(
     Ok(Json(DispatchResult { delivered }))
 }
 
+#[derive(Deserialize)]
+struct RegisterWebhookRequest {
+    url: String,
+    kinds: Vec<InterventionKind>,
+}
+async fn register_webhook(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RegisterWebhookRequest>,
+) -> Result<(StatusCode, Json<WebhookEndpoint>), ApiError> {
+    let p = require_principal(&headers, &s)?;
+    let ep = s
+        .service
+        .register_webhook(&p, &body.url, body.kinds, &s.webhook_allowlist)
+        .map_err(|e| map_error(e, &headers))?;
+    Ok((StatusCode::CREATED, Json(ep)))
+}
+async fn list_webhooks(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<WebhookEndpoint>>, ApiError> {
+    let p = require_principal(&headers, &s)?;
+    Ok(Json(
+        s.service
+            .list_webhooks(&p)
+            .map_err(|e| map_error(e, &headers))?,
+    ))
+}
+async fn revoke_webhook(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let p = require_principal(&headers, &s)?;
+    match s
+        .service
+        .revoke_webhook(&p, &id)
+        .map_err(|e| map_error(e, &headers))?
+    {
+        true => Ok(StatusCode::NO_CONTENT),
+        false => Err(api_err(StatusCode::NOT_FOUND, "not_found", &headers, false)),
+    }
+}
 async fn export_data(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -475,6 +555,8 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/interventions", get(list_interventions))
         .route("/v1/interventions/dispatch", post(dispatch))
         .route("/v1/me/data", get(export_data).delete(purge_data))
+        .route("/v1/webhooks", post(register_webhook).get(list_webhooks))
+        .route("/v1/webhooks/{id}/revoke", post(revoke_webhook))
         .layer(
             ServiceBuilder::new()
                 // Outermost first: assign x-request-id, echo it back, bound
@@ -529,6 +611,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(60);
+    let webhook_allowlist: Vec<String> = env::var("SOVIR_WEBHOOK_ALLOWLIST")
+        .unwrap_or_else(|_| "127.0.0.1,localhost".into())
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
     let state = AppState {
         service,
         dev_session_enabled,
@@ -536,6 +624,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         limits: std::sync::Arc::new(Mutex::new(HashMap::new())),
         rate_limit_per_min,
         idem: std::sync::Arc::new(Mutex::new(HashMap::new())),
+        webhook_allowlist,
     };
     let app = build_router(state);
     tracing::info!(addr = %addr, env = %sovir_env, "starting loopback-only SOVIR development API");
@@ -552,13 +641,16 @@ mod tests {
     use tower::{Service, ServiceExt};
 
     fn test_state() -> AppState {
+        let registry = std::sync::Arc::new(InMemoryWebhookRegistry::default());
+        let egress = std::sync::Arc::new(RecordingHttpEgress::default());
         AppState {
-            service: dev_service(),
+            service: dev_service_with(Some((registry, egress))).0,
             dev_session_enabled: true,
             pg: None,
             limits: std::sync::Arc::new(Mutex::new(HashMap::new())),
             rate_limit_per_min: 60,
             idem: std::sync::Arc::new(Mutex::new(HashMap::new())),
+            webhook_allowlist: vec!["127.0.0.1".to_string(), "localhost".to_string()],
         }
     }
 

@@ -1,5 +1,8 @@
 //! Interface boundaries. Infrastructure implementations live in adapters.
-use sovir_domain::{Assessment, ConsentGrant, Device, Intervention, ObservedEvent, Session};
+use sovir_domain::{
+    Assessment, ConsentGrant, Device, Intervention, InterventionKind, ObservedEvent, Session,
+    WebhookEndpoint,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -74,4 +77,22 @@ pub trait InterventionSink: Send + Sync {
 /// adapter records attempts in memory; real channels are platform adapters.
 pub trait DeliveryChannel: Send + Sync {
     fn send(&self, intervention: &Intervention) -> Result<(), PortError>;
+}
+/// Registered webhook endpoints (B20).
+pub trait WebhookRegistry: Send + Sync {
+    fn register(&self, endpoint: WebhookEndpoint) -> Result<(), PortError>;
+    fn list(&self, principal_id: &str) -> Result<Vec<WebhookEndpoint>, PortError>;
+    /// Active endpoints of a principal subscribed to a given kind.
+    fn matching(
+        &self,
+        principal_id: &str,
+        kind: InterventionKind,
+    ) -> Result<Vec<WebhookEndpoint>, PortError>;
+    fn revoke(&self, principal_id: &str, endpoint_id: &str, now_ms: u64)
+        -> Result<bool, PortError>;
+}
+/// Outbound HTTP egress. The dev adapter only records requests; a real HTTP
+/// adapter is gated behind explicit egress policy (B20/ADR pending).
+pub trait HttpEgress: Send + Sync {
+    fn post(&self, url: &str, body: &str, headers: &[(String, String)]) -> Result<(), PortError>;
 }
