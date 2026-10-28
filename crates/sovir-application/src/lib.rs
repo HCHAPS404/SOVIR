@@ -9,9 +9,6 @@ use sovir_ports::{
     Clock, ConsentRepository, DeliveryChannel, DeviceRegistry, EventRepository, InterventionSink,
     PortError, RiskAnalyzer, SessionStore,
 };
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -77,7 +74,6 @@ pub struct SovirService {
     devices: Arc<dyn DeviceRegistry>,
     sink: Arc<dyn InterventionSink>,
     channel: Arc<dyn DeliveryChannel>,
-    id_counter: Arc<AtomicU64>,
 }
 impl SovirService {
     pub fn new(clock: Arc<dyn Clock>, ports: ServicePorts) -> Self {
@@ -90,22 +86,14 @@ impl SovirService {
             devices: ports.devices,
             sink: ports.sink,
             channel: ports.channel,
-            id_counter: Arc::new(AtomicU64::new(0)),
         }
     }
 
-    /// Dev-only token/id derivation: hash of clock + counter + inputs. NOT
-    /// cryptographic; acceptable only because the API is loopback-bound and
-    /// development-only (see ADR-0006).
-    fn dev_token(&self, prefix: &str, parts: &[&str]) -> String {
-        let n = self.id_counter.fetch_add(1, Ordering::Relaxed);
-        let mut h = DefaultHasher::new();
-        self.clock.now_ms().hash(&mut h);
-        n.hash(&mut h);
-        for p in parts {
-            p.hash(&mut h);
-        }
-        format!("{prefix}-{:016x}", h.finish())
+    /// Random token/id derivation (UUIDv4). The parts are accepted for
+    /// call-site clarity but intentionally unused: identifiers must not be
+    /// derivable from inputs.
+    fn dev_token(&self, prefix: &str, _parts: &[&str]) -> String {
+        format!("{prefix}-{}", uuid::Uuid::new_v4().simple())
     }
 
     /// Issues a short-lived development session for a synthetic principal.
@@ -208,12 +196,24 @@ impl SovirService {
         if !principal.has_scope(Scope::DevicesWrite) {
             return Err(AppError::Forbidden);
         }
-        let revoked =
-            self.devices
-                .revoke(&principal.principal_id, device_id, self.clock.now_ms())?;
+        let now = self.clock.now_ms();
+        let revoked = self
+            .devices
+            .revoke(&principal.principal_id, device_id, now)?;
         if revoked {
             self.sessions.revoke_by_device(device_id)?;
             self.grants.revoke_by_device(device_id)?;
+            // Fail closed: pending deliveries to a revoked device expire now.
+            for mut i in self.sink.list_by_device(device_id)? {
+                i.audit.push(DeliveryAuditEntry {
+                    at_ms: now,
+                    from: i.state,
+                    to: DeliveryState::Expired,
+                    detail: "device revoked".to_string(),
+                });
+                i.state = DeliveryState::Expired;
+                self.sink.update(i)?;
+            }
         }
         Ok(revoked)
     }
