@@ -62,4 +62,20 @@ foreign_event=dict(event,event_id='test-'+uuid4().hex,consent_grant_id=grant2)
 assert post('/v1/events',foreign_event,foreign['token'])[0]==403
 assert post('/v1/auth/logout',{},token)[0]==204
 assert post('/v1/events',foreign_event,token)[0]==401
-print('PASS: synthetic API happy-path + revocation + consent binding + logout fail closed')
+# Data governance: export returns the principal's records; purge erases them
+# and revokes the caller's sessions (fail closed afterwards).
+status,s3=post('/v1/auth/dev-session',{'principal_id':'erase-me','device_id':'d3'})
+assert status==201
+t3=s3['token']
+g3='test-'+uuid4().hex
+assert post('/v1/consents',{'grant_id':g3,'source_id':source,'expires_at_ms':now+3600000},t3)[0]==201
+assert post('/v1/events',dict(event,event_id='test-'+uuid4().hex,consent_grant_id=g3),t3)[0]==201
+status,data=get('/v1/me/data',t3)
+assert status==200 and len(data['events'])==1 and len(data['grants'])==1, data
+import urllib.request as _r
+req=_r.Request(URL+'/v1/me/data',headers={'authorization':'Bearer '+t3},method='DELETE')
+with _r.urlopen(req,timeout=5) as resp:
+    report=json.loads(resp.read()); print('/v1/me/data DELETE HTTP',resp.status,report)
+assert report['events_deleted']==1 and report['grants_deleted']==1
+assert post('/v1/events',dict(event,event_id='test-'+uuid4().hex,consent_grant_id=g3),t3)[0]==401
+print('PASS: synthetic API happy-path + revocation + binding + logout + data erasure fail closed')

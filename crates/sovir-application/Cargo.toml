@@ -8,6 +8,7 @@ publish = false
 sovir-domain = { path = "../sovir-domain" }
 sovir-ports = { path = "../sovir-ports" }
 thiserror.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 sovir-adapters = { path = "../sovir-adapters" }
