@@ -1,16 +1,10 @@
-import type { Metadata } from "next";
-import { RegisterPanel } from "../../components/RegisterPanel";
-import { SiteFrame } from "../../components/SiteFrame";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
+export const metadata = {
   title: "Registro",
   robots: { index: false, follow: false },
 };
 
 export default function RegisterPage() {
-  return (
-    <SiteFrame current="/registro">
-      <RegisterPanel />
-    </SiteFrame>
-  );
+  redirect("http://127.0.0.1:3001/registro");
 }

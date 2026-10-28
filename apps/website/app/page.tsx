@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { HeroField } from "../components/HeroField";
 import { LandingScroll } from "../components/LandingScroll";
+import { PlatformIcon } from "../components/PlatformIcon";
 import { SiteFrame } from "../components/SiteFrame";
+import { downloads } from "../lib/downloads";
 import { landingReadings, landingStages, pages } from "../lib/content";
-
-const systems = ["Android", "iOS", "Windows", "macOS", "Linux", "Navegador"];
 
 const siteNotes = [
   { href: "/docs", label: "Guía", note: "Cómo moverse por este sitio" },
@@ -41,11 +41,22 @@ export default function HomePage() {
           </div>
         </div>
         <HeroField />
+        <p className="showcase-lines">
+          En el dispositivo,
+          <br />
+          con una política,
+          <br />
+          en tus manos.
+        </p>
         <div className="field">
           <p className="kicker">Cobertura prevista</p>
-          <ul>
-            {systems.map((system) => (
-              <li key={system}>{system}</li>
+          <ul className="platform-row">
+            {downloads.map((item) => (
+              <li key={item.id}>
+                <Link href={`/download/${item.id}`} aria-label={`Descarga de ${item.label}`}>
+                  <PlatformIcon id={item.id} />
+                </Link>
+              </li>
             ))}
           </ul>
         </div>
@@ -129,11 +140,15 @@ export default function HomePage() {
         <section className="sheet beat" data-beat aria-labelledby="cobertura">
           <header className="block-head line">
             <h2 id="cobertura">Cobertura prevista</h2>
-            <p>Seis sistemas. Ningún binario publicado.</p>
+            <p>Mac y Windows. Ningún binario publicado.</p>
           </header>
-          <ul className="systems line">
-            {systems.map((system) => (
-              <li key={system}>{system}</li>
+          <ul className="platform-row systems-icons line">
+            {downloads.map((item) => (
+              <li key={item.id}>
+                <Link href={`/download/${item.id}`} aria-label={`Descarga de ${item.label}`}>
+                  <PlatformIcon id={item.id} />
+                </Link>
+              </li>
             ))}
           </ul>
           <div className="studio line">

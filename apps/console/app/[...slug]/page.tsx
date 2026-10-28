@@ -1,7 +1,7 @@
 import { PatternState } from "@sovir/ui-web/patterns";
-import { findSection, SectionView } from "@sovir/ui-web/section";
+import { findSection } from "@sovir/ui-web/section";
 import { ConsoleFrame, requireDemoSession } from "../../components/ConsoleFrame";
-import { StateSwitch } from "../../components/StateSwitch";
+import { SectionDesk } from "../../components/SectionDesk";
 import { states } from "../../lib/nav";
 
 export default async function SectionPage({
@@ -30,8 +30,7 @@ export default async function SectionPage({
     : "ready";
   return (
     <ConsoleFrame current={path}>
-      <StateSwitch path={path} state={state} fallback="ready" />
-      <SectionView section={section} state={state} />
+      <SectionDesk section={section} state={state} />
     </ConsoleFrame>
   );
 }

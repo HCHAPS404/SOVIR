@@ -14,6 +14,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/pricing",
     "/research",
     "/download",
+    "/download/apple",
+    "/download/windows",
     "/docs",
     "/docs/privacidad",
     "/docs/investigacion",

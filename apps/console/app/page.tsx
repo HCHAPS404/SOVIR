@@ -1,10 +1,10 @@
 import { PatternState } from "@sovir/ui-web/patterns";
-import { findSection, SectionView } from "@sovir/ui-web/section";
+import { findSection } from "@sovir/ui-web/section";
 import { ConsoleFrame, requireDemoSession } from "../components/ConsoleFrame";
-import { StateSwitch } from "../components/StateSwitch";
+import { OverviewBoard } from "../components/OverviewBoard";
 import { states } from "../lib/nav";
 
-export const metadata = { title: "Overview" };
+export const metadata = { title: "Inicio" };
 
 export default async function OverviewPage({
   searchParams,
@@ -21,8 +21,7 @@ export default async function OverviewPage({
   if (!section) return null;
   return (
     <ConsoleFrame current="/">
-      <StateSwitch path="/" state={state} fallback="empty" />
-      <SectionView section={section} state={state} />
+      <OverviewBoard section={section} state={state} />
     </ConsoleFrame>
   );
 }

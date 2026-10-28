@@ -3,7 +3,7 @@
 # SOVIR — Digital Autonomy Intelligence
 
 > **Nombre de trabajo, pendiente de comprobación de marca.**  
-> **Estado:** especificación maestra, más un esqueleto local de frontend. No es una aplicación de protección en producción. Avance y fase siguiente: [§0.2](#02-avance-del-esqueleto-27-oct-2026).  
+> **Estado:** especificación maestra, más un esqueleto local de frontend. No es una aplicación de protección en producción. Avance de front al 28 oct 2026: [§0.3](#03-avance-de-front-28-oct-2026).  
 > **Versión del documento:** 0.1.0 · **Fecha base:** 27 de octubre de 2026  
 > **Modalidades objetivo:** Personal · Plus · Enterprise / B2B2C  
 > **Ámbito:** Android · iOS · Windows · macOS · Linux · navegadores  
@@ -38,7 +38,41 @@ Hecho en local, en `feat/design-foundations-dx01`:
 - Tema claro/oscuro en cada superficie. CLI: `pnpm sovir list`, `show`, `open`, `theme`, `status`.
 - Archivo Figma [SOVIR Umbral](https://www.figma.com/design/ugk030WRnYLejNPEj0kV0K). No hay un frame por cada sección y estado.
 
-La fase siguiente, pedida por el responsable, es el frente de la landing y la consola, el frente de la extensión, y la arquitectura backend-frontend de esas superficies para marcar hitos. El detalle está en [`docs/operations/NEXT_PHASE.md`](docs/operations/NEXT_PHASE.md). El pendiente por rama está en [`docs/operations/BRANCHES.md`](docs/operations/BRANCHES.md).
+La fase siguiente, pedida por el responsable, es el frente de la landing y la consola, el frente de la extensión, y la arquitectura backend-frontend de esas superficies para marcar hitos. El detalle está en [`docs/operations/NEXT_PHASE.md`](docs/operations/NEXT_PHASE.md). El pendiente por rama está en [`docs/operations/BRANCHES.md`](docs/operations/BRANCHES.md). Lo que de eso ya se dibujó en sitio y consola, y lo que sigue sin hacerse, está en [§0.3](#03-avance-de-front-28-oct-2026).
+
+### 0.3 Avance de front (28 oct 2026)
+
+Hecho en local, todavía en `feat/design-foundations-dx01`. Es interfaz de demostración. No observa pantallas, no llama al API Rust y no publica instaladores.
+
+**Sitio público (`apps/website`)**
+
+- Landing con marca de puntos interactiva en el hero. La frase de la derecha es una sola: «En el dispositivo, con una política, en tus manos.»
+- Cobertura de descarga visible solo para Mac y Windows. Cada icono abre su página. Esas páginas dicen que el instalador no está publicado.
+- Pie de página dibujado con puntos dorados, no con la foto. El cursor los mueve y un clic suelta una onda. Encima siguen el símbolo y «Sovir 2026».
+- Entrada y registro son portales de diseño. No crean una cuenta ni envían el correo.
+
+**Consola (`apps/console`)**
+
+- Sesión demo por cookie. El botón «Perfil de desarrollador» entra sin cuenta real. Si no hay tema guardado, la consola abre en oscuro, con la paleta de SOVIR (negro, crema, tono de marca).
+- Barra lateral con búsqueda de secciones, grupos Operación, Organización y Cuenta, y la sesión abajo.
+- Inicio muestra la sesión, la conexión y lo que falta por conectar. El resto de secciones tiene la forma de lo que el backend va a guardar: las cuatro decisiones de protección, la tabla de incidentes, los pasos de investigación, dispositivos, la concesión, las tres compuertas de recursos, cuenta, ajustes, políticas, agregados, integraciones, auditoría y facturación.
+- No hay cifras de uso, precios, planes ni una afirmación de cobertura. Vacío no significa protegido.
+
+**Pendiente de front**
+
+- Unir cada sección de la consola con los contratos reales (`POST /v1/consents`, revocación, `POST /v1/events`) cuando existan identidad y almacenamiento. Hoy los campos están dibujados y vacíos.
+- Decidir Android, iOS y Linux en la fila de descarga cuando haya binarios. Hoy no se muestran.
+- Llevar estas pantallas a Figma con node IDs reales. El archivo citado en §0.2 no cubre este pase.
+- Pruebas visuales y de accesibilidad de la landing y la consola nuevas. No se ejecutó una suite que las cubra.
+- Revisión humana de marca y de merge. Esta rama no está lista para fusionar solo por este pase.
+
+**No hecho en front**
+
+- Autenticación real, OAuth, perfiles con nombre o correo, ni persistencia de ajustes.
+- Diálogos de permiso del sistema, captura, sensores o extensión observando sitios.
+- Compilación de Android, iOS y escritorio. Siguen en `NOT_IMPLEMENTED`, igual que Tauri.
+- Gráficas de uso, facturas, medios de pago y series temporales. No hay datos que dibujar.
+- El interruptor de estados de simulación (`Listo`, `Vacío`, etc.) ya no se muestra. La query `?state=` sigue existiendo en el código, sin controles en pantalla.
 
 ### 0.1 ADRs fundamentales
 
@@ -1511,7 +1545,7 @@ Las referencias de mercado (fraude, dark patterns, salud digital, créditos coac
 
 ## 28. Frontend Experience Architecture — Marca, Figma y expresiones nativas (nuevo)
 
-**Identidad Umbral definida para el esqueleto el 27 oct 2026.** SOVIR tiene una marca de esqueleto y un núcleo técnico, pero **no** una UI clonada en todos los sistemas. La capa de presentación es un adaptador hexagonal: ningún componente React/SwiftUI/Compose decide la lógica de riesgo ni permisos reales del OS. Diseño y frontend tienen el mismo rigor que backend: diseño versionado, contratos, QA, accesibilidad, rendimiento y ownership.
+**Identidad Umbral definida para el esqueleto el 27 oct 2026.** El pase de landing y consola del 28 oct 2026 está en [§0.3](#03-avance-de-front-28-oct-2026). SOVIR tiene una marca de esqueleto y un núcleo técnico, pero **no** una UI clonada en todos los sistemas. La capa de presentación es un adaptador hexagonal: ningún componente React/SwiftUI/Compose decide la lógica de riesgo ni permisos reales del OS. Diseño y frontend tienen el mismo rigor que backend: diseño versionado, contratos, QA, accesibilidad, rendimiento y ownership.
 
 **Superficies:** `apps/website` marketing público (`www`, landing, marca, plataformas, privacidad, precios sin inventar, descarga, enterprise, login); `apps/console` app web con autenticación (`app`); `apps/extension` popup/side panel/options; `apps/ios` SwiftUI; `apps/android` Compose; `apps/desktop` Tauri/React con expresiones y adaptadores Windows, macOS y Linux GNOME/KDE. Shell de escritorio compartido, patrones nativos diferenciados y feature flags por capacidades, jamás fingir permisos del sistema.
 

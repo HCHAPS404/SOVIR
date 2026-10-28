@@ -1,22 +1,25 @@
-export const personal = [
-  { href: "/", label: "Overview" },
-  { href: "/protections", label: "Protections" },
-  { href: "/incidents", label: "Incidents" },
-  { href: "/investigations", label: "Investigations" },
-  { href: "/devices", label: "Devices" },
-  { href: "/permissions", label: "Permissions" },
-  { href: "/resources", label: "Resource Intelligence" },
-  { href: "/account", label: "Account" },
-  { href: "/settings", label: "Settings" },
-];
+export const operation = [
+  { href: "/", label: "Inicio" },
+  { href: "/protections", label: "Protecciones" },
+  { href: "/incidents", label: "Incidentes" },
+  { href: "/investigations", label: "Investigaciones" },
+  { href: "/devices", label: "Dispositivos" },
+  { href: "/permissions", label: "Permisos" },
+  { href: "/resources", label: "Recursos" },
+] as const;
+
+export const account = [
+  { href: "/account", label: "Cuenta" },
+  { href: "/settings", label: "Ajustes" },
+] as const;
 
 export const enterprise = [
-  { href: "/enterprise/policies", label: "Policies" },
-  { href: "/enterprise/aggregates", label: "Aggregates" },
-  { href: "/enterprise/integrations", label: "Integrations" },
-  { href: "/enterprise/audit", label: "Audit" },
-  { href: "/enterprise/billing", label: "Billing" },
-];
+  { href: "/enterprise/policies", label: "Políticas" },
+  { href: "/enterprise/aggregates", label: "Agregados" },
+  { href: "/enterprise/integrations", label: "Integraciones" },
+  { href: "/enterprise/audit", label: "Auditoría" },
+  { href: "/enterprise/billing", label: "Facturación" },
+] as const;
 
 export const states = [
   "ready",
@@ -29,3 +32,15 @@ export const states = [
   "revoked",
   "review",
 ] as const;
+
+export type PresentationState = (typeof states)[number];
+
+export const stateByPath: Partial<Record<string, readonly PresentationState[]>> = {
+  "/": ["empty", "permission-denied", "offline", "error", "revoked"],
+  "/protections": ["ready", "permission-denied", "revoked"],
+  "/incidents": ["ready", "empty", "review", "error"],
+  "/investigations": ["ready", "empty", "error"],
+  "/devices": ["empty", "limited", "permission-denied"],
+  "/permissions": ["ready", "permission-denied", "revoked"],
+  "/resources": ["ready", "empty"],
+};

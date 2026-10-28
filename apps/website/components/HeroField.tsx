@@ -15,7 +15,9 @@ type Dot = {
   tone: number;
 };
 
-const LINES = ["En el dispositivo", "La política decide", "Lo remoto es excepcional"];
+function pageInk() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#1a1714";
+}
 
 function decodeSamples() {
   const binary = atob(LOGO_POINTS);
@@ -51,6 +53,7 @@ export function HeroField() {
     let mouse: { x: number; y: number } | null = null;
     let ripple: { x: number; y: number; born: number } | null = null;
     let alive = true;
+    let ink = pageInk();
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
     const build = () => {
@@ -163,8 +166,9 @@ export function HeroField() {
         else soft.push(point);
       }
 
-      const draw = (group: Dot[], color: string) => {
-        ctx.fillStyle = color;
+      const draw = (group: Dot[], alpha: number) => {
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = ink;
         ctx.beginPath();
         for (const point of group) {
           ctx.moveTo(point.x + point.radius, point.y);
@@ -172,9 +176,10 @@ export function HeroField() {
         }
         ctx.fill();
       };
-      draw(soft, "rgba(214,206,192,0.78)");
-      draw(mid, "rgba(236,230,218,0.9)");
-      draw(bright, "rgba(247,243,234,0.98)");
+      draw(soft, 0.55);
+      draw(mid, 0.78);
+      draw(bright, 1);
+      ctx.globalAlpha = 1;
       return reduced || !moving;
     };
 
@@ -220,6 +225,15 @@ export function HeroField() {
       request();
     };
 
+    const refreshInk = () => {
+      ink = pageInk();
+      paint(performance.now(), motion.matches);
+      request();
+    };
+    const themeObserver = new MutationObserver(refreshInk);
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    const scheme = window.matchMedia("(prefers-color-scheme: dark)");
+    scheme.addEventListener?.("change", refreshInk);
     const onResize = () => resize();
     const observer = new ResizeObserver(onResize);
     observer.observe(canvas);
@@ -246,6 +260,8 @@ export function HeroField() {
       cancelAnimationFrame(frame);
       observer.disconnect();
       seen.disconnect();
+      themeObserver.disconnect();
+      scheme.removeEventListener?.("change", refreshInk);
       motion.removeEventListener?.("change", onMotion);
       document.removeEventListener("visibilitychange", onVisible);
       host.removeEventListener("pointermove", pointer);
@@ -257,11 +273,6 @@ export function HeroField() {
   return (
     <div className="hero-field" ref={hostRef}>
       <canvas className="hero-field-canvas" ref={canvasRef} aria-hidden="true" />
-      <ul>
-        {LINES.map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-      </ul>
     </div>
   );
 }

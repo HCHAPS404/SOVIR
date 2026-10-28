@@ -11,7 +11,7 @@ export const pages: Record<string, PageCopy> = {
     href: "/",
     label: "Inicio",
     title: "Ver lo que influye. Elegir lo que importa.",
-    lede: "SOVIR es un nombre de trabajo para un sistema local de autonomía digital. Esta página describe la intención. No afirma una protección ya probada.",
+    lede: "Señales en el dispositivo, una política que autoriza o se abstiene, y la decisión sigue en tus manos.",
     sections: [
       {
         heading: "Qué está construido",
@@ -271,8 +271,8 @@ export const footerColumns: { heading: string; links: { href: string; label: str
     links: [
       { href: "/enterprise", label: "Organizaciones" },
       { href: "/pricing", label: "Precios" },
-      { href: "/sign-in", label: "Entrar" },
-      { href: "/registro", label: "Registro" },
+      { href: "http://127.0.0.1:3001/sign-in", label: "Entrar", external: true },
+      { href: "http://127.0.0.1:3001/registro", label: "Registro", external: true },
     ],
   },
   {

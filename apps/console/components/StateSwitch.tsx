@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { states } from "../lib/nav";
+import { stateByPath, states } from "../lib/nav";
 
 const labels: Record<(typeof states)[number], string> = {
   ready: "Listo",
@@ -22,9 +22,11 @@ export function StateSwitch({
   state: string;
   fallback: (typeof states)[number];
 }) {
+  const options = stateByPath[path];
+  if (!options) return null;
   return (
     <nav className="state-nav" aria-label="Estado de presentación">
-      {states.map((item) => (
+      {options.map((item) => (
         <Link
           key={item}
           href={item === fallback ? path : `${path}?state=${item}`}

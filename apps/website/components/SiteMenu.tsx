@@ -3,6 +3,8 @@
 import { ThemeSwitch } from "@sovir/ui-web/theme";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+
+const consoleOrigin = "http://127.0.0.1:3001";
 import { siteNav, type SiteEntry } from "../lib/content";
 
 function menuOwns(entry: SiteEntry, current: string) {
@@ -120,12 +122,12 @@ export function Masthead({ current }: { current: string }) {
         <div className="masthead-tools">
           <div className="masthead-session">
             <ThemeSwitch />
-            <Link className="masthead-enter" href="/sign-in" onClick={close}>
+            <a className="masthead-enter" href={`${consoleOrigin}/sign-in`} onClick={close}>
               Entrar
-            </Link>
-            <Link className="button masthead-register" href="/registro" onClick={close}>
+            </a>
+            <a className="button masthead-register" href={`${consoleOrigin}/registro`} onClick={close}>
               Registro
-            </Link>
+            </a>
           </div>
           <button
             className="menu-toggle"

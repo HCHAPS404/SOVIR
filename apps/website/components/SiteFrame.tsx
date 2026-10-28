@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { footerColumns, type PageCopy } from "../lib/content";
+import { FooterWave } from "./FooterWave";
 import { Masthead } from "./SiteMenu";
 
 export function SiteFrame({
@@ -43,7 +44,7 @@ export function SiteFrame({
           ))}
         </div>
         <div className="footer-figure">
-          <img src="/brand/footer-wave.webp" alt="" width={5120} height={1869} />
+          <FooterWave />
           <div className="footer-end">
             <Link className="brand-lockup" href="/">
               <span className="mark" aria-hidden="true" />

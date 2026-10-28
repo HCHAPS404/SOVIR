@@ -49,24 +49,14 @@ export function SectionView({ section, state }: { section: CatalogSection; state
   const view = resolveSection(section, state);
   return (
     <article className="section-view">
-      <h1>{view.title}</h1>
-      <p className="lede">{view.lede}</p>
-      {view.actions.length > 0 ? (
-        <p className="actions">
-          {view.actions.map((action, index) =>
-            action.href ? (
-              <a key={action.label} className={index === 0 ? "button" : "button secondary"} href={action.href}>
-                {action.label}
-              </a>
-            ) : (
-              <button key={action.label} type="button" className={index === 0 ? undefined : "secondary"}>
-                {action.label}
-              </button>
-            ),
-          )}
-        </p>
-      ) : null}
-      <p className="note">{view.note}</p>
+      <header className="section-head">
+        <div>
+          <p className="kicker">{section.group}</p>
+          <h1>{view.title}</h1>
+          <p className="lede">{view.lede}</p>
+        </div>
+      </header>
+      {view.note ? <p className="note">{view.note}</p> : null}
       {view.blocks.length > 0 ? (
         <div className="blocks">
           {view.blocks.map((block) => (
@@ -78,14 +68,16 @@ export function SectionView({ section, state }: { section: CatalogSection; state
         </div>
       ) : null}
       {view.rows.length > 0 ? (
-        <ul className="rows">
-          {view.rows.map(([name, value]) => (
-            <li key={name}>
-              <span>{name}</span>
-              <span>{value}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="data-panel">
+          <ul className="rows">
+            {view.rows.map(([name, value]) => (
+              <li key={name}>
+                <span>{name}</span>
+                <strong>{value}</strong>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
     </article>
   );

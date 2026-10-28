@@ -9,7 +9,7 @@ export async function POST(request: Request) {
     jar.delete("sovir_demo_session");
     redirect("/sign-in");
   }
-  jar.set("sovir_demo_session", "synthetic-demo", {
+  jar.set("sovir_demo_session", intent === "developer" ? "developer-profile" : "synthetic-demo", {
     httpOnly: true,
     sameSite: "lax",
     secure: false,
