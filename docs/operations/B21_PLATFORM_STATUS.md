@@ -18,8 +18,8 @@
 | `feat/backend-data-governance-b16` | `a20c98c` | `docs/backend/proposals/b16-data-governance.md` | PROPUESTA + política |
 | `feat/backend-security-b17` | `48aa294` | `docs/security/THREAT_MODEL_B17.md` | STRIDE/LINDDUN + riesgos R1–R6 |
 | `feat/backend-devices-b9` | `45e6b1d` | `docs/backend/proposals/b9-devices-adapter.md` | PROPUESTA |
-| `feat/backend-ingestion-b10` | `5745254` | `docs/backend/proposals/b10-ingestion-adapter.md` | PROPUESTA (parcialmente implementable ya) |
-| `feat/backend-edge-runtime-b11` | `b61683a` | `docs/backend/proposals/b11-edge-runtime-harness.md` | PROPUESTA (benchmark implementable ya) |
+| `feat/backend-ingestion-b10` | `c0c1b1e` | propuesta + adapter implementado (idempotency, rate limit, error envelope) | PARCIAL — falta durable store |
+| `feat/backend-edge-runtime-b11` | `2513372` | propuesta + benchmark criterion + build matrix 3-OS | PARCIAL — FFI pendiente de Claude |
 | `feat/backend-intervention-b15` | `7936f11` | `docs/backend/proposals/b15-intervention-delivery.md` | PROPUESTA |
 | `feat/backend-integrations-b20` | `7af9b8c` | `docs/backend/proposals/b20-integrations.md` | PROPUESTA |
 
@@ -53,8 +53,8 @@
 | Prioridad | Trabajo | Depende de | Estado |
 |---|---|---|---|
 | 1 | PR draft de `infra/backend-platform-b21` → dx01 + CI verde | gh auth del maintainer | listo para crear |
-| 2 | B10 implementable ya: error envelope `{"error":{code,request_id}}`, rate limiting token-bucket, `Idempotency-Key` | nada bloqueante | puede empezar |
-| 3 | B11 benchmark criterion sobre `SovirService` en memoria + CI matrix | nada bloqueante | puede empezar |
+| 2 | ~~B10 adapter: error envelope, rate limit, `Idempotency-Key`~~ | HECHO (in-memory; durable store pendiente) | implementado |
+| 3 | ~~B11 benchmark criterion + CI matrix~~ | HECHO (ingest ~1.5µs mediana local, reporte en artifacts CI) | implementado |
 | 4 | B8: `IdentityPort` + middleware principal | **revisión de Claude** sobre `b8-identity-contract.md` | propuesta publicada |
 | 5 | B16: migración 0003 (retention, consent_audit) + endpoints erasure/export | B8 principal | diseño listo |
 | 6 | B9 persistencia devices | B8 | contrato listo |
