@@ -1,6 +1,6 @@
 # Ramas y pendiente
 
-El esqueleto local está en `feat/design-foundations-dx01`. Las demás ramas de esta lista se crearon desde el primer commit de `main` y **no contienen** ese esqueleto. No se publican como si ya trajeran el trabajo de frontend.
+El esqueleto integral está en `feat/design-foundations-dx01`. **Situación verificada el 28 oct 2026:** las ramas B1–B21 y esa rama comparten el commit `84ebf5581538c68d515e34e2e1493cd4f496c53d`. `main` está en `526604937d66566f38f879419b5eaa9e15348f8c` y todavía no integra esa fundación. Ninguna de las 21 ramas contiene implementación propia diferenciada por dominio; las ramas no equivalen a módulos terminados.
 
 La fase activa, dicha por el responsable, está en `docs/operations/NEXT_PHASE.md`: frente de la web (landing y consola), frente de la extensión, y arquitectura backend-frontend sobre esas superficies para marcar hitos. Android, iOS y Tauri no son el foco.
 
@@ -18,21 +18,61 @@ La fase activa, dicha por el responsable, está en `docs/operations/NEXT_PHASE.m
 | `feat/web-console-dx04` | Consola `apps/console` | Conectar cada sección del catálogo con un contrato de backend. La sesión demo no es una cuenta. Ajustes no se persisten. |
 | `feat/extension-ui-dx05` | Extensión `apps/extension` | Popup, panel y opciones con pausa y permiso opcional por sitio. No observar páginas por defecto. No miniaturizar la consola. Medir el bundle. |
 
-## Backend
+## Backend — registro B1–B21 (verificado 2026-10-28)
 
-El plano local ya existe dentro del esqueleto: API de demostración en loopback, concesión, revocación y evento en memoria. No es el servicio de producción. Estas ramas salen de la punta de `feat/design-foundations-dx01` (`3288b64`). No tienen commits propios y no están en origin.
+**Estado Git verificado:** B1–B7 ya existían; B8–B21 fueron creadas en GitHub desde el SHA exacto `84ebf5581538c68d515e34e2e1493cd4f496c53d`, compartido por las siete originales. **Todos los nombres son ramas Git reales; las implementaciones individuales siguen pendientes.** No se han fusionado cambios a `main` ni se han modificado las siete ramas originales.
 
-| Rama | Qué es | Pendiente |
-|---|---|---|
-| `feat/backend-consent-b1` | Identidad, dispositivo y concesión | Atar la concesión a principal, dispositivo, fuente y modalidad. Revocación que corte captura e inferencia. Borrado. Almacén durable. La demo actual acepta un id en el JSON y no tiene cuenta real. |
-| `feat/backend-evidence-b2` | Observación | Cabecera de evento inmutable: fuente, tiempo, procedencia. Sin capturas en el log. Grafo temporal y el canal local hacia los adaptadores de cada sistema. |
-| `feat/backend-policy-b3` | Riesgo y política | La política decide. El modelo solo propone. Evaluar falsos positivos con fixtures sintéticos. Una hipótesis no bloquea sola. |
-| `feat/backend-inference-b4` | Presupuesto y proveedores | Compuertas local, reserva y remoto. El remoto solo con política, cupo y proveedor permitido. Hoy el gobernador es en memoria y no llama a Muse, Baseten, Modal ni Fireworks. |
-| `feat/backend-research-b5` | Investigación y auditoría de procedencia | Cola de investigación, fuentes citadas, costo por caso e indicadores verificados. No perfiles psicológicos ni chats privados. |
-| `feat/backend-sync-b6` | Aislamiento y organización | Sincronización, copias cifradas, tenant y agregados. Un agregado no es una persona. |
-| `feat/backend-billing-b7` | Gasto y endurecimiento | Medir uso, conciliar cupos y facturas. Observabilidad sin el texto de la pantalla. Firmas y revisión de seguridad antes de cualquier despliegue. |
+La siguiente matriz es un **mapa de propiedad de dominios**, NO una instrucción de mantener 21 ramas de larga duración. Antes de empezar desarrollo en cualquiera, revisar el PR de integración de la fundación hacia `main`; actualizar la rama de trabajo desde `main` una vez integrada la base, sin forzar actualizaciones ni sobreescribir cambios.
 
-Claude escribe el dominio y los contratos. Devin prepara CI y migraciones en un PR aparte. Cursor conecta la consola cuando el contrato esté congelado. ChatGPT revisa el brief y el costo. Nada de esto se publica en Internet: la demo no tiene autenticación de inquilino ni base de datos.
+| ID | Rama en GitHub | Responsabilidad | Prioridad | Responsable principal |
+|---|---|---|---|---|
+| B1 | `feat/backend-consent-b1` | Consentimiento granular, revocación y trazabilidad | P0 | Claude |
+| B2 | `feat/backend-evidence-b2` | Evidencias, procedencia y eventos inmutables | P0 | Claude |
+| B3 | `feat/backend-policy-b3` | Políticas, decisiones e invariantes de autonomía | P0 | Claude |
+| B4 | `feat/backend-inference-b4` | Inferencia local/remota, modelos, tokens, caché y presupuestos | P0 | Claude |
+| B5 | `feat/backend-research-b5` | Investigación, corroboración y fuentes auditables | P0 | Claude |
+| B6 | `feat/backend-sync-b6` | Sincronización cifrada, conflictos y copias opcionales | P1 | Devin |
+| B7 | `feat/backend-billing-b7` | Consumo facturable, cuotas, planes y conciliación | P1 | Devin |
+| B8 | `feat/backend-identity-b8` | Identidad, autenticación, sesiones, MFA y autorización | P0 | Devin |
+| B9 | `feat/backend-devices-b9` | Registro, capacidades y confianza de dispositivos | P0 | Claude (dominio de dispositivos); Devin (persistencia/servicio) |
+| B10 | `feat/backend-ingestion-b10` | Normalización, validación y deduplicación de señales autorizadas | P0 | Claude (ingestión y validación); Devin (adaptador API) |
+| B11 | `feat/backend-edge-runtime-b11` | Núcleo local, FFI/IPC, colas y control CPU/GPU/RAM/batería | P0 | Claude (runtime Rust); Devin (benchmarks/CI) |
+| B12 | `feat/backend-context-graph-b12` | Grafo temporal y correlación justificable de evidencias | P0 | Claude |
+| B13 | `feat/backend-threat-detection-b13` | Detectores de fraude, manipulación, privacidad y bienestar observable | P0 | Claude |
+| B14 | `feat/backend-predictive-ml-b14` | Modelos temporales, evaluación, calibración y deriva | P1 | Claude |
+| B15 | `feat/backend-intervention-b15` | Alertas y acciones preventivas autorizadas | P0 | Claude (lógica y protocolo de intervención); Devin (servicio/colas) |
+| B16 | `feat/backend-data-governance-b16` | Minimización, clasificación, retención, exportación y borrado | P0 | Devin |
+| B17 | `feat/backend-security-b17` | Cifrado, claves, integridad, aislamiento y hardening | P0 | Devin (revisión independiente) |
+| B18 | `feat/backend-threat-intelligence-b18` | Indicadores corroborados y campañas agregadas sin datos íntimos | P1 | Claude |
+| B19 | `feat/backend-enterprise-b19` | Organizaciones, RBAC, aislamiento multi-tenant y B2B | P1 | Devin |
+| B20 | `feat/backend-integrations-b20` | SDKs, APIs, webhooks y conectores autorizados | P1 | Devin (APIs/SDK de servidor); Claude (contratos) |
+| B21 | `infra/backend-platform-b21` | CI/CD, persistencia, despliegue, observabilidad y continuidad | P0 | Devin |
+
+
+### Gobierno backend confirmado para trabajo multiagente (2026-10-28)
+
+**Decisión del responsable:** todo el trabajo de *lógica, servicios, persistencia, inferencia, seguridad, algoritmos y runtime Rust* del backend se distribuye entre **ChatGPT, Claude Code y Devin**, con tickets delimitados y revisión cruzada. Cursor se mantiene en **frontend, Figma handoff, apps nativas, adaptación a APIs del sistema, sensores del dispositivo, clientes tipados y puente UI↔backend**, pero **no es dueño ni modifica unilateralmente el backend**.
+
+- **Claude:** implementación predominante de `crates/`, puertos, dominio, policy, ingestión, runtime Rust, grafo, detectores, evaluación ML y contratos; no configura infraestructura sin ticket.
+- **Devin:** implementación de `services/`, `infra/`, autenticación servicio, almacenamiento, cifrado, despliegue, observabilidad, CI/CD, quotas durables, APIs y billing, con auditoría de privacidad.
+- **ChatGPT:** arquitectura técnica, diseño de contratos, ADR, escenarios de prueba y criterios de aceptación; puede proponer o realizar implementaciones backend específicas **solo con ticket y rutas asignadas**, siempre en PR revisable, sin cambios silenciosos ni merge autónomo.
+- **Cursor:** `apps/`, `packages/ui-*`, extensión, integración de sensores OS y renderizado de intervenciones. Puede consumir SDKs/contratos backend aprobados; si un cambio requiere modificar `crates/` o `services/`, debe solicitar ticket al propietario correspondiente.
+- **Humano responsable:** aprueba el diseño, acceso a datos y proveedores, permisos del sistema, gastos, merges y releases. No se fusiona este PR documental automáticamente.
+
+**Límite de ownership:** B9 incluye el dominio/servicio de registro de dispositivo, no el código de permisos nativos; B10 ingiere eventos, pero Cursor implementa la captación en apps; B11 contiene el motor Rust local mientras Cursor implementa los adaptadores Swift/Kotlin/Windows/Linux; B15 define decisiones en backend y Cursor presenta las alertas; B20 define las APIs del servidor mientras Cursor desarrolla sus clientes. Toda colaboración cruza límites solo mediante contratos versionados y PRs revisados.
+
+**Reglas obligatorias de integración**
+
+1. Un dominio no implica microservicio: monolito modular + hexagonal; plano local distinto del plano de servicios.
+2. Cada issue delimita contrato, rutas de archivos propietarias, dependencias, permisos, pruebas y métricas; nadie cambia interfaces compartidas unilateralmente.
+3. Identidad (B8) y consentimiento (B1) deben proteger ingestión (B10); eventos B2 alimentan contexto B12; detectores B13 emiten hipótesis; las políticas B3 autorizan intervenciones B15. El LLM no toma decisiones de bloqueo.
+4. B4 reserva y liquida presupuestos de tokens, con límites de gasto independientes de B7. B16/B17 gobiernan todos los dominios.
+5. Pruebas: cargo fmt, clippy, tests, contratos, autorización/revocación, casos adversos, benchmarks de recursos/latencia/costo según módulo. Sin evidencia reproducible, una rama no está terminada.
+6. Integrar un corte vertical temprano: fuente autorizada → revocación → ingesta → evidencia → contexto → detección → política → intervención. Sin transmisión de capturas por defecto.
+7. Trabajar en PRs pequeños desde `main` actualizado cuando la fundación esté integrada; los nombres B1–B21 son reservas organizativas existentes y se pueden reemplazar por ramas efímeras por issue cuando corresponda.
+8. Prohibido subir conversaciones, capturas reales, secretos, tokens o credenciales al repositorio; usar fixtures sintéticos y controles de privacidad.
+
+**Registro de creación:** `docs/operations/BACKEND_BRANCH_CREATION_LOG_2026-10-28.md`. No se creó ningún servicio de producción ni se publicaron APIs por este cambio.
 
 ## Fuera de esta fase
 

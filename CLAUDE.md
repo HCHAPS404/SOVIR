@@ -13,3 +13,8 @@ Read `docs/backend/BACKEND_MASTER_PLAN.md` and ADR-0005 before Rust edits.
 Use `.claude/skills/backend-contract-audit/SKILL.md` for cross-cutting reviews.
 `make backend-check` includes Cargo gates when installed; distinguish static-only
 verification from compiled Rust testing in your PR notes.
+
+
+## Reparto backend (2026-10-28)
+
+Claude es owner de lógica Rust, políticas, modelos/evals, ingestión, grafo temporal, detectores, runtime Rust local y contratos (B1–B5, B9–B15, B18 en lo que corresponde a dominio). Devin implementa servicios, almacenamiento, auth, infra y facturación. ChatGPT especifica/audita y puede implementar backend sólo mediante ticket explícito y PR revisado. Cursor desarrolla apps/sensores OS e integra SDK, sin apropiarse del núcleo backend. Matriz exacta: `docs/operations/BRANCHES.md`. No hacer merge ni gastar créditos de proveedores sin aprobación.

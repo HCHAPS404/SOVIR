@@ -11,3 +11,5 @@ Before backend work, read `docs/backend/BACKEND_MASTER_PLAN.md` and ADR-0005.
 - NO real user content in tests/logs. No tokens or provider keys in repositories.
 - Tests must show denial and happy path; no stub endpoint marked production-ready.
 - PR must report budget impact, model usage and permissions reviewed.
+
+- Ownership de backend B1–B21: Claude/Devin/ChatGPT con ticket específico; Cursor se concentra en frontend y adapters OS dentro de `apps/`. Si una integración demanda tocar `crates/`, `services/` o contratos, solicitar issue y revisión del owner backend; no resolverlo editando silenciosamente el core.
