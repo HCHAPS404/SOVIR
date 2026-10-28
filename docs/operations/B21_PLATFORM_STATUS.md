@@ -1,55 +1,79 @@
-# B21 — Estado de plataforma backend (Fase 0 + primer gate)
+# B21 — Estado de plataforma backend y avance del Corte 0/1
 
-**Rama:** `infra/backend-platform-b21` · **Fecha del diagnóstico:** 2026-10-28 · **Estado:** diagnóstico verificado, primer gate CI añadido. Nada de esto es producción.
+**Rama:** `infra/backend-platform-b21` · **Última actualización:** 2026-10-28 · **Estado:** Corte 0 completo, propuestas de Corte 1 publicadas. Nada de esto es producción ni despliegue público.
 
 ## Base Git verificada
 
-- `main` = `526604937d66566f38f879419b5eaa9e15348f8c` (scaffold documental únicamente).
-- `feat/design-foundations-dx01` = `84ebf5581538c68d515e34e2e1493cd4f496c53d`, cinco commits sobre `main`, **no integrada** por decisión del responsable (el frente web sigue activo).
-- Las ramas B1–B21 existen en origin y apuntan todas a `84ebf55` sin commits propios.
-- Los PRs de backend se abren en **draft hacia `feat/design-foundations-dx01`** para que el diff muestre solo trabajo backend, sin arrastrar el scaffold hacia `main`. Cuando la fundación entre a `main`, las bases se repuntan sin force-push.
+- `main` = `5266049` (scaffold documental únicamente).
+- `feat/design-foundations-dx01` = `05da17a` tras el merge del PR #1 (rama documental B1–B21). El responsable decidió que dx01 **aún no entra a `main`**; trabajo de Cursor continúa activo en ella.
+- Las ramas B1–B21 existen en origin; las de dominio propuestas ya llevan un commit documental cada una (ver tabla).
+- Los PRs de backend se abren en **draft hacia `feat/design-foundations-dx01`** para que el diff muestre solo trabajo backend. Cuando la fundación entre a `main` se repuntan sin force-push.
+
+## Commits entregados por rama
+
+| Rama | Head | Contenido | Tipo |
+|---|---|---|---|
+| `infra/backend-platform-b21` | `5be7c80` | B21-A/B/C/D (abajo) | implementación + docs |
+| `feat/backend-identity-b8` | `0ebfbd3` | `docs/backend/proposals/b8-identity-contract.md` | PROPUESTA |
+| `feat/backend-data-governance-b16` | `a20c98c` | `docs/backend/proposals/b16-data-governance.md` | PROPUESTA + política |
+| `feat/backend-security-b17` | `48aa294` | `docs/security/THREAT_MODEL_B17.md` | STRIDE/LINDDUN + riesgos R1–R6 |
+| `feat/backend-devices-b9` | `45e6b1d` | `docs/backend/proposals/b9-devices-adapter.md` | PROPUESTA |
+| `feat/backend-ingestion-b10` | `5745254` | `docs/backend/proposals/b10-ingestion-adapter.md` | PROPUESTA (parcialmente implementable ya) |
+| `feat/backend-edge-runtime-b11` | `b61683a` | `docs/backend/proposals/b11-edge-runtime-harness.md` | PROPUESTA (benchmark implementable ya) |
+| `feat/backend-intervention-b15` | `7936f11` | `docs/backend/proposals/b15-intervention-delivery.md` | PROPUESTA |
+| `feat/backend-integrations-b20` | `7af9b8c` | `docs/backend/proposals/b20-integrations.md` | PROPUESTA |
+
+## Qué implementa Corte 0 (B21, esta rama)
+
+1. **CI gates** (`backend.yml`): `rust-backend` (fmt/test/clippy + smoke e2e), `contracts`, `migrations` (Postgres 17 efímero: apply→revert→re-apply), `supply-chain` (`cargo deny`/`cargo audit`), `secrets` (gitleaks).
+2. **`scripts/contract_check.py`**: valida OpenAPI, `$ref` local, invariantes del schema (`consent_grant_id` obligatorio, `additionalProperties: false`), fixtures conformes y política sintética (nunca `SECRET`/`payload_ref`), pares de migraciones reversibles. `--self-test` demuestra rechazo real.
+3. **`services/migrations`** (`sovir-migrations`): runner sqlx `apply`/`revert`/`status` contra `DATABASE_URL`; `0001_initial` en `.up.sql`/`.down.sql`.
+4. **`services/api` observabilidad**: `x-request-id` asignado/propagado, span de tracing con request_id, `/health/ready`, body limit 64 KB, timeout 30 s, 4 tests de adapter.
+5. **Config**: `deny.toml`, `.gitleaks.toml`, `.env.example` por secciones, `make contract-check`, `publish = false` en todos los crates.
+6. **Docs**: `B21_LOCAL_DEV.md` (runbook Windows/Linux) y este estado.
 
 ## Verificación ejecutada (Windows 11, Rust 1.99.1, Python 3.12)
 
 | Comando | Resultado | Evidencia |
 |---|---|---|
-| `cargo fmt --all -- --check` | PASS | `scripts/backend_harness.py` |
-| `cargo test --workspace` | PASS | 9 tests: 5 dominio, 2 aplicación, 2 inference |
+| `cargo fmt --all -- --check` | PASS | harness |
+| `cargo test --workspace` | PASS | 13 tests (9 dominio/app/inference + 4 adapter HTTP) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS | sin warnings |
-| `python scripts/backend_harness.py` | PASS | estructura + toolchain completo |
-| `python scripts/harness.py check` | PASS | escaneo léxico; no es verificación AST completa |
-| `python scripts/harness.py eval` | PASS | 15 escenarios sintéticos; sin modelo real |
-| `uv run scripts/contract_check.py --self-test` | PASS | 52 checks: OpenAPI, JSON Schema, fixtures, pares de migraciones, sobre-declaración de rechazo |
-| `make backend-smoke` | PASS (local) | grant 201 → event 201 → revoke 204 → event 403 contra server real |
-| `cargo test --workspace` | PASS | 13 tests (9 anteriores + 4 de adapter HTTP) |
-| `cargo deny check` / `cargo audit` | PASS | licencias/bans/fuentes ok; 81 deps, 0 vulnerabilidades |
-| Migraciones apply/revert en Postgres | NOT_RUN local | Docker aplazado; se verifica en CI con service container |
-| Docker / PostgreSQL local | NOT_INSTALLED | aplazado en `DEFERRED_TOOLCHAINS.md` |
-| Inferencia remota / Modal / proveedores | NOT_IMPLEMENTED | sin llamadas de pago; USD 0 gastados |
+| `uv run scripts/contract_check.py --self-test` | PASS | 49 checks + 3 rechazos de self-test |
+| `cargo deny check` | PASS | advisories/bans/licenses/sources ok; 1 warning benigno (`syn` v2+v3) |
+| `cargo audit` | PASS | 81 deps escaneadas, 0 vulnerabilidades |
+| `python scripts/backend_demo.py` | PASS | grant 201 → event 201 → revoke 204 → event 403 contra server real |
+| `python scripts/harness.py check` / `eval` | PASS | escaneo léxico + 15 escenarios sintéticos |
+| Migraciones apply/revert en Postgres | NOT_RUN local | Docker aplazado (`DEFERRED_TOOLCHAINS.md`); se verifica en CI con service container |
+| gitleaks | NOT_RUN local | job en CI |
+| Inferencia remota / Modal / proveedores | NOT_IMPLEMENTED | cero llamadas; USD 0 gastados |
 
-## Inventario real
+## Lo que sigue (orden propuesto)
 
-- Rust: `sovir-domain`, `sovir-ports`, `sovir-application`, `sovir-adapters` (memoria), `sovir-inference` (gobernador en memoria) + `services/api` (Axum, loopback, token dev).
-- Contratos: `packages/contracts/openapi/backend-dev.v0.yaml`, `packages/contracts/schemas/observed-event.schema.json`.
-- Persistencia: `infra/postgres/migrations/0001_initial.sql` propuesta con RLS sin políticas (default-deny); **sin runner ni adaptador**.
-- CI existente: `ci.yml` (harness) y `backend.yml` (Rust gate).
+| Prioridad | Trabajo | Depende de | Estado |
+|---|---|---|---|
+| 1 | PR draft de `infra/backend-platform-b21` → dx01 + CI verde | gh auth del maintainer | listo para crear |
+| 2 | B10 implementable ya: error envelope `{"error":{code,request_id}}`, rate limiting token-bucket, `Idempotency-Key` | nada bloqueante | puede empezar |
+| 3 | B11 benchmark criterion sobre `SovirService` en memoria + CI matrix | nada bloqueante | puede empezar |
+| 4 | B8: `IdentityPort` + middleware principal | **revisión de Claude** sobre `b8-identity-contract.md` | propuesta publicada |
+| 5 | B16: migración 0003 (retention, consent_audit) + endpoints erasure/export | B8 principal | diseño listo |
+| 6 | B9 persistencia devices | B8 | contrato listo |
+| 7 | B15 cola de entregas `in_process` | `InterventionSink` de Claude | contrato listo |
+| 8 | B20 webhooks | B15 cola + B19 tenants | contrato listo |
+| — | B6/B19/B7, FFI real, Modal/GPU, pagos, despliegue | maintainer + Claude | BLOQUEADO |
 
-## Qué añade este trabajo (B21)
+## Decisiones pendientes del maintainer
 
-1. `scripts/contract_check.py` — valida OpenAPI, resolución de `$ref`, invariantes del schema, conformidad de fixtures, política sintética y pares de migraciones reversibles. `--self-test` demuestra que el gate rechaza documentos inválidos.
-2. Workflow `backend.yml` — jobs `rust-backend` (ahora con smoke e2e), `contracts`, `migrations` (Postgres efímero), `supply-chain` (`cargo deny`/`audit`), `secrets` (gitleaks).
-3. `deny.toml` + `.gitleaks.toml` — licencias, advisories, bans, fuentes y allowlist de fixtures.
-4. `services/migrations` (`sovir-migrations`) — runner sqlx apply/revert/status contra `DATABASE_URL`; `0001_initial` en formato reversible `.up.sql`/`.down.sql`.
-5. `services/api` — `x-request-id`, span de tracing con request_id, `/health/ready`, límite de 64 KB, timeout 30 s, 4 tests de adapter.
-6. `make contract-check`, `B21_LOCAL_DEV.md` (runbook Windows/Linux) y `.env.example` por secciones.
+1. Autenticar `gh` para crear issues/PRs draft.
+2. Proveedor OIDC para B8 (o sesiones dev tipadas primero).
+3. Retenciones exactas por clase de dato (B16).
+4. Presupuesto Modal por experimento (55/25/20 propuesto en `SPONSOR_CREDITS`).
+5. Proveedor de pagos (B7) — diferido.
 
-## Brechas conocidas (siguientes cortes)
+## Riesgos registrados
 
-- Sin adaptador sqlx de dominio (la API sigue en memoria) — espera puerto de persistencia de Claude + ticket.
-- Sin políticas RLS ni rol de aplicación (default-deny deliberado) — B16/B19.
-- Sin identidad real (B8), sin métricas exportadas ni dashboards, sin OIDC.
-- Migraciones de `undo` limitadas: cada `.up.sql` debe traer su `.down.sql` desde ahora.
+Ver `docs/security/THREAT_MODEL_B17.md` (R1–R6). El crítico: `grant_id`/`source_id` autodeclarables en body — aceptado solo en loopback dev, bloquea cualquier despliegue.
 
 ## Costo
 
-USD 0. Todo se ejecuta con toolchain local y GitHub Actions. Modal/proveedores solo con aprobación explícita por experimento.
+USD 0. Todo ejecutado con toolchain local y GitHub Actions. Modal/proveedores solo con aprobación explícita por experimento.
