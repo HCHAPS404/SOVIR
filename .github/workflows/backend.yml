@@ -53,7 +53,7 @@ jobs:
         run: python3 scripts/backend_harness.py
       - name: End-to-end smoke on ephemeral loopback API
         env:
-          SOVIR_API_DEV_TOKEN: ci_synthetic_dev_token_0123456789abcdef
+          SOVIR_ENV: test
         run: |
           cargo run -p sovir-api &
           for i in $(seq 1 60); do

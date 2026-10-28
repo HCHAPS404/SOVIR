@@ -5,12 +5,15 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sovir_adapters::{
-    DeterministicRiskAnalyzer, InMemoryConsentRepository, InMemoryEventRepository, SystemClock,
+    DeterministicRiskAnalyzer, InMemoryConsentRepository, InMemoryDeviceRegistry,
+    InMemoryEventRepository, InMemorySessionStore, SystemClock,
 };
 use sovir_application::{AppError, SovirService};
-use sovir_domain::{ConsentGrant, DomainError, EventDecision, ObservedEvent};
+use sovir_domain::{
+    ConsentGrant, Device, DomainError, EventDecision, ObservedEvent, Platform, Principal, Session,
+};
 use sovir_ports::PortError;
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 use tower::ServiceBuilder;
@@ -23,7 +26,8 @@ use tower_http::{
 #[derive(Clone)]
 struct AppState {
     service: SovirService,
-    bearer: Arc<str>,
+    /// dev-session endpoint is only enabled for local/test environments.
+    dev_session_enabled: bool,
 }
 #[derive(Serialize)]
 struct ApiMessage {
@@ -31,29 +35,32 @@ struct ApiMessage {
 }
 type ApiError = (StatusCode, Json<ApiMessage>);
 
-fn require_dev_auth(headers: &HeaderMap, state: &AppState) -> Result<(), ApiError> {
-    let value = headers.get("authorization").and_then(|v| v.to_str().ok());
-    // Development-only bearer auth; never expose this service publicly.
-    let accepted = value
-        .map(|v| v.strip_prefix("Bearer ") == Some(state.bearer.as_ref()))
-        .unwrap_or(false);
-    if accepted {
-        Ok(())
-    } else {
-        Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ApiMessage {
-                message: "unauthorized",
-            }),
-        ))
-    }
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+}
+/// Resolves the session bearer token to a Principal. Dev sessions only —
+/// never expose this service publicly.
+fn require_principal(headers: &HeaderMap, state: &AppState) -> Result<Principal, ApiError> {
+    let token = bearer_token(headers).ok_or((
+        StatusCode::UNAUTHORIZED,
+        Json(ApiMessage {
+            message: "unauthorized",
+        }),
+    ))?;
+    state.service.authenticate(token).map_err(map_error)
 }
 fn map_error(e: AppError) -> ApiError {
     let (status, message) = match e {
+        AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
+        AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden"),
+        AppError::DeviceRevoked => (StatusCode::FORBIDDEN, "device_revoked"),
         AppError::Domain(DomainError::ConsentRequired) | AppError::ConsentNotFound => {
             (StatusCode::FORBIDDEN, "consent_required")
         }
-        AppError::Domain(_) | AppError::InvalidGrant => {
+        AppError::Domain(_) | AppError::InvalidGrant | AppError::InvalidRequest => {
             (StatusCode::BAD_REQUEST, "invalid_request")
         }
         AppError::Port(PortError::Duplicate) => (StatusCode::CONFLICT, "duplicate_event"),
@@ -70,13 +77,107 @@ async fn live() -> Json<ApiMessage> {
 async fn ready() -> Json<ApiMessage> {
     Json(ApiMessage { message: "ready" })
 }
+
+#[derive(Deserialize)]
+struct DevSessionRequest {
+    principal_id: String,
+    #[serde(default)]
+    device_id: Option<String>,
+}
+async fn dev_session(
+    State(s): State<AppState>,
+    Json(body): Json<DevSessionRequest>,
+) -> Result<(StatusCode, Json<Session>), ApiError> {
+    if !s.dev_session_enabled {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ApiMessage {
+                message: "dev_sessions_disabled",
+            }),
+        ));
+    }
+    let device_id = body.device_id.unwrap_or_else(|| "dev-device".to_string());
+    let session = s
+        .service
+        .issue_dev_session(&body.principal_id, &device_id)
+        .map_err(map_error)?;
+    Ok((StatusCode::CREATED, Json(session)))
+}
+async fn logout(State(s): State<AppState>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
+    let token = bearer_token(&headers).ok_or((
+        StatusCode::UNAUTHORIZED,
+        Json(ApiMessage {
+            message: "unauthorized",
+        }),
+    ))?;
+    match s.service.logout(token).map_err(map_error)? {
+        true => Ok(StatusCode::NO_CONTENT),
+        false => Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiMessage {
+                message: "not_found",
+            }),
+        )),
+    }
+}
+async fn whoami(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Principal>, ApiError> {
+    Ok(Json(require_principal(&headers, &s)?))
+}
+
+#[derive(Deserialize)]
+struct RegisterDeviceRequest {
+    #[serde(default)]
+    device_id: Option<String>,
+    platform: Platform,
+    #[serde(default)]
+    label: String,
+}
+async fn register_device(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RegisterDeviceRequest>,
+) -> Result<(StatusCode, Json<Device>), ApiError> {
+    let p = require_principal(&headers, &s)?;
+    let device = s
+        .service
+        .register_device(&p, body.device_id.as_deref(), body.platform, &body.label)
+        .map_err(map_error)?;
+    Ok((StatusCode::CREATED, Json(device)))
+}
+async fn list_devices(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Device>>, ApiError> {
+    let p = require_principal(&headers, &s)?;
+    Ok(Json(s.service.list_devices(&p).map_err(map_error)?))
+}
+async fn revoke_device(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let p = require_principal(&headers, &s)?;
+    match s.service.revoke_device(&p, &id).map_err(map_error)? {
+        true => Ok(StatusCode::NO_CONTENT),
+        false => Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiMessage {
+                message: "not_found",
+            }),
+        )),
+    }
+}
+
 async fn grant(
     State(s): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<ConsentGrant>,
 ) -> Result<StatusCode, ApiError> {
-    require_dev_auth(&headers, &s)?;
-    s.service.grant(body).map_err(map_error)?;
+    let p = require_principal(&headers, &s)?;
+    s.service.grant(&p, body).map_err(map_error)?;
     Ok(StatusCode::CREATED)
 }
 async fn revoke(
@@ -84,8 +185,8 @@ async fn revoke(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    require_dev_auth(&headers, &s)?;
-    match s.service.revoke(&id).map_err(map_error)? {
+    let p = require_principal(&headers, &s)?;
+    match s.service.revoke(&p, &id).map_err(map_error)? {
         true => Ok(StatusCode::NO_CONTENT),
         false => Err((
             StatusCode::NOT_FOUND,
@@ -100,8 +201,8 @@ async fn ingest(
     headers: HeaderMap,
     Json(body): Json<ObservedEvent>,
 ) -> Result<(StatusCode, Json<EventDecision>), ApiError> {
-    require_dev_auth(&headers, &s)?;
-    let decision = s.service.ingest(body).map_err(map_error)?;
+    let p = require_principal(&headers, &s)?;
+    let decision = s.service.ingest(&p, body).map_err(map_error)?;
     Ok((StatusCode::CREATED, Json(decision)))
 }
 
@@ -109,6 +210,11 @@ fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
+        .route("/v1/auth/dev-session", post(dev_session))
+        .route("/v1/auth/logout", post(logout))
+        .route("/v1/auth/whoami", get(whoami))
+        .route("/v1/devices", post(register_device).get(list_devices))
+        .route("/v1/devices/{id}/revoke", post(revoke_device))
         .route("/v1/consents", post(grant))
         .route("/v1/consents/{id}/revoke", post(revoke))
         .route("/v1/events", post(ingest))
@@ -152,11 +258,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !addr.ip().is_loopback() {
         return Err("dev API must bind only to loopback".into());
     }
-    let bearer = env::var("SOVIR_API_DEV_TOKEN")
-        .map_err(|_| "set SOVIR_API_DEV_TOKEN (at least 24 characters)")?;
-    if bearer.len() < 24 {
-        return Err("SOVIR_API_DEV_TOKEN must be >= 24 characters".into());
-    }
+    // Dev sessions are the only auth path; they must never exist outside
+    // local/test. Any other SOVIR_ENV disables the endpoint entirely.
+    let sovir_env = env::var("SOVIR_ENV").unwrap_or_else(|_| "local".into());
+    let dev_session_enabled = matches!(sovir_env.as_str(), "local" | "test");
     if env::var("SOVIR_ALLOW_REMOTE_INFERENCE").unwrap_or_default() == "true" {
         return Err("remote inference not implemented; disable it (fail closed)".into());
     }
@@ -166,13 +271,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(InMemoryConsentRepository::default()),
         Arc::new(InMemoryEventRepository::default()),
         Arc::new(DeterministicRiskAnalyzer),
+        Arc::new(InMemorySessionStore::default()),
+        Arc::new(InMemoryDeviceRegistry::default()),
     );
     let state = AppState {
         service,
-        bearer: Arc::from(bearer),
+        dev_session_enabled,
     };
     let app = build_router(state);
-    tracing::info!(addr = %addr, "starting loopback-only SOVIR development API");
+    tracing::info!(addr = %addr, env = %sovir_env, "starting loopback-only SOVIR development API");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
@@ -183,7 +290,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use tower::ServiceExt;
+    use tower::{Service, ServiceExt};
 
     fn test_state() -> AppState {
         AppState {
@@ -192,9 +299,32 @@ mod tests {
                 Arc::new(InMemoryConsentRepository::default()),
                 Arc::new(InMemoryEventRepository::default()),
                 Arc::new(DeterministicRiskAnalyzer),
+                Arc::new(InMemorySessionStore::default()),
+                Arc::new(InMemoryDeviceRegistry::default()),
             ),
-            bearer: Arc::from("test-token-with-24-plus-characters"),
+            dev_session_enabled: true,
         }
+    }
+
+    async fn session_token(app: &mut Router, principal: &str) -> String {
+        let body = serde_json::json!({"principal_id": principal, "device_id": "dev-device"});
+        let response = app
+            .call(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/auth/dev-session")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        v["token"].as_str().unwrap().to_string()
     }
 
     #[tokio::test]
@@ -229,7 +359,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn events_without_token_are_unauthorized() {
+    async fn events_without_session_are_unauthorized() {
         let app = build_router(test_state());
         let event = serde_json::json!({
             "event_id": "e-1",
@@ -255,6 +385,113 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dev_session_whoami_and_logout_flow() {
+        let mut app = build_router(test_state());
+        let token = session_token(&mut app, "user-1").await;
+        let response = app
+            .call(
+                Request::builder()
+                    .uri("/v1/auth/whoami")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["principal_id"], "user-1");
+        assert_eq!(v["device_id"], "dev-device");
+        let response = app
+            .call(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/auth/logout")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        // Logged-out session fails closed.
+        let response = app
+            .call(
+                Request::builder()
+                    .uri("/v1/auth/whoami")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn device_register_list_revoke_flow() {
+        let mut app = build_router(test_state());
+        let token = session_token(&mut app, "user-1").await;
+        let auth = format!("Bearer {token}");
+        let body = serde_json::json!({
+            "device_id": "dev-device",
+            "platform": "WINDOWS",
+            "label": "dev rig"
+        });
+        let response = app
+            .call(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/devices")
+                    .header("content-type", "application/json")
+                    .header("authorization", &auth)
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let response = app
+            .call(
+                Request::builder()
+                    .uri("/v1/devices")
+                    .header("authorization", &auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        // Revoking the device kills its sessions: subsequent auth fails closed.
+        let response = app
+            .call(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/devices/dev-device/revoke")
+                    .header("authorization", &auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let response = app
+            .call(
+                Request::builder()
+                    .uri("/v1/auth/whoami")
+                    .header("authorization", &auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn oversized_body_is_rejected() {
         let app = build_router(test_state());
         let big = vec![b'x'; 128 * 1024];
@@ -264,7 +501,7 @@ mod tests {
                     .method("POST")
                     .uri("/v1/events")
                     .header("content-type", "application/json")
-                    .header("authorization", "Bearer test-token-with-24-plus-characters")
+                    .header("authorization", "Bearer any-token")
                     .body(Body::from(big))
                     .unwrap(),
             )

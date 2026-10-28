@@ -28,11 +28,11 @@ python scripts/harness.py check && python scripts/harness.py eval
 cargo deny check && cargo audit          # si cargo-deny/audit instalados
 
 # API de desarrollo (terminal 1)
-export SOVIR_API_DEV_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(32))')"
 cargo run -p sovir-api                   # escucha solo en 127.0.0.1:8787
 
-# smoke (terminal 2, mismo token)
-python scripts/backend_demo.py           # grant -> event -> revoke -> 403
+# smoke (terminal 2): mint de sesión dev + grant -> event -> revoke -> 403
+# + binding principal/device + logout. Auth = token de sesión, ya no bearer global.
+python scripts/backend_demo.py
 
 # migraciones (requiere Postgres; en CI corre solo)
 DATABASE_URL=postgres://... cargo run -p sovir-migrations -- apply|revert|status
@@ -42,6 +42,9 @@ DATABASE_URL=postgres://... cargo run -p sovir-migrations -- apply|revert|status
 
 - `GET /health/live` — proceso vivo.
 - `GET /health/ready` — listo para tráfico (trivial en memoria; será real cuando haya pool).
+- `POST /v1/auth/dev-session` — sesión dev de 15 min (`SOVIR_ENV=local|test` solamente).
+- `POST /v1/auth/logout`, `GET /v1/auth/whoami`.
+- `POST /v1/devices`, `GET /v1/devices`, `POST /v1/devices/{id}/revoke`.
 - `x-request-id` — asignado si falta, propagado en respuesta y en el span de tracing.
 - Body limit 64 KB, timeout 30 s.
 
