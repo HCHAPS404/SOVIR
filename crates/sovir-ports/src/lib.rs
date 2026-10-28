@@ -1,5 +1,5 @@
 //! Interface boundaries. Infrastructure implementations live in adapters.
-use sovir_domain::{Assessment, ConsentGrant, Device, ObservedEvent, Session};
+use sovir_domain::{Assessment, ConsentGrant, Device, Intervention, ObservedEvent, Session};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -45,4 +45,18 @@ pub trait DeviceRegistry: Send + Sync {
     fn touch_seen(&self, principal_id: &str, device_id: &str, now_ms: u64)
         -> Result<(), PortError>;
     fn revoke(&self, principal_id: &str, device_id: &str, now_ms: u64) -> Result<bool, PortError>;
+}
+/// Durable-ish queue of interventions awaiting delivery. State transitions,
+/// retry scheduling and audit entries are applied by the application layer;
+/// the sink only stores what it is given.
+pub trait InterventionSink: Send + Sync {
+    fn enqueue(&self, intervention: Intervention) -> Result<(), PortError>;
+    fn due(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError>;
+    fn list(&self, principal_id: &str) -> Result<Vec<Intervention>, PortError>;
+    fn update(&self, intervention: Intervention) -> Result<(), PortError>;
+}
+/// The actual delivery surface (notification, banner, inbox). The dev
+/// adapter records attempts in memory; real channels are platform adapters.
+pub trait DeliveryChannel: Send + Sync {
+    fn send(&self, intervention: &Intervention) -> Result<(), PortError>;
 }

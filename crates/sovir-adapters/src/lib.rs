@@ -1,8 +1,11 @@
 //! In-memory development adapters. NOT durable, tenant-safe or production-ready.
-use sovir_domain::{evaluate_signals, Assessment, ConsentGrant, Device, ObservedEvent, Session};
+use sovir_domain::{
+    evaluate_signals, Assessment, ConsentGrant, DeliveryState, Device, Intervention, ObservedEvent,
+    Session,
+};
 use sovir_ports::{
-    Clock, ConsentRepository, DeviceRegistry, EventRepository, PortError, RiskAnalyzer,
-    SessionStore,
+    Clock, ConsentRepository, DeliveryChannel, DeviceRegistry, EventRepository, InterventionSink,
+    PortError, RiskAnalyzer, SessionStore,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -164,6 +167,68 @@ impl DeviceRegistry for InMemoryDeviceRegistry {
         } else {
             Ok(false)
         }
+    }
+}
+#[derive(Default)]
+pub struct InMemoryInterventionSink(RwLock<HashMap<String, Intervention>>);
+impl InterventionSink for InMemoryInterventionSink {
+    fn enqueue(&self, intervention: Intervention) -> Result<(), PortError> {
+        let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
+        if guard.contains_key(&intervention.intervention_id) {
+            return Err(PortError::Duplicate);
+        }
+        guard.insert(intervention.intervention_id.clone(), intervention);
+        Ok(())
+    }
+    fn due(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError> {
+        self.0
+            .read()
+            .map(|g| {
+                let mut v: Vec<Intervention> = g
+                    .values()
+                    .filter(|i| {
+                        matches!(i.state, DeliveryState::Pending | DeliveryState::Failed)
+                            && i.next_attempt_at_ms <= now_ms
+                    })
+                    .cloned()
+                    .collect();
+                v.sort_by_key(|a| a.next_attempt_at_ms);
+                v.truncate(limit);
+                v
+            })
+            .map_err(|_| PortError::Storage)
+    }
+    fn list(&self, principal_id: &str) -> Result<Vec<Intervention>, PortError> {
+        self.0
+            .read()
+            .map(|g| {
+                let mut v: Vec<Intervention> = g
+                    .values()
+                    .filter(|i| i.principal_id == principal_id)
+                    .cloned()
+                    .collect();
+                v.sort_by_key(|a| a.created_at_ms);
+                v
+            })
+            .map_err(|_| PortError::Storage)
+    }
+    fn update(&self, intervention: Intervention) -> Result<(), PortError> {
+        let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
+        guard.insert(intervention.intervention_id.clone(), intervention);
+        Ok(())
+    }
+}
+/// Development channel: pretends delivery always succeeds and keeps a count.
+/// Real delivery surfaces (OS notification, inbox) are platform adapters.
+#[derive(Default)]
+pub struct RecordingDeliveryChannel(pub Mutex<Vec<String>>);
+impl DeliveryChannel for RecordingDeliveryChannel {
+    fn send(&self, intervention: &Intervention) -> Result<(), PortError> {
+        self.0
+            .lock()
+            .map_err(|_| PortError::Storage)?
+            .push(intervention.intervention_id.clone());
+        Ok(())
     }
 }
 #[derive(Default)]

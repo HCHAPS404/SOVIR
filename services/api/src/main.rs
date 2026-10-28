@@ -8,11 +8,13 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sovir_adapters::{
     DeterministicRiskAnalyzer, InMemoryConsentRepository, InMemoryDeviceRegistry,
-    InMemoryEventRepository, InMemorySessionStore, SystemClock,
+    InMemoryEventRepository, InMemoryInterventionSink, InMemorySessionStore,
+    RecordingDeliveryChannel, SystemClock,
 };
-use sovir_application::{AppError, SovirService};
+use sovir_application::{AppError, ServicePorts, SovirService};
 use sovir_domain::{
-    ConsentGrant, Device, DomainError, EventDecision, ObservedEvent, Platform, Principal, Session,
+    ConsentGrant, Device, DomainError, EventDecision, Intervention, ObservedEvent, Platform,
+    Principal, Session,
 };
 use sovir_ports::PortError;
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
@@ -67,6 +69,20 @@ fn map_error(e: AppError) -> ApiError {
         AppError::Port(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
     };
     (status, Json(ApiMessage { message }))
+}
+fn dev_service() -> SovirService {
+    SovirService::new(
+        Arc::new(SystemClock),
+        ServicePorts {
+            grants: Arc::new(InMemoryConsentRepository::default()),
+            events: Arc::new(InMemoryEventRepository::default()),
+            risk: Arc::new(DeterministicRiskAnalyzer),
+            sessions: Arc::new(InMemorySessionStore::default()),
+            devices: Arc::new(InMemoryDeviceRegistry::default()),
+            sink: Arc::new(InMemoryInterventionSink::default()),
+            channel: Arc::new(RecordingDeliveryChannel::default()),
+        },
+    )
 }
 async fn live() -> Json<ApiMessage> {
     Json(ApiMessage { message: "alive" })
@@ -205,6 +221,25 @@ async fn ingest(
     let decision = s.service.ingest(&p, body).map_err(map_error)?;
     Ok((StatusCode::CREATED, Json(decision)))
 }
+async fn list_interventions(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Intervention>>, ApiError> {
+    let p = require_principal(&headers, &s)?;
+    Ok(Json(s.service.list_interventions(&p).map_err(map_error)?))
+}
+#[derive(Serialize)]
+struct DispatchResult {
+    delivered: u64,
+}
+async fn dispatch(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<DispatchResult>, ApiError> {
+    let p = require_principal(&headers, &s)?;
+    let delivered = s.service.dispatch_due(&p).map_err(map_error)?;
+    Ok(Json(DispatchResult { delivered }))
+}
 
 fn build_router(state: AppState) -> Router {
     Router::new()
@@ -218,6 +253,8 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/consents", post(grant))
         .route("/v1/consents/{id}/revoke", post(revoke))
         .route("/v1/events", post(ingest))
+        .route("/v1/interventions", get(list_interventions))
+        .route("/v1/interventions/dispatch", post(dispatch))
         .layer(
             ServiceBuilder::new()
                 // Outermost first: assign x-request-id, echo it back, bound
@@ -266,14 +303,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("remote inference not implemented; disable it (fail closed)".into());
     }
     tracing_subscriber::fmt().with_env_filter("info").init();
-    let service = SovirService::new(
-        Arc::new(SystemClock),
-        Arc::new(InMemoryConsentRepository::default()),
-        Arc::new(InMemoryEventRepository::default()),
-        Arc::new(DeterministicRiskAnalyzer),
-        Arc::new(InMemorySessionStore::default()),
-        Arc::new(InMemoryDeviceRegistry::default()),
-    );
+    let service = dev_service();
     let state = AppState {
         service,
         dev_session_enabled,
@@ -294,14 +324,7 @@ mod tests {
 
     fn test_state() -> AppState {
         AppState {
-            service: SovirService::new(
-                Arc::new(SystemClock),
-                Arc::new(InMemoryConsentRepository::default()),
-                Arc::new(InMemoryEventRepository::default()),
-                Arc::new(DeterministicRiskAnalyzer),
-                Arc::new(InMemorySessionStore::default()),
-                Arc::new(InMemoryDeviceRegistry::default()),
-            ),
+            service: dev_service(),
             dev_session_enabled: true,
         }
     }
