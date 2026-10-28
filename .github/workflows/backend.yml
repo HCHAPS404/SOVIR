@@ -122,6 +122,33 @@ jobs:
       - name: RustSec advisory audit
         run: cargo audit
 
+  build-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile workspace on ${{ matrix.os }}
+        run: cargo build --workspace
+
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run in-memory ingest benchmark
+        run: cargo bench -p sovir-application -- --noplot
+      - name: Upload criterion results
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-ingest
+          path: target/criterion/
+
   secrets:
     runs-on: ubuntu-latest
     steps:
