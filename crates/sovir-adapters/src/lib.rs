@@ -1,11 +1,13 @@
 //! In-memory development adapters. NOT durable, tenant-safe or production-ready.
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use sovir_domain::{
-    evaluate_signals, Assessment, ConsentGrant, DeliveryState, Device, Intervention, ObservedEvent,
-    Session,
+    evaluate_signals, Assessment, ConsentGrant, DeliveryState, Device, Intervention,
+    InterventionKind, ObservedEvent, Session, WebhookEndpoint,
 };
 use sovir_ports::{
-    Clock, ConsentRepository, DeliveryChannel, DeviceRegistry, EventRepository, InterventionSink,
-    PortError, RiskAnalyzer, SessionStore,
+    Clock, ConsentRepository, DeliveryChannel, DeviceRegistry, EventRepository, HttpEgress,
+    InterventionSink, PortError, RiskAnalyzer, SessionStore, WebhookRegistry,
 };
 use std::{
     collections::HashMap,
@@ -298,6 +300,152 @@ impl DeliveryChannel for RecordingDeliveryChannel {
             .lock()
             .map_err(|_| PortError::Storage)?
             .push(intervention.intervention_id.clone());
+        Ok(())
+    }
+}
+/// Fans a delivery out to several channels; the first failure aborts with
+/// error so the retry policy reschedules.
+pub struct CompositeDeliveryChannel(pub Vec<std::sync::Arc<dyn DeliveryChannel>>);
+impl DeliveryChannel for CompositeDeliveryChannel {
+    fn send(&self, intervention: &Intervention) -> Result<(), PortError> {
+        for c in &self.0 {
+            c.send(intervention)?;
+        }
+        Ok(())
+    }
+}
+#[derive(Default)]
+pub struct InMemoryWebhookRegistry(RwLock<HashMap<String, WebhookEndpoint>>);
+impl WebhookRegistry for InMemoryWebhookRegistry {
+    fn register(&self, endpoint: WebhookEndpoint) -> Result<(), PortError> {
+        let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
+        if guard.contains_key(&endpoint.endpoint_id) {
+            return Err(PortError::Duplicate);
+        }
+        guard.insert(endpoint.endpoint_id.clone(), endpoint);
+        Ok(())
+    }
+    fn list(&self, principal_id: &str) -> Result<Vec<WebhookEndpoint>, PortError> {
+        self.0
+            .read()
+            .map(|g| {
+                let mut v: Vec<WebhookEndpoint> = g
+                    .values()
+                    .filter(|e| e.principal_id == principal_id)
+                    .cloned()
+                    .collect();
+                v.sort_by_key(|e| e.created_at_ms);
+                v
+            })
+            .map_err(|_| PortError::Storage)
+    }
+    fn matching(
+        &self,
+        principal_id: &str,
+        kind: InterventionKind,
+    ) -> Result<Vec<WebhookEndpoint>, PortError> {
+        self.0
+            .read()
+            .map(|g| {
+                g.values()
+                    .filter(|e| {
+                        e.principal_id == principal_id && e.is_active() && e.kinds.contains(&kind)
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .map_err(|_| PortError::Storage)
+    }
+    fn revoke(
+        &self,
+        principal_id: &str,
+        endpoint_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, PortError> {
+        let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
+        if let Some(e) = guard.get_mut(endpoint_id) {
+            if e.principal_id != principal_id {
+                return Ok(false);
+            }
+            e.revoked_at_ms = Some(now_ms);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+/// Dev egress: records every would-be request. No network calls are made.
+#[derive(Debug, Clone)]
+pub struct RecordedRequest {
+    pub url: String,
+    pub body: String,
+    pub headers: Vec<(String, String)>,
+}
+#[derive(Default)]
+pub struct RecordingHttpEgress(pub Mutex<Vec<RecordedRequest>>);
+impl HttpEgress for RecordingHttpEgress {
+    fn post(&self, url: &str, body: &str, headers: &[(String, String)]) -> Result<(), PortError> {
+        self.0
+            .lock()
+            .map_err(|_| PortError::Storage)?
+            .push(RecordedRequest {
+                url: url.to_string(),
+                body: body.to_string(),
+                headers: headers.to_vec(),
+            });
+        Ok(())
+    }
+}
+type HmacSha256 = Hmac<Sha256>;
+/// DeliveryChannel that POSTs signed intervention payloads to matching
+/// webhook endpoints. Signing: HMAC-SHA256 over the exact body, sent as
+/// `x-sovir-signature: sha256=<hex>`.
+pub struct WebhookChannel {
+    registry: std::sync::Arc<dyn WebhookRegistry>,
+    egress: std::sync::Arc<dyn HttpEgress>,
+}
+impl WebhookChannel {
+    pub fn new(
+        registry: std::sync::Arc<dyn WebhookRegistry>,
+        egress: std::sync::Arc<dyn HttpEgress>,
+    ) -> Self {
+        Self { registry, egress }
+    }
+    pub fn sign(secret: &str, body: &str) -> String {
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts keys of any size");
+        mac.update(body.as_bytes());
+        hex::encode(mac.finalize().into_bytes())
+    }
+}
+impl DeliveryChannel for WebhookChannel {
+    fn send(&self, intervention: &Intervention) -> Result<(), PortError> {
+        let endpoints = self
+            .registry
+            .matching(&intervention.principal_id, intervention.kind)?;
+        if endpoints.is_empty() {
+            return Ok(());
+        }
+        let body = serde_json::json!({
+            "intervention_id": intervention.intervention_id,
+            "event_id": intervention.event_id,
+            "kind": intervention.kind,
+            "principal_id": intervention.principal_id,
+            "device_id": intervention.device_id,
+            "created_at_ms": intervention.created_at_ms,
+        })
+        .to_string();
+        for ep in endpoints {
+            let sig = Self::sign(&ep.secret, &body);
+            self.egress.post(
+                &ep.url,
+                &body,
+                &[
+                    ("content-type".to_string(), "application/json".to_string()),
+                    ("x-sovir-signature".to_string(), format!("sha256={sig}")),
+                ],
+            )?;
+        }
         Ok(())
     }
 }

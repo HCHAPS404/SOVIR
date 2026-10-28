@@ -271,6 +271,51 @@ pub fn next_attempt_ms(attempts: u32, now_ms: u64) -> u64 {
 }
 pub const MAX_DELIVERY_ATTEMPTS: u32 = 4;
 
+/// Registered outbound webhook endpoint (B20). In development the HMAC
+/// secret lives on the record; production must reference a managed secret
+/// instead and never persist or return it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookEndpoint {
+    pub endpoint_id: String,
+    pub principal_id: String,
+    pub url: String,
+    /// Dev-only plaintext secret used to sign deliveries. NOT for production:
+    /// store a KMS reference instead.
+    pub secret: String,
+    /// Intervention kinds this endpoint subscribes to.
+    pub kinds: Vec<InterventionKind>,
+    pub created_at_ms: u64,
+    #[serde(default)]
+    pub revoked_at_ms: Option<u64>,
+}
+impl WebhookEndpoint {
+    pub fn is_active(&self) -> bool {
+        self.revoked_at_ms.is_none()
+    }
+}
+
+/// SSRF guard for outbound webhook URLs. Only http(s) URLs whose host is in
+/// the explicit allowlist pass. Userinfo and non-HTTP schemes are rejected.
+pub fn validate_url_for_egress(url: &str, allowed_hosts: &[String]) -> Result<(), DomainError> {
+    let rest = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .ok_or(DomainError::InvalidIdentifier)?;
+    if rest.contains('@') {
+        return Err(DomainError::InvalidIdentifier);
+    }
+    let authority = rest.split('/').next().unwrap_or_default();
+    if authority.is_empty() {
+        return Err(DomainError::InvalidIdentifier);
+    }
+    // Strip a trailing :port (IPv6 bracketed hosts are not allowed in dev).
+    let host = authority.split(':').next().unwrap_or_default();
+    if host.is_empty() || !allowed_hosts.iter().any(|h| h == host) {
+        return Err(DomainError::InvalidIdentifier);
+    }
+    Ok(())
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum DomainError {
     #[error("invalid identifier or digest")]
