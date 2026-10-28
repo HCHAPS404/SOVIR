@@ -7,8 +7,8 @@
 //! multi-thread Tokio runtime. Async ports are deferred to a future ADR; the
 //! in-memory adapters remain the default when `DATABASE_URL` is unset.
 use sovir_domain::{
-    ConsentGrant, DeliveryState, Device, Intervention, InterventionKind,
-    Modality, ObservedEvent, Platform, RiskSignal, Scope, SensitiveDataClass, Session,
+    ConsentGrant, DeliveryState, Device, Intervention, InterventionKind, Modality, ObservedEvent,
+    Platform, RiskSignal, Scope, SensitiveDataClass, Session,
 };
 use sovir_ports::{
     ConsentRepository, DeviceRegistry, EventRepository, InterventionSink, PortError, SessionStore,
