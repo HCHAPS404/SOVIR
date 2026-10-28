@@ -142,7 +142,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run in-memory ingest benchmark
-        run: cargo bench -p sovir-application -- --noplot
+        run: cargo bench -p sovir-application --bench ingest -- --noplot
       - name: Upload criterion results
         uses: actions/upload-artifact@v4
         with:
