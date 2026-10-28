@@ -88,6 +88,16 @@ jobs:
         run: cargo run -p sovir-migrations -- revert
       - name: Re-apply migrations (idempotent forward path)
         run: cargo run -p sovir-migrations -- apply
+      - name: Durable-adapter smoke (Postgres-backed API)
+        env:
+          SOVIR_ENV: test
+        run: |
+          cargo run -p sovir-api &
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8787/health/ready >/dev/null && break
+            sleep 2
+          done
+          python3 scripts/backend_demo.py
 
   contracts:
     runs-on: ubuntu-latest

@@ -6,6 +6,7 @@ members = [
   "crates/sovir-application",
   "crates/sovir-inference",
   "crates/sovir-adapters",
+  "crates/sovir-persistence",
   "services/api",
   "services/migrations",
 ]
