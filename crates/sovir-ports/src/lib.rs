@@ -1,7 +1,7 @@
 //! Interface boundaries. Infrastructure implementations live in adapters.
 use sovir_domain::{
-    Assessment, ConsentGrant, Device, Intervention, InterventionKind, ObservedEvent, Session,
-    WebhookEndpoint,
+    Assessment, ConsentGrant, DeletionReceipt, Device, Intervention, InterventionKind,
+    ObservedEvent, Session, WebhookEndpoint,
 };
 use thiserror::Error;
 
@@ -33,6 +33,9 @@ pub trait EventRepository: Send + Sync {
     /// Stored events are metadata only (digests, classes) — never payloads.
     fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ObservedEvent>, PortError>;
     fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
+    /// Retention: hard-deletes events with `observed_at_ms` older than
+    /// `cutoff_ms`. Scoped to a principal so retention is caller-owned.
+    fn delete_older_than(&self, principal_id: &str, cutoff_ms: u64) -> Result<u64, PortError>;
 }
 pub trait RiskAnalyzer: Send + Sync {
     fn analyze(&self, event: &ObservedEvent) -> Assessment;
@@ -58,6 +61,9 @@ pub trait DeviceRegistry: Send + Sync {
     fn touch_seen(&self, principal_id: &str, device_id: &str, now_ms: u64)
         -> Result<(), PortError>;
     fn revoke(&self, principal_id: &str, device_id: &str, now_ms: u64) -> Result<bool, PortError>;
+    /// Erasure support: replaces the user-supplied label with a redaction
+    /// marker while keeping the revoked device tombstone. Returns count.
+    fn scrub_label(&self, principal_id: &str, device_id: &str) -> Result<u64, PortError>;
 }
 /// Durable-ish queue of interventions awaiting delivery. State transitions,
 /// retry scheduling and audit entries are applied by the application layer;
@@ -72,6 +78,19 @@ pub trait InterventionSink: Send + Sync {
     /// Pending/failed interventions bound to a device (used to expire them
     /// when the device is revoked).
     fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError>;
+    /// Retention: hard-deletes interventions in a terminal state
+    /// (Delivered/Expired) created before `cutoff_ms`, scoped to a principal.
+    fn delete_terminal_older_than(
+        &self,
+        principal_id: &str,
+        cutoff_ms: u64,
+    ) -> Result<u64, PortError>;
+}
+/// Audit tombstones produced by erasure (B16). Receipts persist after purge;
+/// they carry counts and a pseudonymous principal id, never user content.
+pub trait DeletionReceiptStore: Send + Sync {
+    fn record(&self, receipt: DeletionReceipt) -> Result<(), PortError>;
+    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<DeletionReceipt>, PortError>;
 }
 /// The actual delivery surface (notification, banner, inbox). The dev
 /// adapter records attempts in memory; real channels are platform adapters.

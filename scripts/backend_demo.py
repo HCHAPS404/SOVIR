@@ -78,5 +78,20 @@ req=_r.Request(URL+'/v1/me/data',headers={'authorization':'Bearer '+t3},method='
 with _r.urlopen(req,timeout=5) as resp:
     report=json.loads(resp.read()); print('/v1/me/data DELETE HTTP',resp.status,report)
 assert report['events_deleted']==1 and report['grants_deleted']==1
+assert report['labels_scrubbed']>=0 and report['receipt_id']
 assert post('/v1/events',dict(event,event_id='test-'+uuid4().hex,consent_grant_id=g3),t3,idem='demo-'+uuid4().hex)[0]==401
-print('PASS: synthetic API happy-path + revocation + binding + logout + data erasure fail closed')
+# B20: webhook registration honors the SSRF allowlist (default 127.0.0.1/localhost).
+status,s4=post('/v1/auth/dev-session',{'principal_id':'hook-user','device_id':'d4'})
+assert status==201
+t4=s4['token']
+status,_=post('/v1/webhooks',{'url':'https://evil.example.com/hook','kinds':['warn_banner']},t4)
+assert status==400, status  # non-allowlisted host rejected
+status,ep=post('/v1/webhooks',{'url':'http://127.0.0.1:9/hook','kinds':['warn_banner']},t4)
+assert status==201 and ep['secret'], ep
+status,hooks=get('/v1/webhooks',t4)
+assert status==200 and len(hooks)==1
+assert post('/v1/webhooks/'+ep['endpoint_id']+'/revoke',{},t4)[0]==204
+# B16 retention: caller-scoped; events newer than the cutoff are kept.
+status,rep=post('/v1/me/retention',{},t4)
+assert status==200 and 'cutoff_ms' in rep, rep
+print('PASS: synthetic API happy-path + revocation + binding + logout + erasure + webhooks + retention fail closed')

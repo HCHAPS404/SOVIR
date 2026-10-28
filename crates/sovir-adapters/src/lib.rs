@@ -2,12 +2,13 @@
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use sovir_domain::{
-    evaluate_signals, Assessment, ConsentGrant, DeliveryState, Device, Intervention,
-    InterventionKind, ObservedEvent, Session, WebhookEndpoint,
+    evaluate_signals, Assessment, ConsentGrant, DeletionReceipt, DeliveryState, Device,
+    Intervention, InterventionKind, ObservedEvent, Session, WebhookEndpoint,
 };
 use sovir_ports::{
-    Clock, ConsentRepository, DeliveryChannel, DeviceRegistry, EventRepository, HttpEgress,
-    InterventionSink, PortError, RiskAnalyzer, SessionStore, WebhookRegistry,
+    Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
+    EventRepository, HttpEgress, InterventionSink, PortError, RiskAnalyzer, SessionStore,
+    WebhookRegistry,
 };
 use std::{
     collections::HashMap,
@@ -108,6 +109,12 @@ impl EventRepository for InMemoryEventRepository {
         let mut events = self.0.lock().map_err(|_| PortError::Storage)?;
         let before = events.len();
         events.retain(|_, e| e.principal_id != principal_id);
+        Ok((before - events.len()) as u64)
+    }
+    fn delete_older_than(&self, principal_id: &str, cutoff_ms: u64) -> Result<u64, PortError> {
+        let mut events = self.0.lock().map_err(|_| PortError::Storage)?;
+        let before = events.len();
+        events.retain(|_, e| e.principal_id != principal_id || e.observed_at_ms >= cutoff_ms);
         Ok((before - events.len()) as u64)
     }
 }
@@ -217,6 +224,16 @@ impl DeviceRegistry for InMemoryDeviceRegistry {
             Ok(false)
         }
     }
+    fn scrub_label(&self, principal_id: &str, device_id: &str) -> Result<u64, PortError> {
+        let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
+        if let Some(d) = guard.get_mut(&(principal_id.to_string(), device_id.to_string())) {
+            if d.label != "[redacted]" {
+                d.label = "[redacted]".to_string();
+                return Ok(1);
+            }
+        }
+        Ok(0)
+    }
 }
 #[derive(Default)]
 pub struct InMemoryInterventionSink(RwLock<HashMap<String, Intervention>>);
@@ -286,6 +303,43 @@ impl InterventionSink for InMemoryInterventionSink {
                     .collect();
                 v.sort_by_key(|i| i.created_at_ms);
                 v
+            })
+            .map_err(|_| PortError::Storage)
+    }
+    fn delete_terminal_older_than(
+        &self,
+        principal_id: &str,
+        cutoff_ms: u64,
+    ) -> Result<u64, PortError> {
+        let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
+        let before = guard.len();
+        guard.retain(|_, i| {
+            i.principal_id != principal_id
+                || i.created_at_ms >= cutoff_ms
+                || matches!(i.state, DeliveryState::Pending | DeliveryState::Failed)
+        });
+        Ok((before - guard.len()) as u64)
+    }
+}
+/// Audit tombstones from erasure (B16).
+#[derive(Default)]
+pub struct InMemoryDeletionReceiptStore(RwLock<Vec<DeletionReceipt>>);
+impl DeletionReceiptStore for InMemoryDeletionReceiptStore {
+    fn record(&self, receipt: DeletionReceipt) -> Result<(), PortError> {
+        self.0
+            .write()
+            .map_err(|_| PortError::Storage)?
+            .push(receipt);
+        Ok(())
+    }
+    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<DeletionReceipt>, PortError> {
+        self.0
+            .read()
+            .map(|g| {
+                g.iter()
+                    .filter(|r| r.principal_id == principal_id)
+                    .cloned()
+                    .collect()
             })
             .map_err(|_| PortError::Storage)
     }

@@ -106,14 +106,53 @@ components:
         events: {type: array, items: {type: object}}
         devices: {type: array, items: {$ref: '#/components/schemas/Device'}}
         interventions: {type: array, items: {$ref: '#/components/schemas/Intervention'}}
-    PurgeReport:
+        deletion_receipts: {type: array, items: {$ref: '#/components/schemas/DeletionReceipt'}}
+    DeletionReceipt:
       type: object
+      description: Durable audit tombstone of an erasure; counts and pseudonymous id only.
       properties:
+        receipt_id: {type: string}
+        principal_id: {type: string}
+        purged_at_ms: {type: integer}
         events_deleted: {type: integer}
         grants_deleted: {type: integer}
         interventions_deleted: {type: integer}
         sessions_revoked: {type: integer}
         devices_revoked: {type: integer}
+        labels_scrubbed: {type: integer}
+    PurgeReport:
+      type: object
+      properties:
+        receipt_id: {type: string}
+        events_deleted: {type: integer}
+        grants_deleted: {type: integer}
+        interventions_deleted: {type: integer}
+        sessions_revoked: {type: integer}
+        devices_revoked: {type: integer}
+        labels_scrubbed: {type: integer}
+    RetentionReport:
+      type: object
+      properties:
+        cutoff_ms: {type: integer}
+        events_deleted: {type: integer}
+        terminal_interventions_deleted: {type: integer}
+    WebhookEndpoint:
+      type: object
+      description: Registered egress endpoint. Secret is dev-only plaintext.
+      properties:
+        endpoint_id: {type: string}
+        principal_id: {type: string}
+        url: {type: string}
+        secret: {type: string}
+        kinds: {type: array, items: {type: string, enum: [notify, warn_banner, require_review]}}
+        created_at_ms: {type: integer}
+        revoked_at_ms: {type: integer, nullable: true}
+    RegisterWebhookRequest:
+      type: object
+      required: [url, kinds]
+      properties:
+        url: {type: string, description: "http(s) URL; host must be in SOVIR_WEBHOOK_ALLOWLIST"}
+        kinds: {type: array, items: {type: string, enum: [notify, warn_banner, require_review]}}
 security:
   - devBearer: []
 paths:
@@ -206,6 +245,36 @@ paths:
       responses:
         '200': {description: Purge report, content: {application/json: {schema: {$ref: '#/components/schemas/PurgeReport'}}}}
         '401': {description: Unauthorized}
+  /v1/me/retention:
+    post:
+      summary: Enforce retention on the caller's data (B16; cutoff via SOVIR_RETENTION_MS)
+      responses:
+        '200': {description: Retention report, content: {application/json: {schema: {$ref: '#/components/schemas/RetentionReport'}}}}
+        '401': {description: Unauthorized}
+  /v1/webhooks:
+    post:
+      summary: Register a signed webhook endpoint (B20; SSRF allowlist enforced)
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/RegisterWebhookRequest'}}}
+      responses:
+        '201': {description: Registered, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookEndpoint'}}}}
+        '400': {description: Invalid or non-allowlisted URL}
+        '401': {description: Unauthorized}
+    get:
+      summary: List the caller's webhook endpoints
+      responses:
+        '200': {description: Endpoints, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/WebhookEndpoint'}}}}}
+        '401': {description: Unauthorized}
+  /v1/webhooks/{id}/revoke:
+    post:
+      summary: Revoke a webhook endpoint
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '204': {description: Revoked}
+        '401': {description: Unauthorized}
+        '404': {description: Not found}
   /v1/consents:
     post:
       summary: Create a demo-only source consent

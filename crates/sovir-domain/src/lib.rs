@@ -157,6 +157,22 @@ impl Device {
     }
 }
 
+/// Durable audit tombstone produced by erasure. Carries only counts and the
+/// pseudonymous principal id — never payloads. Retained after purge so the
+/// deletion itself is auditable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeletionReceipt {
+    pub receipt_id: String,
+    pub principal_id: String,
+    pub purged_at_ms: u64,
+    pub events_deleted: u64,
+    pub grants_deleted: u64,
+    pub interventions_deleted: u64,
+    pub sessions_revoked: u64,
+    pub devices_revoked: u64,
+    pub labels_scrubbed: u64,
+}
+
 /// Shared identifier rule: non-empty, bounded, no control characters.
 pub fn valid_identifier(s: &str) -> bool {
     !s.trim().is_empty() && s.len() <= 128 && !s.chars().any(char::is_control)
