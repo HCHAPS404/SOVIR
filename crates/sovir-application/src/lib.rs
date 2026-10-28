@@ -1,13 +1,13 @@
 //! Use cases and orchestrated policy checks. No Axum, SQL or model SDK dependencies.
 use sovir_domain::{
     intervention_for, next_attempt_ms, valid_identifier, validate_consent, validate_device,
-    validate_event, validate_url_for_egress, ConsentGrant, DeliveryAuditEntry, DeliveryState,
-    Device, DomainError, EventDecision, Intervention, ObservedEvent, Platform, Principal, Scope,
-    Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
+    validate_event, validate_url_for_egress, ConsentGrant, DeletionReceipt, DeliveryAuditEntry,
+    DeliveryState, Device, DomainError, EventDecision, Intervention, ObservedEvent, Platform,
+    Principal, Scope, Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
 };
 use sovir_ports::{
-    Clock, ConsentRepository, DeliveryChannel, DeviceRegistry, EventRepository, InterventionSink,
-    PortError, RiskAnalyzer, SessionStore, WebhookRegistry,
+    Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
+    EventRepository, InterventionSink, PortError, RiskAnalyzer, SessionStore, WebhookRegistry,
 };
 use std::sync::Arc;
 use thiserror::Error;
@@ -22,14 +22,23 @@ pub struct PrincipalDataExport {
     pub events: Vec<ObservedEvent>,
     pub devices: Vec<Device>,
     pub interventions: Vec<Intervention>,
+    pub deletion_receipts: Vec<DeletionReceipt>,
 }
 #[derive(Debug, serde::Serialize)]
 pub struct PurgeReport {
+    pub receipt_id: String,
     pub events_deleted: u64,
     pub grants_deleted: u64,
     pub interventions_deleted: u64,
     pub sessions_revoked: u64,
     pub devices_revoked: u64,
+    pub labels_scrubbed: u64,
+}
+#[derive(Debug, serde::Serialize)]
+pub struct RetentionReport {
+    pub cutoff_ms: u64,
+    pub events_deleted: u64,
+    pub terminal_interventions_deleted: u64,
 }
 
 #[derive(Debug, Error)]
@@ -63,6 +72,7 @@ pub struct ServicePorts {
     pub sink: Arc<dyn InterventionSink>,
     pub channel: Arc<dyn DeliveryChannel>,
     pub webhooks: Arc<dyn WebhookRegistry>,
+    pub receipts: Arc<dyn DeletionReceiptStore>,
 }
 
 #[derive(Clone)]
@@ -76,6 +86,7 @@ pub struct SovirService {
     sink: Arc<dyn InterventionSink>,
     channel: Arc<dyn DeliveryChannel>,
     webhooks: Arc<dyn WebhookRegistry>,
+    receipts: Arc<dyn DeletionReceiptStore>,
 }
 impl SovirService {
     pub fn new(clock: Arc<dyn Clock>, ports: ServicePorts) -> Self {
@@ -89,6 +100,7 @@ impl SovirService {
             sink: ports.sink,
             channel: ports.channel,
             webhooks: ports.webhooks,
+            receipts: ports.receipts,
         }
     }
 
@@ -357,22 +369,51 @@ impl SovirService {
             events: self.events.list_by_principal(&principal.principal_id)?,
             devices: self.devices.list(&principal.principal_id)?,
             interventions: self.sink.list(&principal.principal_id)?,
+            deletion_receipts: self.receipts.list_by_principal(&principal.principal_id)?,
+        })
+    }
+
+    /// Retention (B16): hard-deletes the caller's events and terminal
+    /// intervention records older than `now - retention_ms`. Pending/failed
+    /// interventions are kept — they still owe delivery attempts. A global
+    /// scheduled job over all principals is an infrastructure decision.
+    pub fn enforce_retention(
+        &self,
+        principal: &Principal,
+        retention_ms: u64,
+    ) -> Result<RetentionReport, AppError> {
+        let cutoff_ms = self.clock.now_ms().saturating_sub(retention_ms);
+        Ok(RetentionReport {
+            cutoff_ms,
+            events_deleted: self
+                .events
+                .delete_older_than(&principal.principal_id, cutoff_ms)?,
+            terminal_interventions_deleted: self
+                .sink
+                .delete_terminal_older_than(&principal.principal_id, cutoff_ms)?,
         })
     }
 
     /// Erasure: hard-deletes events, grants and intervention records; revokes
-    /// all sessions and devices (audit-preserving tombstones). The calling
-    /// session is revoked too — the request still completes.
+    /// all sessions and devices (audit-preserving tombstones) and scrubs
+    /// device labels. A durable `DeletionReceipt` records the counts — it is
+    /// audit metadata, not user content. The calling session is revoked too —
+    /// the request still completes.
     pub fn purge_data(&self, principal: &Principal) -> Result<PurgeReport, AppError> {
         let now = self.clock.now_ms();
         let mut report = PurgeReport {
+            receipt_id: uuid::Uuid::new_v4().simple().to_string(),
             events_deleted: self.events.delete_by_principal(&principal.principal_id)?,
             grants_deleted: self.grants.delete_by_principal(&principal.principal_id)?,
             interventions_deleted: self.sink.delete_by_principal(&principal.principal_id)?,
             sessions_revoked: self.sessions.revoke_by_principal(&principal.principal_id)?,
             devices_revoked: 0,
+            labels_scrubbed: 0,
         };
         for d in self.devices.list(&principal.principal_id)? {
+            report.labels_scrubbed += self
+                .devices
+                .scrub_label(&principal.principal_id, &d.device_id)?;
             if d.is_active() {
                 self.devices
                     .revoke(&principal.principal_id, &d.device_id, now)?;
@@ -380,6 +421,17 @@ impl SovirService {
                 report.devices_revoked += 1;
             }
         }
+        self.receipts.record(DeletionReceipt {
+            receipt_id: report.receipt_id.clone(),
+            principal_id: principal.principal_id.clone(),
+            purged_at_ms: now,
+            events_deleted: report.events_deleted,
+            grants_deleted: report.grants_deleted,
+            interventions_deleted: report.interventions_deleted,
+            sessions_revoked: report.sessions_revoked,
+            devices_revoked: report.devices_revoked,
+            labels_scrubbed: report.labels_scrubbed,
+        })?;
         Ok(report)
     }
 

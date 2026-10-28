@@ -8,9 +8,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sovir_adapters::{
     CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryConsentRepository,
-    InMemoryDeviceRegistry, InMemoryEventRepository, InMemoryInterventionSink,
-    InMemorySessionStore, InMemoryWebhookRegistry, RecordingDeliveryChannel, RecordingHttpEgress,
-    SystemClock, WebhookChannel,
+    InMemoryDeletionReceiptStore, InMemoryDeviceRegistry, InMemoryEventRepository,
+    InMemoryInterventionSink, InMemorySessionStore, InMemoryWebhookRegistry,
+    RecordingDeliveryChannel, RecordingHttpEgress, SystemClock, WebhookChannel,
 };
 use sovir_application::{AppError, PrincipalDataExport, PurgeReport, ServicePorts, SovirService};
 use sovir_domain::{
@@ -198,6 +198,7 @@ async fn compose_service(database_url: Option<&str>) -> (SovirService, Option<Pg
                     Arc::new(WebhookChannel::new(registry.clone(), egress.clone())),
                 ])),
                 webhooks: registry,
+                receipts: Arc::new(pg.clone()),
             },
         );
         return (service, Some(pg));
@@ -239,6 +240,7 @@ fn dev_service_with(
                 webhooks: registry
                     .clone()
                     .unwrap_or_else(|| Arc::new(InMemoryWebhookRegistry::default())),
+                receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
             },
         ),
         registry,
@@ -539,6 +541,25 @@ async fn purge_data(
             .map_err(|e| map_error(e, &headers))?,
     ))
 }
+/// B16 retention: caller-scoped deletion of events and terminal interventions
+/// older than SOVIR_RETENTION_MS (default 30 days). A scheduled global sweep
+/// remains an infrastructure decision — this is the executable per-principal
+/// half of the policy.
+async fn enforce_retention(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<sovir_application::RetentionReport>, ApiError> {
+    let p = require_principal(&headers, &s)?;
+    let retention_ms = std::env::var("SOVIR_RETENTION_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(30 * 24 * 60 * 60 * 1000);
+    Ok(Json(
+        s.service
+            .enforce_retention(&p, retention_ms)
+            .map_err(|e| map_error(e, &headers))?,
+    ))
+}
 
 fn build_router(state: AppState) -> Router {
     Router::new()
@@ -555,6 +576,7 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/interventions", get(list_interventions))
         .route("/v1/interventions/dispatch", post(dispatch))
         .route("/v1/me/data", get(export_data).delete(purge_data))
+        .route("/v1/me/retention", post(enforce_retention))
         .route("/v1/webhooks", post(register_webhook).get(list_webhooks))
         .route("/v1/webhooks/{id}/revoke", post(revoke_webhook))
         .layer(

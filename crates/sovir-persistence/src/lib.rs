@@ -7,11 +7,12 @@
 //! multi-thread Tokio runtime. Async ports are deferred to a future ADR; the
 //! in-memory adapters remain the default when `DATABASE_URL` is unset.
 use sovir_domain::{
-    ConsentGrant, DeliveryState, Device, Intervention, InterventionKind, Modality, ObservedEvent,
-    Platform, RiskSignal, Scope, SensitiveDataClass, Session,
+    ConsentGrant, DeletionReceipt, DeliveryState, Device, Intervention, InterventionKind, Modality,
+    ObservedEvent, Platform, RiskSignal, Scope, SensitiveDataClass, Session,
 };
 use sovir_ports::{
-    ConsentRepository, DeviceRegistry, EventRepository, InterventionSink, PortError, SessionStore,
+    ConsentRepository, DeletionReceiptStore, DeviceRegistry, EventRepository, InterventionSink,
+    PortError, SessionStore,
 };
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::future::Future;
@@ -381,6 +382,21 @@ impl EventRepository for PgStore {
             Ok(n)
         })
     }
+    fn delete_older_than(&self, principal_id: &str, cutoff_ms: u64) -> Result<u64, PortError> {
+        block(async {
+            let n = sqlx::query(
+                "DELETE FROM observation_events
+                 WHERE principal_id = $1 AND observed_at_ms < $2",
+            )
+            .bind(principal_id)
+            .bind(cutoff_ms as i64)
+            .execute(&self.pool)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n)
+        })
+    }
 }
 
 impl SessionStore for PgStore {
@@ -595,6 +611,21 @@ impl DeviceRegistry for PgStore {
             Ok(n > 0)
         })
     }
+    fn scrub_label(&self, principal_id: &str, device_id: &str) -> Result<u64, PortError> {
+        block(async {
+            let n = sqlx::query(
+                "UPDATE devices SET label = '[redacted]'
+                 WHERE principal_id = $1 AND device_id = $2 AND label <> '[redacted]'",
+            )
+            .bind(principal_id)
+            .bind(device_id)
+            .execute(&self.pool)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n)
+        })
+    }
 }
 
 type InterventionRow = (
@@ -732,6 +763,92 @@ impl InterventionSink for PgStore {
                 .await
                 .map_err(map_storage)?;
             rows.into_iter().map(row_to_intervention).collect()
+        })
+    }
+    fn delete_terminal_older_than(
+        &self,
+        principal_id: &str,
+        cutoff_ms: u64,
+    ) -> Result<u64, PortError> {
+        block(async {
+            let n = sqlx::query(
+                "DELETE FROM interventions
+                 WHERE principal_id = $1 AND created_at_ms < $2
+                   AND state IN ('delivered','expired')",
+            )
+            .bind(principal_id)
+            .bind(cutoff_ms as i64)
+            .execute(&self.pool)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n)
+        })
+    }
+}
+
+impl DeletionReceiptStore for PgStore {
+    fn record(&self, receipt: DeletionReceipt) -> Result<(), PortError> {
+        block(async {
+            sqlx::query(
+                "INSERT INTO deletion_receipts
+                 (receipt_id, principal_id, purged_at_ms, events_deleted,
+                  grants_deleted, interventions_deleted, sessions_revoked,
+                  devices_revoked, labels_scrubbed)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+            )
+            .bind(&receipt.receipt_id)
+            .bind(&receipt.principal_id)
+            .bind(receipt.purged_at_ms as i64)
+            .bind(receipt.events_deleted as i64)
+            .bind(receipt.grants_deleted as i64)
+            .bind(receipt.interventions_deleted as i64)
+            .bind(receipt.sessions_revoked as i64)
+            .bind(receipt.devices_revoked as i64)
+            .bind(receipt.labels_scrubbed as i64)
+            .execute(&self.pool)
+            .await
+            .map_err(map_storage)?;
+            Ok(())
+        })
+    }
+    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<DeletionReceipt>, PortError> {
+        block(async {
+            let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, i64, i64)>(
+                "SELECT receipt_id, purged_at_ms, events_deleted, grants_deleted,
+                        interventions_deleted, sessions_revoked, devices_revoked,
+                        labels_scrubbed
+                 FROM deletion_receipts WHERE principal_id = $1 ORDER BY purged_at_ms",
+            )
+            .bind(principal_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(map_storage)?;
+            Ok(rows
+                .into_iter()
+                .map(
+                    |(
+                        receipt_id,
+                        purged_at_ms,
+                        events_deleted,
+                        grants_deleted,
+                        interventions_deleted,
+                        sessions_revoked,
+                        devices_revoked,
+                        labels_scrubbed,
+                    )| DeletionReceipt {
+                        receipt_id,
+                        principal_id: principal_id.to_string(),
+                        purged_at_ms: purged_at_ms as u64,
+                        events_deleted: events_deleted as u64,
+                        grants_deleted: grants_deleted as u64,
+                        interventions_deleted: interventions_deleted as u64,
+                        sessions_revoked: sessions_revoked as u64,
+                        devices_revoked: devices_revoked as u64,
+                        labels_scrubbed: labels_scrubbed as u64,
+                    },
+                )
+                .collect())
         })
     }
 }

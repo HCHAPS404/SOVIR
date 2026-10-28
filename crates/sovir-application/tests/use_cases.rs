@@ -1,15 +1,15 @@
 use sovir_adapters::{
     CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryConsentRepository,
-    InMemoryDeviceRegistry, InMemoryEventRepository, InMemoryInterventionSink,
-    InMemorySessionStore, InMemoryWebhookRegistry, RecordingDeliveryChannel, RecordingHttpEgress,
-    WebhookChannel,
+    InMemoryDeletionReceiptStore, InMemoryDeviceRegistry, InMemoryEventRepository,
+    InMemoryInterventionSink, InMemorySessionStore, InMemoryWebhookRegistry,
+    RecordingDeliveryChannel, RecordingHttpEgress, WebhookChannel,
 };
 use sovir_application::{AppError, ServicePorts, SovirService};
 use sovir_domain::{
-    ConsentGrant, DeliveryState, DomainError, InterventionKind, Modality, ObservedEvent, Platform,
-    Principal, RiskLevel, RiskSignal, Scope, SensitiveDataClass,
+    ConsentGrant, DeliveryState, DomainError, Intervention, InterventionKind, Modality,
+    ObservedEvent, Platform, Principal, RiskLevel, RiskSignal, Scope, SensitiveDataClass,
 };
-use sovir_ports::Clock;
+use sovir_ports::{Clock, InterventionSink};
 use std::sync::Arc;
 struct FixedClock;
 impl Clock for FixedClock {
@@ -29,6 +29,7 @@ fn service() -> SovirService {
             sink: Arc::new(InMemoryInterventionSink::default()),
             channel: Arc::new(RecordingDeliveryChannel::default()),
             webhooks: Arc::new(InMemoryWebhookRegistry::default()),
+            receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
         },
     )
 }
@@ -212,7 +213,59 @@ fn export_and_purge_principal_data() {
     assert_eq!(report.grants_deleted, 1);
     assert_eq!(report.interventions_deleted, 1);
     assert_eq!(report.devices_revoked, 1);
-    assert!(service.export_data(&p).unwrap().events.is_empty());
+    assert_eq!(report.labels_scrubbed, 1);
+    assert!(!report.receipt_id.is_empty());
+    let after = service.export_data(&p).unwrap();
+    assert!(after.events.is_empty());
+    // Erasure scrubs the user-supplied label but keeps the revoked tombstone.
+    assert_eq!(after.devices[0].label, "[redacted]");
+    assert!(!after.devices[0].is_active());
+    // A durable deletion receipt survives the purge as audit metadata.
+    assert_eq!(after.deletion_receipts.len(), 1);
+    assert_eq!(after.deletion_receipts[0].receipt_id, report.receipt_id);
+}
+#[test]
+fn retention_deletes_old_events_keeps_recent_and_pending() {
+    let service = service();
+    let p = principal("p-1");
+    service.grant(&p, grant()).unwrap();
+    let mut old = event();
+    old.event_id = "event-old".into();
+    old.observed_at_ms = 9_000;
+    service.ingest(&p, old).unwrap();
+    service.ingest(&p, event()).unwrap(); // observed_at_ms = 10_000
+                                          // FixedClock now = 10_000; retention 500ms -> cutoff 9_500.
+    let report = service.enforce_retention(&p, 500).unwrap();
+    assert_eq!(report.cutoff_ms, 9_500);
+    assert_eq!(report.events_deleted, 1);
+    let kept = service.export_data(&p).unwrap().events;
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].event_id, "event-1");
+}
+#[test]
+fn retention_sink_drops_terminal_only() {
+    let sink = InMemoryInterventionSink::default();
+    let make = |id: &str, state: DeliveryState| Intervention {
+        intervention_id: id.into(),
+        event_id: "e".into(),
+        principal_id: "p-1".into(),
+        device_id: "d".into(),
+        kind: InterventionKind::WarnBanner,
+        state,
+        attempts: 1,
+        created_at_ms: 9_000,
+        next_attempt_at_ms: 0,
+        last_error: None,
+        audit: vec![],
+    };
+    sink.enqueue(make("done", DeliveryState::Delivered))
+        .unwrap();
+    sink.enqueue(make("pending", DeliveryState::Pending))
+        .unwrap();
+    assert_eq!(sink.delete_terminal_older_than("p-1", 9_500).unwrap(), 1);
+    let left = sink.list("p-1").unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].intervention_id, "pending");
 }
 #[test]
 fn revoking_device_expires_its_pending_interventions() {
@@ -250,6 +303,7 @@ fn webhook_delivery_signs_and_honors_allowlist_and_revocation() {
                 Arc::new(WebhookChannel::new(registry.clone(), egress.clone())),
             ])),
             webhooks: registry,
+            receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
         },
     );
     let p = principal("p-1");
