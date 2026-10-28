@@ -221,7 +221,10 @@ fn revoking_device_expires_its_pending_interventions() {
         .unwrap();
     service.grant(&p, grant()).unwrap();
     service.ingest(&p, event()).unwrap(); // warn -> pending intervention
-    assert_eq!(service.list_interventions(&p).unwrap()[0].state, DeliveryState::Pending);
+    assert_eq!(
+        service.list_interventions(&p).unwrap()[0].state,
+        DeliveryState::Pending
+    );
     service.revoke_device(&p, "dev-device").unwrap();
     let after = service.list_interventions(&p).unwrap();
     assert_eq!(after[0].state, DeliveryState::Expired);

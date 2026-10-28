@@ -18,6 +18,11 @@ use sovir_domain::{
 };
 use sovir_persistence::PgStore;
 use sovir_ports::PortError;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 use tower::ServiceBuilder;
 use tower_http::{
@@ -34,12 +39,104 @@ struct AppState {
     /// Present only when the durable Postgres adapter is active; readiness
     /// then means a live pool probe instead of a trivial constant.
     pg: Option<PgStore>,
+    /// Dev fixed-window rate limiter keyed by principal+device. In-memory and
+    /// per-process only: a real limiter lives at the edge/infra layer.
+    limits: std::sync::Arc<Mutex<HashMap<String, (u64, u64)>>>,
+    rate_limit_per_min: u64,
+    /// Dev idempotency store: Idempotency-Key -> (request body hash, stored
+    /// response). In-memory only; durable dedup is the EventRepository's job
+    /// (event_id uniqueness) plus a future idempotency table.
+    idem: std::sync::Arc<Mutex<HashMap<String, (u64, serde_json::Value)>>>,
 }
 #[derive(Serialize)]
 struct ApiMessage {
     message: &'static str,
 }
-type ApiError = (StatusCode, Json<ApiMessage>);
+
+/// Standard error envelope: {"error":{"code","request_id","retryable"}}.
+/// Kept small enough to pass clippy's result_large_err gate.
+struct ApiError {
+    status: StatusCode,
+    code: &'static str,
+    request_id: String,
+    retryable: bool,
+    retry_after: Option<u64>,
+}
+impl axum::response::IntoResponse for ApiError {
+    fn into_response(self) -> axum::response::Response {
+        let mut headers = HeaderMap::new();
+        if let Some(secs) = self.retry_after {
+            headers.insert("retry-after", secs.into());
+        }
+        (
+            self.status,
+            headers,
+            Json(serde_json::json!({
+                "error": {
+                    "code": self.code,
+                    "request_id": self.request_id,
+                    "retryable": self.retryable,
+                }
+            })),
+        )
+            .into_response()
+    }
+}
+fn request_id(headers: &HeaderMap) -> String {
+    headers
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("-")
+        .to_string()
+}
+fn api_err(
+    status: StatusCode,
+    code: &'static str,
+    headers: &HeaderMap,
+    retryable: bool,
+) -> ApiError {
+    ApiError {
+        status,
+        code,
+        request_id: request_id(headers),
+        retryable,
+        retry_after: None,
+    }
+}
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+const RATE_WINDOW_MS: u64 = 60_000;
+fn rate_check(state: &AppState, p: &Principal, headers: &HeaderMap) -> Result<(), ApiError> {
+    let key = format!("{}|{}", p.principal_id, p.device_id);
+    let now = now_ms();
+    let mut guard = state.limits.lock().map_err(|_| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        code: "internal_error",
+        request_id: request_id(headers),
+        retryable: true,
+        retry_after: None,
+    })?;
+    let (count, window_start) = guard.entry(key).or_insert((0, now));
+    if now.saturating_sub(*window_start) >= RATE_WINDOW_MS {
+        *count = 0;
+        *window_start = now;
+    }
+    *count += 1;
+    if *count > state.rate_limit_per_min {
+        return Err(ApiError {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            code: "rate_limited",
+            request_id: request_id(headers),
+            retryable: true,
+            retry_after: Some(RATE_WINDOW_MS / 1000),
+        });
+    }
+    Ok(())
+}
 
 fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     headers
@@ -50,29 +147,28 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 /// Resolves the session bearer token to a Principal. Dev sessions only —
 /// never expose this service publicly.
 fn require_principal(headers: &HeaderMap, state: &AppState) -> Result<Principal, ApiError> {
-    let token = bearer_token(headers).ok_or((
-        StatusCode::UNAUTHORIZED,
-        Json(ApiMessage {
-            message: "unauthorized",
-        }),
-    ))?;
-    state.service.authenticate(token).map_err(map_error)
+    let token = bearer_token(headers)
+        .ok_or_else(|| api_err(StatusCode::UNAUTHORIZED, "unauthorized", headers, false))?;
+    state
+        .service
+        .authenticate(token)
+        .map_err(|e| map_error(e, headers))
 }
-fn map_error(e: AppError) -> ApiError {
-    let (status, message) = match e {
-        AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
-        AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden"),
-        AppError::DeviceRevoked => (StatusCode::FORBIDDEN, "device_revoked"),
+fn map_error(e: AppError, headers: &HeaderMap) -> ApiError {
+    let (status, code, retryable) = match e {
+        AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized", false),
+        AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden", false),
+        AppError::DeviceRevoked => (StatusCode::FORBIDDEN, "device_revoked", false),
         AppError::Domain(DomainError::ConsentRequired) | AppError::ConsentNotFound => {
-            (StatusCode::FORBIDDEN, "consent_required")
+            (StatusCode::FORBIDDEN, "consent_required", false)
         }
         AppError::Domain(_) | AppError::InvalidGrant | AppError::InvalidRequest => {
-            (StatusCode::BAD_REQUEST, "invalid_request")
+            (StatusCode::BAD_REQUEST, "invalid_request", false)
         }
-        AppError::Port(PortError::Duplicate) => (StatusCode::CONFLICT, "duplicate_event"),
-        AppError::Port(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
+        AppError::Port(PortError::Duplicate) => (StatusCode::CONFLICT, "duplicate_event", false),
+        AppError::Port(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error", true),
     };
-    (status, Json(ApiMessage { message }))
+    api_err(status, code, headers, retryable)
 }
 /// Durable adapter when `DATABASE_URL` is set (fails closed on connect
 /// error); in-memory otherwise.
@@ -118,12 +214,13 @@ async fn live() -> Json<ApiMessage> {
 // it is a real pool probe (SELECT 1).
 async fn ready(State(s): State<AppState>) -> Result<Json<ApiMessage>, ApiError> {
     match &s.pg {
-        Some(pg) if !pg.healthy().await => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiMessage {
-                message: "not_ready",
-            }),
-        )),
+        Some(pg) if !pg.healthy().await => Err(ApiError {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "not_ready",
+            request_id: "-".to_string(),
+            retryable: true,
+            retry_after: None,
+        }),
         _ => Ok(Json(ApiMessage { message: "ready" })),
     }
 }
@@ -136,38 +233,34 @@ struct DevSessionRequest {
 }
 async fn dev_session(
     State(s): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<DevSessionRequest>,
 ) -> Result<(StatusCode, Json<Session>), ApiError> {
     if !s.dev_session_enabled {
-        return Err((
+        return Err(api_err(
             StatusCode::FORBIDDEN,
-            Json(ApiMessage {
-                message: "dev_sessions_disabled",
-            }),
+            "dev_sessions_disabled",
+            &headers,
+            false,
         ));
     }
     let device_id = body.device_id.unwrap_or_else(|| "dev-device".to_string());
     let session = s
         .service
         .issue_dev_session(&body.principal_id, &device_id)
-        .map_err(map_error)?;
+        .map_err(|e| map_error(e, &headers))?;
     Ok((StatusCode::CREATED, Json(session)))
 }
 async fn logout(State(s): State<AppState>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
-    let token = bearer_token(&headers).ok_or((
-        StatusCode::UNAUTHORIZED,
-        Json(ApiMessage {
-            message: "unauthorized",
-        }),
-    ))?;
-    match s.service.logout(token).map_err(map_error)? {
+    let token = bearer_token(&headers)
+        .ok_or_else(|| api_err(StatusCode::UNAUTHORIZED, "unauthorized", &headers, false))?;
+    match s
+        .service
+        .logout(token)
+        .map_err(|e| map_error(e, &headers))?
+    {
         true => Ok(StatusCode::NO_CONTENT),
-        false => Err((
-            StatusCode::NOT_FOUND,
-            Json(ApiMessage {
-                message: "not_found",
-            }),
-        )),
+        false => Err(api_err(StatusCode::NOT_FOUND, "not_found", &headers, false)),
     }
 }
 async fn whoami(
@@ -194,7 +287,7 @@ async fn register_device(
     let device = s
         .service
         .register_device(&p, body.device_id.as_deref(), body.platform, &body.label)
-        .map_err(map_error)?;
+        .map_err(|e| map_error(e, &headers))?;
     Ok((StatusCode::CREATED, Json(device)))
 }
 async fn list_devices(
@@ -202,7 +295,11 @@ async fn list_devices(
     headers: HeaderMap,
 ) -> Result<Json<Vec<Device>>, ApiError> {
     let p = require_principal(&headers, &s)?;
-    Ok(Json(s.service.list_devices(&p).map_err(map_error)?))
+    Ok(Json(
+        s.service
+            .list_devices(&p)
+            .map_err(|e| map_error(e, &headers))?,
+    ))
 }
 async fn revoke_device(
     State(s): State<AppState>,
@@ -210,14 +307,13 @@ async fn revoke_device(
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let p = require_principal(&headers, &s)?;
-    match s.service.revoke_device(&p, &id).map_err(map_error)? {
+    match s
+        .service
+        .revoke_device(&p, &id)
+        .map_err(|e| map_error(e, &headers))?
+    {
         true => Ok(StatusCode::NO_CONTENT),
-        false => Err((
-            StatusCode::NOT_FOUND,
-            Json(ApiMessage {
-                message: "not_found",
-            }),
-        )),
+        false => Err(api_err(StatusCode::NOT_FOUND, "not_found", &headers, false)),
     }
 }
 
@@ -227,7 +323,10 @@ async fn grant(
     Json(body): Json<ConsentGrant>,
 ) -> Result<StatusCode, ApiError> {
     let p = require_principal(&headers, &s)?;
-    s.service.grant(&p, body).map_err(map_error)?;
+    rate_check(&s, &p, &headers)?;
+    s.service
+        .grant(&p, body)
+        .map_err(|e| map_error(e, &headers))?;
     Ok(StatusCode::CREATED)
 }
 async fn revoke(
@@ -236,14 +335,13 @@ async fn revoke(
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let p = require_principal(&headers, &s)?;
-    match s.service.revoke(&p, &id).map_err(map_error)? {
+    match s
+        .service
+        .revoke(&p, &id)
+        .map_err(|e| map_error(e, &headers))?
+    {
         true => Ok(StatusCode::NO_CONTENT),
-        false => Err((
-            StatusCode::NOT_FOUND,
-            Json(ApiMessage {
-                message: "not_found",
-            }),
-        )),
+        false => Err(api_err(StatusCode::NOT_FOUND, "not_found", &headers, false)),
     }
 }
 async fn ingest(
@@ -252,7 +350,64 @@ async fn ingest(
     Json(body): Json<ObservedEvent>,
 ) -> Result<(StatusCode, Json<EventDecision>), ApiError> {
     let p = require_principal(&headers, &s)?;
-    let decision = s.service.ingest(&p, body).map_err(map_error)?;
+    rate_check(&s, &p, &headers)?;
+    // Idempotency-Key is mandatory for event ingestion (B10). Replay of the
+    // same key+body returns the stored response; same key with a different
+    // body conflicts.
+    let key = headers
+        .get("idempotency-key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            api_err(
+                StatusCode::BAD_REQUEST,
+                "idempotency_key_required",
+                &headers,
+                false,
+            )
+        })?;
+    let mut h = DefaultHasher::new();
+    serde_json::to_string(&body)
+        .unwrap_or_default()
+        .hash(&mut h);
+    let body_hash = h.finish();
+    {
+        let store = s.idem.lock().map_err(|_| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: "internal_error",
+            request_id: request_id(&headers),
+            retryable: true,
+            retry_after: None,
+        })?;
+        if let Some((stored_hash, stored_resp)) = store.get(&key) {
+            if *stored_hash == body_hash {
+                let decision: EventDecision =
+                    serde_json::from_value(stored_resp.clone()).map_err(|_| ApiError {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        code: "internal_error",
+                        request_id: request_id(&headers),
+                        retryable: true,
+                        retry_after: None,
+                    })?;
+                return Ok((StatusCode::CREATED, Json(decision)));
+            }
+            return Err(api_err(
+                StatusCode::CONFLICT,
+                "idempotency_conflict",
+                &headers,
+                false,
+            ));
+        }
+    }
+    let decision = s
+        .service
+        .ingest(&p, body)
+        .map_err(|e| map_error(e, &headers))?;
+    if let Ok(mut store) = s.idem.lock() {
+        if let Ok(v) = serde_json::to_value(&decision) {
+            store.insert(key, (body_hash, v));
+        }
+    }
     Ok((StatusCode::CREATED, Json(decision)))
 }
 async fn list_interventions(
@@ -260,7 +415,11 @@ async fn list_interventions(
     headers: HeaderMap,
 ) -> Result<Json<Vec<Intervention>>, ApiError> {
     let p = require_principal(&headers, &s)?;
-    Ok(Json(s.service.list_interventions(&p).map_err(map_error)?))
+    Ok(Json(
+        s.service
+            .list_interventions(&p)
+            .map_err(|e| map_error(e, &headers))?,
+    ))
 }
 #[derive(Serialize)]
 struct DispatchResult {
@@ -271,7 +430,10 @@ async fn dispatch(
     headers: HeaderMap,
 ) -> Result<Json<DispatchResult>, ApiError> {
     let p = require_principal(&headers, &s)?;
-    let delivered = s.service.dispatch_due(&p).map_err(map_error)?;
+    let delivered = s
+        .service
+        .dispatch_due(&p)
+        .map_err(|e| map_error(e, &headers))?;
     Ok(Json(DispatchResult { delivered }))
 }
 
@@ -280,14 +442,22 @@ async fn export_data(
     headers: HeaderMap,
 ) -> Result<Json<PrincipalDataExport>, ApiError> {
     let p = require_principal(&headers, &s)?;
-    Ok(Json(s.service.export_data(&p).map_err(map_error)?))
+    Ok(Json(
+        s.service
+            .export_data(&p)
+            .map_err(|e| map_error(e, &headers))?,
+    ))
 }
 async fn purge_data(
     State(s): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<PurgeReport>, ApiError> {
     let p = require_principal(&headers, &s)?;
-    Ok(Json(s.service.purge_data(&p).map_err(map_error)?))
+    Ok(Json(
+        s.service
+            .purge_data(&p)
+            .map_err(|e| map_error(e, &headers))?,
+    ))
 }
 
 fn build_router(state: AppState) -> Router {
@@ -355,10 +525,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().with_env_filter("info").init();
     let database_url = env::var("DATABASE_URL").ok();
     let (service, pg) = compose_service(database_url.as_deref()).await;
+    let rate_limit_per_min = env::var("SOVIR_RATE_LIMIT_PER_MIN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
     let state = AppState {
         service,
         dev_session_enabled,
         pg,
+        limits: std::sync::Arc::new(Mutex::new(HashMap::new())),
+        rate_limit_per_min,
+        idem: std::sync::Arc::new(Mutex::new(HashMap::new())),
     };
     let app = build_router(state);
     tracing::info!(addr = %addr, env = %sovir_env, "starting loopback-only SOVIR development API");
@@ -379,6 +556,9 @@ mod tests {
             service: dev_service(),
             dev_session_enabled: true,
             pg: None,
+            limits: std::sync::Arc::new(Mutex::new(HashMap::new())),
+            rate_limit_per_min: 60,
+            idem: std::sync::Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -565,6 +745,107 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    fn valid_event() -> serde_json::Value {
+        serde_json::json!({
+            "event_id": format!("e-{}", uuid::Uuid::new_v4()),
+            "source_id": "browser.synthetic",
+            "observed_at_ms": now_ms(),
+            "modality": "URL",
+            "content_digest": "sha256:test",
+            "consent_grant_id": "g-1",
+            "sensitive_data_class": "PUBLIC"
+        })
+    }
+    async fn grant_consent(app: &mut Router, token: &str) {
+        let body = serde_json::json!({
+            "grant_id": "g-1", "source_id": "browser.synthetic",
+            "expires_at_ms": now_ms() + 3_600_000
+        });
+        let r = app
+            .call(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/consents")
+                    .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::CREATED);
+    }
+    async fn post_event(
+        app: &mut Router,
+        token: &str,
+        idem: Option<&str>,
+        event: &serde_json::Value,
+    ) -> axum::response::Response {
+        let mut b = Request::builder()
+            .method("POST")
+            .uri("/v1/events")
+            .header("content-type", "application/json")
+            .header("authorization", format!("Bearer {token}"));
+        if let Some(k) = idem {
+            b = b.header("idempotency-key", k);
+        }
+        app.call(
+            b.body(Body::from(serde_json::to_vec(event).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn events_require_idempotency_key() {
+        let mut app = build_router(test_state());
+        let token = session_token(&mut app, "user-1").await;
+        grant_consent(&mut app, &token).await;
+        let r = post_event(&mut app, &token, None, &valid_event()).await;
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn idempotent_replay_returns_stored_response() {
+        let mut app = build_router(test_state());
+        let token = session_token(&mut app, "user-1").await;
+        grant_consent(&mut app, &token).await;
+        let event = valid_event();
+        let r1 = post_event(&mut app, &token, Some("k-1"), &event).await;
+        assert_eq!(r1.status(), StatusCode::CREATED);
+        // Same key + same body replays the stored response (even though the
+        // event_id would otherwise dedup-conflict).
+        let r2 = post_event(&mut app, &token, Some("k-1"), &event).await;
+        assert_eq!(r2.status(), StatusCode::CREATED);
+        // Same key + different body conflicts.
+        let mut other = event.clone();
+        other["event_id"] = serde_json::json!("e-different");
+        let r3 = post_event(&mut app, &token, Some("k-1"), &other).await;
+        assert_eq!(r3.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn rate_limit_returns_429_with_retry_after() {
+        let mut state = test_state();
+        // grant consumes one request from the same principal window.
+        state.rate_limit_per_min = 3;
+        let mut app = build_router(state);
+        let token = session_token(&mut app, "user-1").await;
+        grant_consent(&mut app, &token).await;
+        for i in 0..2 {
+            let mut e = valid_event();
+            e["event_id"] = serde_json::json!(format!("e-{i}"));
+            let r = post_event(&mut app, &token, Some(&format!("k-{i}")), &e).await;
+            assert_eq!(r.status(), StatusCode::CREATED);
+        }
+        let mut e = valid_event();
+        e["event_id"] = serde_json::json!("e-overflow");
+        let r = post_event(&mut app, &token, Some("k-overflow"), &e).await;
+        assert_eq!(r.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(r.headers().get("retry-after").unwrap(), "60");
     }
 
     #[tokio::test]
