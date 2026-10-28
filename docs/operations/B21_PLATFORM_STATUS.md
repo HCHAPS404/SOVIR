@@ -19,9 +19,12 @@
 | `python scripts/backend_harness.py` | PASS | estructura + toolchain completo |
 | `python scripts/harness.py check` | PASS | escaneo léxico; no es verificación AST completa |
 | `python scripts/harness.py eval` | PASS | 15 escenarios sintéticos; sin modelo real |
-| `uv run scripts/contract_check.py --self-test` | PASS | 48 checks: OpenAPI, JSON Schema, fixtures, sobre-declaración de rechazo |
-| Docker / PostgreSQL local | NOT_INSTALLED | aplazado en `DEFERRED_TOOLCHAINS.md`; Postgres se prueba vía service container en CI |
-| `make backend-smoke` | NOT_RUN | requiere server en marcha con token dev |
+| `uv run scripts/contract_check.py --self-test` | PASS | 52 checks: OpenAPI, JSON Schema, fixtures, pares de migraciones, sobre-declaración de rechazo |
+| `make backend-smoke` | PASS (local) | grant 201 → event 201 → revoke 204 → event 403 contra server real |
+| `cargo test --workspace` | PASS | 13 tests (9 anteriores + 4 de adapter HTTP) |
+| `cargo deny check` / `cargo audit` | PASS | licencias/bans/fuentes ok; 81 deps, 0 vulnerabilidades |
+| Migraciones apply/revert en Postgres | NOT_RUN local | Docker aplazado; se verifica en CI con service container |
+| Docker / PostgreSQL local | NOT_INSTALLED | aplazado en `DEFERRED_TOOLCHAINS.md` |
 | Inferencia remota / Modal / proveedores | NOT_IMPLEMENTED | sin llamadas de pago; USD 0 gastados |
 
 ## Inventario real
@@ -31,20 +34,21 @@
 - Persistencia: `infra/postgres/migrations/0001_initial.sql` propuesta con RLS sin políticas (default-deny); **sin runner ni adaptador**.
 - CI existente: `ci.yml` (harness) y `backend.yml` (Rust gate).
 
-## Qué añade este gate (PR B21-A)
+## Qué añade este trabajo (B21)
 
-1. `scripts/contract_check.py` — valida OpenAPI, resolución de `$ref`, invariantes del schema (consent obligatorio, `additionalProperties: false`), conformidad de fixtures y política de fixtures sintéticos (nunca `SECRET`, nunca `payload_ref`). `--self-test` demuestra que el gate rechaza documentos inválidos.
-2. Workflow `backend.yml` — jobs `contracts`, `supply-chain` (`cargo deny check` + `cargo audit`) y `secrets` (gitleaks).
-3. `deny.toml` — licencias permitidas, advisories, bans, fuentes.
-4. `.gitleaks.toml` — reglas por defecto + allowlist de fixtures/placeholders.
-5. `make contract-check` — gate local equivalente.
+1. `scripts/contract_check.py` — valida OpenAPI, resolución de `$ref`, invariantes del schema, conformidad de fixtures, política sintética y pares de migraciones reversibles. `--self-test` demuestra que el gate rechaza documentos inválidos.
+2. Workflow `backend.yml` — jobs `rust-backend` (ahora con smoke e2e), `contracts`, `migrations` (Postgres efímero), `supply-chain` (`cargo deny`/`audit`), `secrets` (gitleaks).
+3. `deny.toml` + `.gitleaks.toml` — licencias, advisories, bans, fuentes y allowlist de fixtures.
+4. `services/migrations` (`sovir-migrations`) — runner sqlx apply/revert/status contra `DATABASE_URL`; `0001_initial` en formato reversible `.up.sql`/`.down.sql`.
+5. `services/api` — `x-request-id`, span de tracing con request_id, `/health/ready`, límite de 64 KB, timeout 30 s, 4 tests de adapter.
+6. `make contract-check`, `B21_LOCAL_DEV.md` (runbook Windows/Linux) y `.env.example` por secciones.
 
-## Brechas conocidas (siguientes cortes B21)
+## Brechas conocidas (siguientes cortes)
 
-- Sin runner de migraciones ni job de migraciones (B21-B).
-- Sin correlation IDs, `/health/ready` ni límite de body en `services/api` (B21-C).
-- Sin separación de envs ni runbook Windows/Linux (B21-D).
-- Identidad real, persistencia, RLS policies, observabilidad de métricas: dominios B8/B16/B17, pendientes.
+- Sin adaptador sqlx de dominio (la API sigue en memoria) — espera puerto de persistencia de Claude + ticket.
+- Sin políticas RLS ni rol de aplicación (default-deny deliberado) — B16/B19.
+- Sin identidad real (B8), sin métricas exportadas ni dashboards, sin OIDC.
+- Migraciones de `undo` limitadas: cada `.up.sql` debe traer su `.down.sql` desde ahora.
 
 ## Costo
 
