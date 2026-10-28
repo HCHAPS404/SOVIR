@@ -14,13 +14,14 @@
 | Rama | Head | Contenido | Tipo |
 |---|---|---|---|
 | `infra/backend-platform-b21` | `5be7c80` | B21-A/B/C/D (abajo) | implementación + docs |
-| `feat/backend-identity-b8` | `0ebfbd3` | `docs/backend/proposals/b8-identity-contract.md` | PROPUESTA |
+| `feat/backend-identity-b8` | `f1d8ed7` | propuesta + implementación: Principal, sesiones dev, Device registry (ADR-0006) | IMPLEMENTADO dev (sin OIDC) |
 | `feat/backend-data-governance-b16` | `a20c98c` | `docs/backend/proposals/b16-data-governance.md` | PROPUESTA + política |
 | `feat/backend-security-b17` | `48aa294` | `docs/security/THREAT_MODEL_B17.md` | STRIDE/LINDDUN + riesgos R1–R6 |
 | `feat/backend-devices-b9` | `45e6b1d` | `docs/backend/proposals/b9-devices-adapter.md` | PROPUESTA |
+| `infra/backend-persistence-pg` | `747696c` | `crates/sovir-persistence` (5 puertos sqlx) + migraciones 0001/0002 | IMPLEMENTADO — e2e PG solo en CI |
 | `feat/backend-ingestion-b10` | `c0c1b1e` | propuesta + adapter implementado (idempotency, rate limit, error envelope) | PARCIAL — falta durable store |
 | `feat/backend-edge-runtime-b11` | `2513372` | propuesta + benchmark criterion + build matrix 3-OS | PARCIAL — FFI pendiente de Claude |
-| `feat/backend-intervention-b15` | `7936f11` | `docs/backend/proposals/b15-intervention-delivery.md` | PROPUESTA |
+| `feat/backend-intervention-b15` | `4af583b` | propuesta + InterventionSink/DeliveryChannel, backoff y auditoría | IMPLEMENTADO dev (canal in-memory) |
 | `feat/backend-integrations-b20` | `7af9b8c` | `docs/backend/proposals/b20-integrations.md` | PROPUESTA |
 
 ## Qué implementa Corte 0 (B21, esta rama)
