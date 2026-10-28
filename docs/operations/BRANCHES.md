@@ -34,19 +34,32 @@ La siguiente matriz es un **mapa de propiedad de dominios**, NO una instrucción
 | B6 | `feat/backend-sync-b6` | Sincronización cifrada, conflictos y copias opcionales | P1 | Devin |
 | B7 | `feat/backend-billing-b7` | Consumo facturable, cuotas, planes y conciliación | P1 | Devin |
 | B8 | `feat/backend-identity-b8` | Identidad, autenticación, sesiones, MFA y autorización | P0 | Devin |
-| B9 | `feat/backend-devices-b9` | Registro, capacidades y confianza de dispositivos | P0 | Cursor |
-| B10 | `feat/backend-ingestion-b10` | Normalización, validación y deduplicación de señales autorizadas | P0 | Cursor |
-| B11 | `feat/backend-edge-runtime-b11` | Núcleo local, FFI/IPC, colas y control CPU/GPU/RAM/batería | P0 | Cursor |
+| B9 | `feat/backend-devices-b9` | Registro, capacidades y confianza de dispositivos | P0 | Claude (dominio de dispositivos); Devin (persistencia/servicio) |
+| B10 | `feat/backend-ingestion-b10` | Normalización, validación y deduplicación de señales autorizadas | P0 | Claude (ingestión y validación); Devin (adaptador API) |
+| B11 | `feat/backend-edge-runtime-b11` | Núcleo local, FFI/IPC, colas y control CPU/GPU/RAM/batería | P0 | Claude (runtime Rust); Devin (benchmarks/CI) |
 | B12 | `feat/backend-context-graph-b12` | Grafo temporal y correlación justificable de evidencias | P0 | Claude |
 | B13 | `feat/backend-threat-detection-b13` | Detectores de fraude, manipulación, privacidad y bienestar observable | P0 | Claude |
 | B14 | `feat/backend-predictive-ml-b14` | Modelos temporales, evaluación, calibración y deriva | P1 | Claude |
-| B15 | `feat/backend-intervention-b15` | Alertas y acciones preventivas autorizadas | P0 | Cursor (política con Claude) |
+| B15 | `feat/backend-intervention-b15` | Alertas y acciones preventivas autorizadas | P0 | Claude (lógica y protocolo de intervención); Devin (servicio/colas) |
 | B16 | `feat/backend-data-governance-b16` | Minimización, clasificación, retención, exportación y borrado | P0 | Devin |
 | B17 | `feat/backend-security-b17` | Cifrado, claves, integridad, aislamiento y hardening | P0 | Devin (revisión independiente) |
 | B18 | `feat/backend-threat-intelligence-b18` | Indicadores corroborados y campañas agregadas sin datos íntimos | P1 | Claude |
 | B19 | `feat/backend-enterprise-b19` | Organizaciones, RBAC, aislamiento multi-tenant y B2B | P1 | Devin |
-| B20 | `feat/backend-integrations-b20` | SDKs, APIs, webhooks y conectores autorizados | P1 | Cursor |
+| B20 | `feat/backend-integrations-b20` | SDKs, APIs, webhooks y conectores autorizados | P1 | Devin (APIs/SDK de servidor); Claude (contratos) |
 | B21 | `infra/backend-platform-b21` | CI/CD, persistencia, despliegue, observabilidad y continuidad | P0 | Devin |
+
+
+### Gobierno backend confirmado para trabajo multiagente (2026-10-28)
+
+**Decisión del responsable:** todo el trabajo de *lógica, servicios, persistencia, inferencia, seguridad, algoritmos y runtime Rust* del backend se distribuye entre **ChatGPT, Claude Code y Devin**, con tickets delimitados y revisión cruzada. Cursor se mantiene en **frontend, Figma handoff, apps nativas, adaptación a APIs del sistema, sensores del dispositivo, clientes tipados y puente UI↔backend**, pero **no es dueño ni modifica unilateralmente el backend**.
+
+- **Claude:** implementación predominante de `crates/`, puertos, dominio, policy, ingestión, runtime Rust, grafo, detectores, evaluación ML y contratos; no configura infraestructura sin ticket.
+- **Devin:** implementación de `services/`, `infra/`, autenticación servicio, almacenamiento, cifrado, despliegue, observabilidad, CI/CD, quotas durables, APIs y billing, con auditoría de privacidad.
+- **ChatGPT:** arquitectura técnica, diseño de contratos, ADR, escenarios de prueba y criterios de aceptación; puede proponer o realizar implementaciones backend específicas **solo con ticket y rutas asignadas**, siempre en PR revisable, sin cambios silenciosos ni merge autónomo.
+- **Cursor:** `apps/`, `packages/ui-*`, extensión, integración de sensores OS y renderizado de intervenciones. Puede consumir SDKs/contratos backend aprobados; si un cambio requiere modificar `crates/` o `services/`, debe solicitar ticket al propietario correspondiente.
+- **Humano responsable:** aprueba el diseño, acceso a datos y proveedores, permisos del sistema, gastos, merges y releases. No se fusiona este PR documental automáticamente.
+
+**Límite de ownership:** B9 incluye el dominio/servicio de registro de dispositivo, no el código de permisos nativos; B10 ingiere eventos, pero Cursor implementa la captación en apps; B11 contiene el motor Rust local mientras Cursor implementa los adaptadores Swift/Kotlin/Windows/Linux; B15 define decisiones en backend y Cursor presenta las alertas; B20 define las APIs del servidor mientras Cursor desarrolla sus clientes. Toda colaboración cruza límites solo mediante contratos versionados y PRs revisados.
 
 **Reglas obligatorias de integración**
 
