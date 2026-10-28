@@ -1,9 +1,11 @@
 use sovir_adapters::{
-    DeterministicRiskAnalyzer, InMemoryConsentRepository, InMemoryEventRepository,
+    DeterministicRiskAnalyzer, InMemoryConsentRepository, InMemoryDeviceRegistry,
+    InMemoryEventRepository, InMemorySessionStore,
 };
 use sovir_application::{AppError, SovirService};
 use sovir_domain::{
-    ConsentGrant, DomainError, Modality, ObservedEvent, RiskLevel, RiskSignal, SensitiveDataClass,
+    ConsentGrant, DomainError, Modality, ObservedEvent, Platform, Principal, RiskLevel, RiskSignal,
+    Scope, SensitiveDataClass,
 };
 use sovir_ports::Clock;
 use std::sync::Arc;
@@ -19,7 +21,23 @@ fn service() -> SovirService {
         Arc::new(InMemoryConsentRepository::default()),
         Arc::new(InMemoryEventRepository::default()),
         Arc::new(DeterministicRiskAnalyzer),
+        Arc::new(InMemorySessionStore::default()),
+        Arc::new(InMemoryDeviceRegistry::default()),
     )
+}
+fn principal(id: &str) -> Principal {
+    Principal {
+        principal_id: id.into(),
+        tenant_id: "dev".into(),
+        device_id: "dev-device".into(),
+        session_id: "ses-1".into(),
+        scopes: vec![
+            Scope::ConsentWrite,
+            Scope::EventsWrite,
+            Scope::DevicesWrite,
+            Scope::SessionsWrite,
+        ],
+    }
 }
 fn grant() -> ConsentGrant {
     ConsentGrant {
@@ -27,6 +45,8 @@ fn grant() -> ConsentGrant {
         source_id: "browser".into(),
         expires_at_ms: 20_000,
         revoked: false,
+        principal_id: String::new(),
+        device_id: String::new(),
     }
 }
 fn event() -> ObservedEvent {
@@ -40,44 +60,93 @@ fn event() -> ObservedEvent {
         sensitive_data_class: SensitiveDataClass::Public,
         payload_ref: None,
         signals: vec![RiskSignal::PaymentRequest, RiskSignal::IdentityUnverified],
+        principal_id: String::new(),
+        device_id: String::new(),
     }
 }
 #[test]
 fn ingest_requires_consent_and_respects_revocation() {
     let service = service();
+    let p = principal("p-1");
     assert!(matches!(
-        service.ingest(event()),
+        service.ingest(&p, event()),
         Err(AppError::ConsentNotFound)
     ));
-    service.grant(grant()).unwrap();
-    let accepted = service.ingest(event()).unwrap();
+    service.grant(&p, grant()).unwrap();
+    let accepted = service.ingest(&p, event()).unwrap();
     assert_eq!(accepted.assessment.risk_level, RiskLevel::High);
     assert!(!accepted.protected_action_executed);
-    assert!(matches!(service.ingest(event()), Err(AppError::Port(_))));
-    service.revoke("grant-1").unwrap();
+    assert!(matches!(
+        service.ingest(&p, event()),
+        Err(AppError::Port(_))
+    ));
+    service.revoke(&p, "grant-1").unwrap();
     // A revoked grant ID cannot be quietly reactivated by submitting another grant.
-    assert!(matches!(service.grant(grant()), Err(AppError::Port(_))));
+    assert!(matches!(service.grant(&p, grant()), Err(AppError::Port(_))));
     let mut next = event();
     next.event_id = "event-2".into();
     assert!(matches!(
-        service.ingest(next),
+        service.ingest(&p, next),
         Err(AppError::Domain(DomainError::ConsentRequired))
     ));
 }
 #[test]
 fn scope_mismatch_and_secret_fail_closed() {
     let service = service();
-    service.grant(grant()).unwrap();
+    let p = principal("p-1");
+    service.grant(&p, grant()).unwrap();
     let mut wrong = event();
     wrong.source_id = "other-app".into();
     assert!(matches!(
-        service.ingest(wrong),
+        service.ingest(&p, wrong),
         Err(AppError::Domain(DomainError::ConsentRequired))
     ));
     let mut secret = event();
     secret.sensitive_data_class = SensitiveDataClass::Secret;
     assert!(matches!(
-        service.ingest(secret),
+        service.ingest(&p, secret),
         Err(AppError::Domain(DomainError::SecretRejected))
+    ));
+}
+#[test]
+fn consent_is_bound_to_principal_and_device() {
+    let service = service();
+    let owner = principal("owner");
+    let other = principal("intruder");
+    service.grant(&owner, grant()).unwrap();
+    // Another principal cannot replay the grant id: binding mismatch fails closed.
+    assert!(matches!(
+        service.ingest(&other, event()),
+        Err(AppError::Domain(DomainError::ConsentRequired))
+    ));
+    // Another principal cannot revoke the owner's grant either.
+    assert!(matches!(
+        service.revoke(&other, "grant-1"),
+        Err(AppError::Forbidden)
+    ));
+}
+#[test]
+fn dev_session_lifecycle_and_device_revocation_fail_closed() {
+    let service = service();
+    let session = service.issue_dev_session("p-1", "dev-device").unwrap();
+    let p = service.authenticate(&session.token).unwrap();
+    assert_eq!(p.principal_id, "p-1");
+    service
+        .register_device(&p, Some("dev-device"), Platform::Windows, "rig")
+        .unwrap();
+    service
+        .grant(&p, grant())
+        .and_then(|_| service.ingest(&p, event()).map(|_| ()))
+        .unwrap();
+    // Revoking the device kills sessions AND bound grants.
+    assert!(service.revoke_device(&p, "dev-device").unwrap());
+    assert!(matches!(
+        service.authenticate(&session.token),
+        Err(AppError::Unauthorized) | Err(AppError::DeviceRevoked)
+    ));
+    // A fresh session for a revoked device is refused too.
+    assert!(matches!(
+        service.issue_dev_session("p-1", "dev-device"),
+        Err(AppError::DeviceRevoked)
     ));
 }
