@@ -52,3 +52,14 @@
 5. Revisar compatibilidad en CI antes de incorporar código.
 
 _Este registro documenta cambios de Git y decisiones de planificación, no el estado de preparación para producción de SOVIR._
+
+
+## Actualización de gobernanza y créditos — 2026-10-28
+
+A solicitud del responsable, **sin merge**, se ajustó el ownership para que la ejecución del backend esté concentrada en **Claude, Devin y ChatGPT** (ChatGPT desarrolla código únicamente mediante ticket específico y PR revisado). Cursor conserva frontend, apps, sensores y puentes nativos; no modifica core/servicios backend unilateralmente.
+
+Archivos documentales actualizados en la misma rama y PR: `docs/operations/BRANCHES.md`, `docs/backend/BACKEND_MASTER_PLAN.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `.devin/README.md`, `.cursor/rules/60-backend.mdc` y este registro. Documento nuevo: `docs/operations/SPONSOR_CREDITS_2026-10-28.md`.
+
+Crédito **Modal USD 100 otorgado confirmado por el responsable**, válido durante la competencia según su reporte; fecha/hora individual de vencimiento y saldo restante **no verificados**. Modal se usará solo en experimentos GPU autorizados con presupuesto, timeout y apagado automático. No hubo gasto ni configuración de credenciales mediante este cambio.
+
+**Sin alteración** de referencias B1–B21, código de producción, despliegues, ni `main`. El PR documental sigue abierto, sin merge, para revisión humana.
