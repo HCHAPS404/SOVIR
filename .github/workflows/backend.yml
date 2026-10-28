@@ -3,20 +3,32 @@ on:
   push:
     paths:
       - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'rust-toolchain.toml'
       - 'crates/**'
-      - 'services/api/**'
+      - 'services/**'
       - 'packages/contracts/**'
+      - 'tests/backend/**'
+      - 'tests/fixtures/**'
       - 'scripts/backend_harness.py'
+      - 'scripts/contract_check.py'
+      - 'deny.toml'
+      - '.gitleaks.toml'
       - '.github/workflows/backend.yml'
   pull_request:
     paths:
       - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'rust-toolchain.toml'
       - 'crates/**'
-      - 'services/api/**'
+      - 'services/**'
       - 'packages/contracts/**'
+      - 'tests/backend/**'
+      - 'tests/fixtures/**'
       - 'scripts/backend_harness.py'
+      - 'scripts/contract_check.py'
+      - 'deny.toml'
+      - '.gitleaks.toml'
       - '.github/workflows/backend.yml'
   workflow_dispatch:
 permissions:
@@ -37,3 +49,38 @@ jobs:
         env:
           SOVIR_BACKEND_REQUIRE_RUST: '1'
         run: python3 scripts/backend_harness.py
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Validate OpenAPI, JSON Schema and synthetic fixtures
+        # Dependencies are pinned in the script's PEP 723 header.
+        run: uv run scripts/contract_check.py --self-test
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-deny and cargo-audit (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-audit
+      - name: License, ban and source policy
+        run: cargo deny check
+      - name: RustSec advisory audit
+        run: cargo audit
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: 'false'
