@@ -948,11 +948,13 @@ En el scaffold entregado, `scripts/harness.py` y `scripts/check_architecture.py`
 
 | Participante | Responsabilidad principal | Puede modificar directamente | No debe hacer sin autorización |
 |---|---|---|---|
-| **ChatGPT** | Product architect, estrategia, briefs, research, ADR propuestos, eval specs, revisión de riesgos | Artefactos de especificación entregados al repo mediante PR y humano | Cambiar contratos unilateralmente, asumir acceso a repo, prometer features. |
-| **Claude Code** | Domain architect / Rust core / contratos / revisión de seguridad y ML | `crates/`, `packages/contracts`, eval specs asignadas | Rediseñar UI o permisos OS sin ticket/ADR. |
-| **Cursor** | Implementación interactiva UI, nativo, integración de sensores y debugging local | `apps/`, UI/adapters asignados | Redefinir modelos core, esquemas o políticas sin RFC. |
-| **Devin** | Infra, CI/CD, scripts, integraciones desacopladas, automatización de pruebas, PRs acotados | `infra/`, `services` asignados, `.github`, `scripts` | Reestructurar monorepo, resolver decisiones de seguridad en solitario, mergear cambios críticos. |
+| **ChatGPT** | Arquitectura backend, especificación de contratos, ADR, seguridad, evaluación, FinOps y tareas backend acotadas | Docs/ADRs; código backend únicamente con ticket aprobado y PR revisado | Cambiar contratos unilateralmente, fusionar cambios o ejecutar servicios costosos sin autorización. |
+| **Claude Code** | Implementación de core Rust, ingestión, evidencia, runtime local, riesgo, políticas, inferencia, investigación y ML | `crates/`, `packages/contracts`, eval specs y servicios backend específicamente asignados | Rediseñar UI o permisos OS sin ticket/ADR. |
+| **Cursor** | Frontend y aplicaciones nativas, captura consentida, SDK cliente y puentes OS | `apps/`, `packages/ui-*`, adaptadores nativos asignados | Cambiar directamente backend `crates/` o `services/` sin ticket de backend aprobado. |
+| **Devin** | Servicios backend, identidad, almacenamiento, seguridad operativa, APIs/SDK servidor, facturación, infra y CI/CD | `services/`, `infra/`, `.github`, `scripts` y módulos asignados | Rediseñar dominio/contratos unilateralmente, publicar servicios sin seguridad o mergear cambios críticos. |
 | **Humano maintainer** | Decisiones finales, credenciales, acceso físico/dispositivos, cumplimiento, merges y releases | Todo bajo revisión | Delegar autonomía irreversible a agentes. |
+
+**Distribución backend aprobada el 28 oct 2026:** ChatGPT (arquitectura/contratos/evals/auditoría, implementación sólo por ticket), Claude (Rust/core/ML/policy), Devin (servicios, datos, identidad, seguridad, infraestructura) comparten la ejecución del backend en PRs separados. Cursor se concentra en frontends y adaptadores del sistema operativo, no en el core Rust ni servidores. Matriz de dominios: [BRANCHES.md](docs/operations/BRANCHES.md). Crédito temporal Modal confirmado: [SPONSOR_CREDITS_2026-10-28.md](docs/operations/SPONSOR_CREDITS_2026-10-28.md). **Sin merge por esta actualización.**
 
 ### 16.2 Protocolo para tickets multiagente
 
@@ -1210,7 +1212,7 @@ Objetivos iniciales, sujetos a benchmark por hardware:
 
 **Qué hace:** infraestructura de ejecución Python y GPUs/serverless bajo demanda; endpoints, sandbox, jobs de cómputo/entrenamiento.
 
-**Oferta del evento:** **USD 100** para participantes seleccionados.
+**Oferta del evento:** **USD 100** para participantes seleccionados. **Estado de SOVIR: USD 100 otorgados y confirmados por el responsable; vigencia durante la competencia según el responsable.** Verificar vencimiento exacto y saldo en panel Modal.
 
 **Uso en SOVIR:** batch OCR/video/frames de prueba, generación sintética autorizada, evaluación de modelos, jobs de entrenamiento y análisis de dataset. **Ideal para compute episódico**, no para capturar permanentemente pantallas de usuarios.
 
@@ -1246,8 +1248,8 @@ Objetivos iniciales, sujetos a benchmark por hardware:
 | Meta USD 150 condicional | USD 20 | colchón de reintentos/validación | no superar total |
 | Baseten USD 100 condicional | USD 60 | benchmark open weights | métricas frente Meta/local |
 | Baseten USD 100 condicional | USD 40 | pruebas de carga acotadas | costo/latencia |
-| Modal USD 100 condicional | USD 75 | dataset/jobs GPU | costo reproducible |
-| Modal USD 100 condicional | USD 25 | contingencia benchmark | cola/timeout |
+| Modal USD 100 confirmado por el responsable | USD 75 | dataset/jobs GPU | costo reproducible |
+| Modal USD 100 confirmado por el responsable | USD 25 | contingencia benchmark | cola/timeout |
 | Fireworks USD 25 condicional | USD 25 | benchmark proveedor adicional | privacidad + comparables |
 
 **Nunca** activar los cuatro créditos en un mismo flujo de producción sin demostrar la necesidad. Establecer hard caps y supervisar los saldos desde panel de cada sponsor. Los beneficios no necesariamente son transferibles, acumulables o aptos para cualquier modelo; validar términos.
