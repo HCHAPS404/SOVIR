@@ -82,10 +82,7 @@ fn bench_ingest_synthetic_event(c: &mut Criterion) {
                         consent_grant_id: "bench-grant".into(),
                         sensitive_data_class: SensitiveDataClass::Public,
                         payload_ref: None,
-                        signals: vec![
-                            RiskSignal::PaymentRequest,
-                            RiskSignal::IdentityUnverified,
-                        ],
+                        signals: vec![RiskSignal::PaymentRequest, RiskSignal::IdentityUnverified],
                         principal_id: String::new(),
                         device_id: String::new(),
                     },
@@ -124,5 +121,9 @@ fn bench_ingest_after_revocation(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_ingest_synthetic_event, bench_ingest_after_revocation);
+criterion_group!(
+    benches,
+    bench_ingest_synthetic_event,
+    bench_ingest_after_revocation
+);
 criterion_main!(benches);
