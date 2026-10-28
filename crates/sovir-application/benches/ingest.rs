@@ -4,8 +4,8 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use sovir_adapters::{
     DeterministicRiskAnalyzer, InMemoryConsentRepository, InMemoryDeviceRegistry,
-    InMemoryEventRepository, InMemoryInterventionSink, InMemorySessionStore,
-    RecordingDeliveryChannel, SystemClock,
+    InMemoryDeletionReceiptStore, InMemoryEventRepository, InMemoryInterventionSink,
+    InMemorySessionStore, InMemoryWebhookRegistry, RecordingDeliveryChannel, SystemClock,
 };
 use sovir_application::{ServicePorts, SovirService};
 use sovir_domain::{
@@ -25,6 +25,8 @@ fn service() -> SovirService {
             devices: Arc::new(InMemoryDeviceRegistry::default()),
             sink: Arc::new(InMemoryInterventionSink::default()),
             channel: Arc::new(RecordingDeliveryChannel::default()),
+            webhooks: Arc::new(InMemoryWebhookRegistry::default()),
+            receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
         },
     )
 }
