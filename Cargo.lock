@@ -1249,6 +1249,7 @@ dependencies = [
  "sovir-adapters",
  "sovir-application",
  "sovir-domain",
+ "sovir-persistence",
  "sovir-ports",
  "tokio",
  "tower",
@@ -1287,6 +1288,17 @@ dependencies = [
 name = "sovir-migrations"
 version = "0.1.0"
 dependencies = [
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
+name = "sovir-persistence"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sovir-domain",
+ "sovir-ports",
  "sqlx",
  "tokio",
 ]
