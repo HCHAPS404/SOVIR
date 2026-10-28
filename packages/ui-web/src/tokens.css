@@ -731,16 +731,27 @@ a.site-trigger[aria-current="page"],
   .masthead-bar { display: flex; flex-wrap: wrap; align-items: center; }
   .masthead-tools { display: contents; }
   .brand-lockup { order: 1; }
-  .menu-toggle { order: 2; margin-left: auto; }
-  .masthead-session { display: none; order: 3; flex-basis: 100%; }
+  .masthead-session { display: flex; order: 2; flex-basis: auto; padding-top: 0; gap: 0.65rem; }
+  .masthead-session .theme-switch,
+  .masthead a.masthead-register { display: none; }
   .masthead.is-open .masthead-session {
-    display: flex;
-    align-items: center;
-    gap: 0.85rem;
+    flex-basis: 100%;
     padding-top: 0.9rem;
   }
+  .masthead.is-open .masthead-session .theme-switch,
+  .masthead.is-open a.masthead-register { display: inline-flex; }
+  .menu-toggle { order: 3; margin-left: auto; }
   .site-index { order: 4; flex-basis: 100%; position: static; }
   .is-landing h1 { font-size: 2.55rem; }
+  .stages li { grid-template-columns: 2.4rem minmax(0, 1fr); }
+  .stages li > a { grid-column: 2; white-space: normal; padding-top: 0.35rem; }
+  .landing-actions .button { flex: 1 1 12rem; text-align: center; }
+}
+@media (max-width: 420px) {
+  .is-landing h1 { font-size: 2.05rem; }
+  .footer-grid { grid-template-columns: 1fr; }
+  .register-card { padding: 1.7rem 1.05rem 1.15rem; }
+  .showcase { padding-inline: 0; }
 }
 
 .content { padding: 2.5rem 0 4rem; }

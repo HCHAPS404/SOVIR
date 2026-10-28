@@ -58,6 +58,13 @@ Hecho en local, todavía en `feat/design-foundations-dx01`. Es interfaz de demos
 - Inicio muestra la sesión, la conexión y lo que falta por conectar. El resto de secciones tiene la forma de lo que el backend va a guardar: las cuatro decisiones de protección, la tabla de incidentes, los pasos de investigación, dispositivos, la concesión, las tres compuertas de recursos, cuenta, ajustes, políticas, agregados, integraciones, auditoría y facturación.
 - No hay cifras de uso, precios, planes ni una afirmación de cobertura. Vacío no significa protegido.
 
+**Móvil (28 oct 2026, tarde)**
+
+- Android es un proyecto Compose en `apps/android`. iOS es un proyecto SwiftUI en `apps/ios`, con tab bar en el iPhone y barra lateral en el iPad.
+- Entrada, registro, menú, inicio, conexiones, actividad y cuenta. El perfil de desarrollador abre la app sin cuenta. El correo y la clave no se guardan.
+- Ninguna fuente está enlazada. Una nota local no es un enlace ni un permiso. No se declara captura de pantalla.
+- En esta máquina, `gradlew :app:assembleDebug :app:testDebugUnitTest` terminó en BUILD SUCCESSFUL. Cuatro pruebas de lógica, cero fallos. No había un teléfono conectado: la instalación en dispositivo queda pendiente. iOS no se compiló: no hay Xcode en Windows.
+
 **Pendiente de front**
 
 - Unir cada sección de la consola con los contratos reales (`POST /v1/consents`, revocación, `POST /v1/events`) cuando existan identidad y almacenamiento. Hoy los campos están dibujados y vacíos.
@@ -70,7 +77,7 @@ Hecho en local, todavía en `feat/design-foundations-dx01`. Es interfaz de demos
 
 - Autenticación real, OAuth, perfiles con nombre o correo, ni persistencia de ajustes.
 - Diálogos de permiso del sistema, captura, sensores o extensión observando sitios.
-- Compilación de Android, iOS y escritorio. Siguen en `NOT_IMPLEMENTED`, igual que Tauri.
+- Compilación de iOS y de escritorio. iOS sigue en `NOT_IMPLEMENTED` en este Windows. Tauri también. Android compiló el APK de depuración; no se instaló en un teléfono.
 - Gráficas de uso, facturas, medios de pago y series temporales. No hay datos que dibujar.
 - El interruptor de estados de simulación (`Listo`, `Vacío`, etc.) ya no se muestra. La query `?state=` sigue existiendo en el código, sin controles en pantalla.
 
