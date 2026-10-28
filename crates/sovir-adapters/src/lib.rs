@@ -270,6 +270,23 @@ impl InterventionSink for InMemoryInterventionSink {
         guard.retain(|_, i| i.principal_id != principal_id);
         Ok((before - guard.len()) as u64)
     }
+    fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError> {
+        self.0
+            .read()
+            .map(|g| {
+                let mut v: Vec<Intervention> = g
+                    .values()
+                    .filter(|i| {
+                        i.device_id == device_id
+                            && matches!(i.state, DeliveryState::Pending | DeliveryState::Failed)
+                    })
+                    .cloned()
+                    .collect();
+                v.sort_by_key(|i| i.created_at_ms);
+                v
+            })
+            .map_err(|_| PortError::Storage)
+    }
 }
 /// Development channel: pretends delivery always succeeds and keeps a count.
 /// Real delivery surfaces (OS notification, inbox) are platform adapters.
