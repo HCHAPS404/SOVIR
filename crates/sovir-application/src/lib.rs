@@ -18,6 +18,23 @@ use thiserror::Error;
 /// Development sessions are short-lived; production session TTL is a separate decision.
 const DEV_SESSION_TTL_MS: u64 = 15 * 60 * 1000;
 
+#[derive(Debug, serde::Serialize)]
+pub struct PrincipalDataExport {
+    pub principal_id: String,
+    pub grants: Vec<ConsentGrant>,
+    pub events: Vec<ObservedEvent>,
+    pub devices: Vec<Device>,
+    pub interventions: Vec<Intervention>,
+}
+#[derive(Debug, serde::Serialize)]
+pub struct PurgeReport {
+    pub events_deleted: u64,
+    pub grants_deleted: u64,
+    pub interventions_deleted: u64,
+    pub sessions_revoked: u64,
+    pub devices_revoked: u64,
+}
+
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("{0}")]
@@ -287,6 +304,41 @@ impl SovirService {
 
     pub fn list_interventions(&self, principal: &Principal) -> Result<Vec<Intervention>, AppError> {
         Ok(self.sink.list(&principal.principal_id)?)
+    }
+
+    /// Data governance (B16): everything stored for a principal — metadata
+    /// only, never payloads or raw content.
+    pub fn export_data(&self, principal: &Principal) -> Result<PrincipalDataExport, AppError> {
+        Ok(PrincipalDataExport {
+            principal_id: principal.principal_id.clone(),
+            grants: self.grants.list_by_principal(&principal.principal_id)?,
+            events: self.events.list_by_principal(&principal.principal_id)?,
+            devices: self.devices.list(&principal.principal_id)?,
+            interventions: self.sink.list(&principal.principal_id)?,
+        })
+    }
+
+    /// Erasure: hard-deletes events, grants and intervention records; revokes
+    /// all sessions and devices (audit-preserving tombstones). The calling
+    /// session is revoked too — the request still completes.
+    pub fn purge_data(&self, principal: &Principal) -> Result<PurgeReport, AppError> {
+        let now = self.clock.now_ms();
+        let mut report = PurgeReport {
+            events_deleted: self.events.delete_by_principal(&principal.principal_id)?,
+            grants_deleted: self.grants.delete_by_principal(&principal.principal_id)?,
+            interventions_deleted: self.sink.delete_by_principal(&principal.principal_id)?,
+            sessions_revoked: self.sessions.revoke_by_principal(&principal.principal_id)?,
+            devices_revoked: 0,
+        };
+        for d in self.devices.list(&principal.principal_id)? {
+            if d.is_active() {
+                self.devices
+                    .revoke(&principal.principal_id, &d.device_id, now)?;
+                self.sessions.revoke_by_device(&d.device_id)?;
+                report.devices_revoked += 1;
+            }
+        }
+        Ok(report)
     }
 
     /// Delivers every due intervention through the channel, recording state
