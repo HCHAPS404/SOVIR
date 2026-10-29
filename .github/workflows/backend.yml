@@ -101,13 +101,13 @@ jobs:
               ('tenant-a','g-a','p-1','d-1','src',9999999999999,false),
               ('tenant-b','g-b','p-2','d-2','src',9999999999999,false);"
           # sovir_app with tenant-a sees only tenant-a rows.
-          test "$(psql "$APP_URL" -Atc "SET app.tenant_id='tenant-a'; SELECT count(*) FROM consent_grants")" = "1"
+          test "$(psql "$APP_URL" -Atqc "SET app.tenant_id='tenant-a'; SELECT count(*) FROM consent_grants")" = "1"
           # tenant-b sees only its own row.
-          test "$(psql "$APP_URL" -Atc "SET app.tenant_id='tenant-b'; SELECT count(*) FROM consent_grants")" = "1"
+          test "$(psql "$APP_URL" -Atqc "SET app.tenant_id='tenant-b'; SELECT count(*) FROM consent_grants")" = "1"
           # No tenant set => fail closed, zero rows.
-          test "$(psql "$APP_URL" -Atc "SELECT count(*) FROM consent_grants")" = "0"
+          test "$(psql "$APP_URL" -Atqc "SELECT count(*) FROM consent_grants")" = "0"
           # Insert into another tenant is rejected by WITH CHECK.
-          if psql "$APP_URL" -c "SET app.tenant_id='tenant-a';
+          if psql "$APP_URL" -qc "SET app.tenant_id='tenant-a';
              INSERT INTO consent_grants (tenant_id, grant_id, principal_id, device_id, source_id, expires_at_ms, revoked)
              VALUES ('tenant-b','g-evil','p-2','d-2','src',9999999999999,false);" 2>/dev/null; then
             echo "RLS WITH CHECK did not reject cross-tenant insert"; exit 1
