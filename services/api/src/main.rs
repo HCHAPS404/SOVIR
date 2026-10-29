@@ -181,9 +181,10 @@ async fn compose_service(database_url: Option<&str>) -> (SovirService, Option<Pg
         let pg = PgStore::connect(url)
             .await
             .expect("DATABASE_URL is set but Postgres is unreachable; refusing to start");
-        // Webhook registry/egress stay in-memory in dev even with durable
-        // storage (no webhook table yet — see ADR-0007 scope).
-        let registry = std::sync::Arc::new(InMemoryWebhookRegistry::default());
+        // Durable webhook registry (migration 0007); egress stays the
+        // recording adapter until ADR-0010 real HTTP egress.
+        let pg_wh: std::sync::Arc<dyn sovir_ports::WebhookRegistry> =
+            std::sync::Arc::new(pg.clone());
         let egress = std::sync::Arc::new(RecordingHttpEgress::default());
         let service = SovirService::new(
             Arc::new(SystemClock),
@@ -196,9 +197,9 @@ async fn compose_service(database_url: Option<&str>) -> (SovirService, Option<Pg
                 sink: Arc::new(pg.clone()),
                 channel: Arc::new(CompositeDeliveryChannel(vec![
                     Arc::new(RecordingDeliveryChannel::default()),
-                    Arc::new(WebhookChannel::new(registry.clone(), egress.clone())),
+                    Arc::new(WebhookChannel::new(pg_wh.clone(), egress.clone())),
                 ])),
-                webhooks: registry,
+                webhooks: pg_wh,
                 receipts: Arc::new(pg.clone()),
             },
         );
@@ -663,6 +664,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
+    // Scheduled global retention sweep (B16 infra path). Runs
+    // enforce_retention_global every SOVIR_RETENTION_SWEEP_MS; 0/unset
+    // disables it. The per-principal endpoint stays caller-owned.
+    let sweep_ms: u64 = env::var("SOVIR_RETENTION_SWEEP_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    if sweep_ms > 0 {
+        let retention_ms: u64 = env::var("SOVIR_RETENTION_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30 * 24 * 60 * 60 * 1_000);
+        let svc = service.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_millis(sweep_ms));
+            loop {
+                tick.tick().await;
+                match svc.enforce_retention_global(retention_ms).await {
+                    Ok(r) => tracing::info!(
+                        cutoff_ms = r.cutoff_ms,
+                        events_deleted = r.events_deleted,
+                        terminal_interventions_deleted = r.terminal_interventions_deleted,
+                        "retention sweep"
+                    ),
+                    Err(e) => tracing::warn!(error = %e, "retention sweep failed"),
+                }
+            }
+        });
+    }
     let state = AppState {
         service,
         dev_session_enabled,

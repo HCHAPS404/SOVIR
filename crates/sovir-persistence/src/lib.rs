@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use sovir_domain::{
     ConsentGrant, DeletionReceipt, DeliveryState, Device, Intervention, InterventionKind, Modality,
-    ObservedEvent, Platform, RiskSignal, Scope, SensitiveDataClass, Session,
+    ObservedEvent, Platform, RiskSignal, Scope, SensitiveDataClass, Session, WebhookEndpoint,
 };
 use sovir_ports::{
     ConsentRepository, DeletionReceiptStore, DeviceRegistry, EventRepository, InterventionSink,
@@ -993,5 +993,161 @@ impl DeletionReceiptStore for PgStore {
                 .collect())
         })
         .await
+    }
+}
+
+type WebhookRow = (
+    String,
+    String,
+    String,
+    String,
+    Vec<String>,
+    i64,
+    Option<i64>,
+);
+
+fn row_to_webhook(r: WebhookRow) -> WebhookEndpoint {
+    let (endpoint_id, principal_id, url, secret, kinds, created_at_ms, revoked_at_ms) = r;
+    WebhookEndpoint {
+        endpoint_id,
+        principal_id,
+        tenant_id: String::new(),
+        url,
+        secret,
+        kinds: kinds.iter().filter_map(|k| kind_opt(k)).collect(),
+        created_at_ms: created_at_ms as u64,
+        revoked_at_ms: revoked_at_ms.map(|v| v as u64),
+    }
+}
+fn kind_opt(s: &str) -> Option<InterventionKind> {
+    match s {
+        "notify" => Some(InterventionKind::Notify),
+        "warn_banner" => Some(InterventionKind::WarnBanner),
+        "require_review" => Some(InterventionKind::RequireReview),
+        _ => None,
+    }
+}
+
+#[async_trait]
+impl sovir_ports::WebhookRegistry for PgStore {
+    async fn register(&self, ep: WebhookEndpoint) -> Result<(), PortError> {
+        let kinds: Vec<&str> = ep.kinds.iter().map(|k| kind_str(*k)).collect();
+        sqlx::query(
+            "INSERT INTO webhook_endpoints
+             (endpoint_id, tenant_id, principal_id, url, secret, kinds,
+              created_at_ms, revoked_at_ms)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+        )
+        .bind(&ep.endpoint_id)
+        .bind(&ep.tenant_id)
+        .bind(&ep.principal_id)
+        .bind(&ep.url)
+        .bind(&ep.secret)
+        .bind(&kinds)
+        .bind(ep.created_at_ms as i64)
+        .bind(ep.revoked_at_ms.map(|v| v as i64))
+        .execute(&self.pool)
+        .await
+        .map_err(map_storage)?;
+        Ok(())
+    }
+    async fn list(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<Vec<WebhookEndpoint>, PortError> {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                String,
+                Vec<String>,
+                i64,
+                Option<i64>,
+                String,
+            ),
+        >(
+            "SELECT endpoint_id, principal_id, url, secret, kinds,
+                    created_at_ms, revoked_at_ms, tenant_id
+             FROM webhook_endpoints
+             WHERE tenant_id = $1 AND principal_id = $2 ORDER BY created_at_ms",
+        )
+        .bind(tenant_id)
+        .bind(principal_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_storage)?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, pid, url, secret, kinds, c, r, t)| {
+                let mut w = row_to_webhook((id, pid, url, secret, kinds, c, r));
+                w.tenant_id = t;
+                w
+            })
+            .collect())
+    }
+    async fn matching(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        kind: InterventionKind,
+    ) -> Result<Vec<WebhookEndpoint>, PortError> {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                String,
+                Vec<String>,
+                i64,
+                Option<i64>,
+                String,
+            ),
+        >(
+            "SELECT endpoint_id, principal_id, url, secret, kinds,
+                    created_at_ms, revoked_at_ms, tenant_id
+             FROM webhook_endpoints
+             WHERE tenant_id = $1 AND principal_id = $2 AND revoked_at_ms IS NULL
+               AND $3 = ANY(kinds)",
+        )
+        .bind(tenant_id)
+        .bind(principal_id)
+        .bind(kind_str(kind))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_storage)?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, pid, url, secret, kinds, c, r, t)| {
+                let mut w = row_to_webhook((id, pid, url, secret, kinds, c, r));
+                w.tenant_id = t;
+                w
+            })
+            .collect())
+    }
+    async fn revoke(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        endpoint_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, PortError> {
+        let n = sqlx::query(
+            "UPDATE webhook_endpoints SET revoked_at_ms = $4
+             WHERE tenant_id = $1 AND principal_id = $2 AND endpoint_id = $3
+               AND revoked_at_ms IS NULL",
+        )
+        .bind(tenant_id)
+        .bind(principal_id)
+        .bind(endpoint_id)
+        .bind(now_ms as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(map_storage)?
+        .rows_affected();
+        Ok(n > 0)
     }
 }
