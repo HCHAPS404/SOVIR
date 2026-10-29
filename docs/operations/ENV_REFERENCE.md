@@ -10,6 +10,7 @@ dev sessions on loopback only.
 |---|---|---|
 | `SOVIR_ENV` | `local` | `local`/`test` enable `/v1/auth/dev-session`; anything else disables it entirely |
 | `SOVIR_API_BIND` | `127.0.0.1:8787` | Bind address; refuses non-loopback (fail closed) |
+| `SOVIR_API_URL` | `http://127.0.0.1:8787` | **Console-side** (`apps/console` server code): base URL the BFF calls; the browser never reaches the API directly |
 | `DATABASE_URL` | unset | Postgres `PgStore` when set (migrations + durable adapters); in-memory otherwise |
 | `SOVIR_POSTGRES_DEV_PASSWORD` | unset | Local docker-compose password only — never prod |
 | `SOVIR_RATE_LIMIT_PER_MIN` | `60` | Per-principal+device fixed-window limiter (in-memory, per-process) |

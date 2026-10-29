@@ -1,6 +1,6 @@
 import { PatternState } from "@sovir/ui-web/patterns";
 import { findSection } from "@sovir/ui-web/section";
-import { ConsoleFrame, requireDemoSession } from "../../components/ConsoleFrame";
+import { ConsoleFrame, requireApiSession } from "../../components/ConsoleFrame";
 import { SectionDesk } from "../../components/SectionDesk";
 import { states } from "../../lib/nav";
 
@@ -11,7 +11,7 @@ export default async function SectionPage({
   params: Promise<{ slug: string[] }>;
   searchParams: Promise<{ state?: string }>;
 }) {
-  await requireDemoSession();
+  await requireApiSession();
   const { slug } = await params;
   const query = await searchParams;
   const path = `/${slug.join("/")}`;
