@@ -186,6 +186,54 @@ pub struct DeletionReceipt {
     pub idem_keys_deleted: u64,
 }
 
+/// Inference privacy mode (B4/ADR-0012): which data may leave the device.
+/// `Standard` = metadata only; `Private` = local-only processing, never
+/// remote. The domain does not pick providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrivacyMode {
+    Standard,
+    Private,
+}
+
+/// A typed inference request — signals and mode only, never raw content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceRequest {
+    pub request_id: String,
+    pub signals: Vec<RiskSignal>,
+    pub privacy: PrivacyMode,
+    /// Estimated spend cap for this single call, micro-USD.
+    pub est_cost_micro_usd: u64,
+}
+
+/// A model verdict: typed hypotheses and provenance, never an authorized
+/// action. Policy code decides what hypotheses may trigger.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceVerdict {
+    pub request_id: String,
+    pub model_id: String,
+    pub hypotheses: Vec<String>,
+    /// Confidence in basis points (0–10_000), no float money/precision.
+    pub confidence_bp: u16,
+    pub provenance: String,
+}
+
+/// A verified threat-intel indicator (B5). `provenance` is mandatory —
+/// indicators without a verifiable source are dropped at ingest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntelIndicator {
+    pub indicator_id: String,
+    #[serde(default)]
+    pub tenant_id: String,
+    /// e.g. "domain", "url_pattern", "sender_handle".
+    pub kind: String,
+    pub value: String,
+    /// Confidence in basis points (0–10_000).
+    pub confidence_bp: u16,
+    pub provenance: String,
+    pub at_ms: u64,
+}
+
 /// Unified sensitive-action audit (B16 hardening). Metadata only: the
 /// action, the actor binding and a small detail — never user content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,6 +242,7 @@ pub enum AuditAction {
     SessionIssued,
     ConsentGranted,
     ConsentRevoked,
+    EventIngested,
     DeviceRegistered,
     DeviceRevoked,
     WebhookRegistered,

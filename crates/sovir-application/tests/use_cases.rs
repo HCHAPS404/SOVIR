@@ -1,9 +1,9 @@
 use sovir_adapters::{
-    CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryAuditLog,
+    CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryAuditLog, InMemoryBudgetLedger,
     InMemoryConsentRepository, InMemoryDeletionReceiptStore, InMemoryDeviceRegistry,
     InMemoryEventRepository, InMemoryIdempotencyStore, InMemoryInterventionSink,
-    InMemorySessionStore, InMemoryWebhookRegistry, RecordingDeliveryChannel, RecordingHttpEgress,
-    WebhookChannel,
+    InMemorySessionStore, InMemoryThreatIntel, InMemoryWebhookRegistry, RecordingDeliveryChannel,
+    RecordingHttpEgress, WebhookChannel,
 };
 use sovir_application::{AppError, ServicePorts, SovirService};
 use sovir_domain::{
@@ -18,23 +18,26 @@ impl Clock for FixedClock {
         10_000
     }
 }
+fn ports() -> ServicePorts {
+    ServicePorts {
+        grants: Arc::new(InMemoryConsentRepository::default()),
+        events: Arc::new(InMemoryEventRepository::default()),
+        risk: Arc::new(DeterministicRiskAnalyzer::default()),
+        sessions: Arc::new(InMemorySessionStore::default()),
+        devices: Arc::new(InMemoryDeviceRegistry::default()),
+        sink: Arc::new(InMemoryInterventionSink::default()),
+        channel: Arc::new(RecordingDeliveryChannel::default()),
+        webhooks: Arc::new(InMemoryWebhookRegistry::default()),
+        receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
+        idem: Arc::new(InMemoryIdempotencyStore::default()),
+        audit: Arc::new(InMemoryAuditLog::default()),
+        inference: None,
+        budget: Arc::new(InMemoryBudgetLedger::default()),
+        intel: Arc::new(InMemoryThreatIntel::default()),
+    }
+}
 fn service() -> SovirService {
-    SovirService::new(
-        Arc::new(FixedClock),
-        ServicePorts {
-            grants: Arc::new(InMemoryConsentRepository::default()),
-            events: Arc::new(InMemoryEventRepository::default()),
-            risk: Arc::new(DeterministicRiskAnalyzer::default()),
-            sessions: Arc::new(InMemorySessionStore::default()),
-            devices: Arc::new(InMemoryDeviceRegistry::default()),
-            sink: Arc::new(InMemoryInterventionSink::default()),
-            channel: Arc::new(RecordingDeliveryChannel::default()),
-            webhooks: Arc::new(InMemoryWebhookRegistry::default()),
-            receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
-            idem: Arc::new(InMemoryIdempotencyStore::default()),
-            audit: Arc::new(InMemoryAuditLog::default()),
-        },
-    )
+    SovirService::new(Arc::new(FixedClock), ports())
 }
 fn principal(id: &str) -> Principal {
     Principal {
@@ -326,6 +329,9 @@ async fn webhook_delivery_signs_and_honors_allowlist_and_revocation() {
             receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
             idem: Arc::new(InMemoryIdempotencyStore::default()),
             audit: Arc::new(InMemoryAuditLog::default()),
+            inference: None,
+            budget: Arc::new(InMemoryBudgetLedger::default()),
+            intel: Arc::new(InMemoryThreatIntel::default()),
         },
     );
     let p = principal("p-1");
@@ -447,4 +453,166 @@ async fn evidence_window_escalates_hook_then_payment() {
     let items = service.list_interventions(&p).await.unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].kind, sovir_domain::InterventionKind::WarnBanner);
+}
+
+// ---- B4: inference budget + privacy modes ------------------------------
+
+use sovir_domain::{InferenceRequest, InferenceVerdict, IntelIndicator, PrivacyMode};
+use sovir_ports::{InferenceGateway, PortError};
+
+struct StubGateway {
+    serve_standard: bool,
+}
+#[async_trait::async_trait]
+impl InferenceGateway for StubGateway {
+    async fn assess(&self, req: &InferenceRequest) -> Result<InferenceVerdict, PortError> {
+        Ok(InferenceVerdict {
+            request_id: req.request_id.clone(),
+            model_id: "stub-local".into(),
+            hypotheses: vec!["possible-urgency".into()],
+            confidence_bp: 6_000,
+            provenance: "synthetic-test".into(),
+        })
+    }
+    fn serves(&self, mode: PrivacyMode) -> bool {
+        mode == PrivacyMode::Private || (self.serve_standard && mode == PrivacyMode::Standard)
+    }
+}
+
+fn infer_req(cost: u64) -> InferenceRequest {
+    InferenceRequest {
+        request_id: "req-1".into(),
+        signals: vec![RiskSignal::UrgentAction],
+        privacy: PrivacyMode::Private,
+        est_cost_micro_usd: cost,
+    }
+}
+
+#[tokio::test]
+async fn inference_refused_without_gateway() {
+    let s = service();
+    let err = s
+        .assess_with_inference(&principal("p"), infer_req(1))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::ProviderUnavailable));
+}
+
+#[tokio::test]
+async fn inference_budget_cap_blocks_spend() {
+    let mut p = ports();
+    p.inference = Some(Arc::new(StubGateway {
+        serve_standard: true,
+    }));
+    p.budget = Arc::new(InMemoryBudgetLedger::with_cap(100));
+    let s = SovirService::new(Arc::new(FixedClock), p);
+    let pr = principal("p");
+    // request of 60 fits under cap 100
+    s.assess_with_inference(&pr, infer_req(60)).await.unwrap();
+    // 60 spent; another 60 would exceed cap → hard stop before calling
+    let err = s
+        .assess_with_inference(&pr, infer_req(60))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::BudgetExceeded));
+    // a smaller request still fits
+    s.assess_with_inference(&pr, infer_req(40)).await.unwrap();
+}
+
+#[tokio::test]
+async fn inference_zero_cap_refuses_anything() {
+    let mut p = ports();
+    p.inference = Some(Arc::new(StubGateway {
+        serve_standard: true,
+    }));
+    let s = SovirService::new(Arc::new(FixedClock), p); // default cap 0
+    let err = s
+        .assess_with_inference(&principal("p"), infer_req(1))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::BudgetExceeded));
+}
+
+#[tokio::test]
+async fn inference_unserved_privacy_mode_refused() {
+    let mut p = ports();
+    p.inference = Some(Arc::new(StubGateway {
+        serve_standard: false,
+    })); // private only
+    p.budget = Arc::new(InMemoryBudgetLedger::with_cap(1_000));
+    let s = SovirService::new(Arc::new(FixedClock), p);
+    let mut req = infer_req(1);
+    req.privacy = PrivacyMode::Standard;
+    let err = s
+        .assess_with_inference(&principal("p"), req)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::ProviderUnavailable));
+}
+
+#[tokio::test]
+async fn inference_spend_scoped_per_tenant() {
+    let mut p = ports();
+    p.inference = Some(Arc::new(StubGateway {
+        serve_standard: true,
+    }));
+    p.budget = Arc::new(InMemoryBudgetLedger::with_cap(100));
+    let s = SovirService::new(Arc::new(FixedClock), p);
+    let mut other_tenant = principal("p2");
+    other_tenant.tenant_id = "tenant-b".into();
+    s.assess_with_inference(&other_tenant, infer_req(90))
+        .await
+        .unwrap();
+    // tenant "dev" unaffected by tenant-b spend
+    s.assess_with_inference(&principal("p"), infer_req(90))
+        .await
+        .unwrap();
+}
+
+// ---- B5: threat-intel provenance ---------------------------------------
+
+#[tokio::test]
+async fn intel_pull_drops_unverified_and_scopes_tenant() {
+    let intel = Arc::new(InMemoryThreatIntel::default());
+    intel.seed(vec![
+        IntelIndicator {
+            indicator_id: "i-ok".into(),
+            tenant_id: String::new(),
+            kind: "domain".into(),
+            value: "evil-example.com".into(),
+            confidence_bp: 9_000,
+            provenance: "fixture:v1".into(),
+            at_ms: 0,
+        },
+        IntelIndicator {
+            indicator_id: "i-no-prov".into(),
+            tenant_id: String::new(),
+            kind: "domain".into(),
+            value: "unverified.example.com".into(),
+            confidence_bp: 9_000,
+            provenance: String::new(),
+            at_ms: 0,
+        },
+    ]);
+    let mut p = ports();
+    p.intel = intel.clone();
+    let s = SovirService::new(Arc::new(FixedClock), p);
+    let pr = principal("p");
+    let kept = s.pull_intel(&pr).await.unwrap();
+    assert_eq!(kept, 1);
+    let items = s.list_intel(&pr).await.unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].indicator_id, "i-ok");
+    assert_eq!(items[0].tenant_id, "dev"); // server-stamped
+    assert_eq!(items[0].at_ms, 10_000); // clock-stamped
+}
+
+#[tokio::test]
+async fn intel_list_is_tenant_scoped() {
+    let s = service();
+    let mut pb = principal("pb");
+    pb.tenant_id = "tenant-b".into();
+    // empty for both tenants with no feed
+    assert_eq!(s.pull_intel(&pb).await.unwrap(), 0);
+    assert!(s.list_intel(&pb).await.unwrap().is_empty());
 }

@@ -7,11 +7,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sovir_adapters::{
-    CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryAuditLog,
+    CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryAuditLog, InMemoryBudgetLedger,
     InMemoryConsentRepository, InMemoryDeletionReceiptStore, InMemoryDeviceRegistry,
     InMemoryEventRepository, InMemoryIdempotencyStore, InMemoryInterventionSink,
-    InMemorySessionStore, InMemoryWebhookRegistry, RecordingDeliveryChannel, RecordingHttpEgress,
-    SystemClock, WebhookChannel,
+    InMemorySessionStore, InMemoryThreatIntel, InMemoryWebhookRegistry, RecordingDeliveryChannel,
+    RecordingHttpEgress, SystemClock, WebhookChannel,
 };
 use sovir_application::{AppError, PrincipalDataExport, PurgeReport, ServicePorts, SovirService};
 use sovir_domain::{
@@ -171,6 +171,12 @@ fn map_error(e: AppError, headers: &HeaderMap) -> ApiError {
         }
         AppError::Port(PortError::Duplicate) => (StatusCode::CONFLICT, "duplicate_event", false),
         AppError::Port(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error", true),
+        AppError::ProviderUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "provider_unavailable",
+            true,
+        ),
+        AppError::BudgetExceeded => (StatusCode::TOO_MANY_REQUESTS, "budget_exceeded", false),
     };
     api_err(status, code, headers, retryable)
 }
@@ -193,9 +199,16 @@ async fn compose_service(
     sovir_env: &str,
 ) -> (SovirService, Option<PgStore>) {
     if let Some(url) = database_url {
+        // SOVIR_INFERENCE_BUDGET_USD: per-tenant hard cap in whole USD.
+        // Default 0 = no inference spend allowed (ADR-0012).
+        let budget_usd = std::env::var("SOVIR_INFERENCE_BUDGET_USD")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
         let pg = PgStore::connect(url)
             .await
-            .expect("DATABASE_URL is set but Postgres is unreachable; refusing to start");
+            .expect("DATABASE_URL is set but Postgres is unreachable; refusing to start")
+            .with_budget_cap(budget_usd.saturating_mul(1_000_000));
         // Durable webhook registry (migration 0007).
         let pg_wh: std::sync::Arc<dyn sovir_ports::WebhookRegistry> =
             std::sync::Arc::new(pg.clone());
@@ -217,6 +230,9 @@ async fn compose_service(
                 receipts: Arc::new(pg.clone()),
                 idem: Arc::new(pg.clone()),
                 audit: Arc::new(pg.clone()),
+                inference: None,
+                budget: Arc::new(pg.clone()),
+                intel: Arc::new(pg.clone()),
             },
         );
         return (service, Some(pg));
@@ -263,6 +279,9 @@ fn dev_service_with(
                 receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
                 idem: Arc::new(InMemoryIdempotencyStore::default()),
                 audit: Arc::new(InMemoryAuditLog::default()),
+                inference: None,
+                budget: Arc::new(InMemoryBudgetLedger::default()),
+                intel: Arc::new(InMemoryThreatIntel::default()),
             },
         ),
         registry,

@@ -3,13 +3,14 @@ use sovir_domain::{
     detect_sequences, intervention_for, next_attempt_ms, normalize_events, valid_identifier,
     validate_consent, validate_device, validate_event, validate_url_for_egress, AuditAction,
     AuditEvent, ConsentGrant, DecisionKind, DeletionReceipt, DeliveryAuditEntry, DeliveryState,
-    Device, DomainError, EventDecision, Intervention, ObservedEvent, Platform, Principal,
-    RiskLevel, Scope, SequencePattern, Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
+    Device, DomainError, EventDecision, InferenceRequest, InferenceVerdict, IntelIndicator,
+    Intervention, ObservedEvent, Platform, Principal, RiskLevel, Scope, SequencePattern, Session,
+    WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
 };
 use sovir_ports::{
-    AuditLog, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
-    EventRepository, IdempotencyStore, InterventionSink, PortError, RiskAnalyzer, SessionStore,
-    WebhookRegistry,
+    AuditLog, BudgetLedger, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel,
+    DeviceRegistry, EventRepository, IdempotencyStore, InferenceGateway, InterventionSink,
+    PortError, RiskAnalyzer, SessionStore, ThreatIntelFeed, WebhookRegistry,
 };
 use std::sync::Arc;
 use thiserror::Error;
@@ -65,6 +66,10 @@ pub enum AppError {
     Forbidden,
     #[error("device is revoked")]
     DeviceRevoked,
+    #[error("inference provider not configured")]
+    ProviderUnavailable,
+    #[error("inference budget exceeded")]
+    BudgetExceeded,
 }
 
 /// All port implementations the service depends on, injected by the adapter
@@ -81,6 +86,11 @@ pub struct ServicePorts {
     pub receipts: Arc<dyn DeletionReceiptStore>,
     pub idem: Arc<dyn IdempotencyStore>,
     pub audit: Arc<dyn AuditLog>,
+    /// Inference gateway (B4). `None` = no provider configured — calls
+    /// refuse with ProviderUnavailable, never fake a verdict.
+    pub inference: Option<Arc<dyn InferenceGateway>>,
+    pub budget: Arc<dyn BudgetLedger>,
+    pub intel: Arc<dyn ThreatIntelFeed>,
 }
 
 #[derive(Clone)]
@@ -97,6 +107,9 @@ pub struct SovirService {
     receipts: Arc<dyn DeletionReceiptStore>,
     idem: Arc<dyn IdempotencyStore>,
     audit: Arc<dyn AuditLog>,
+    inference: Option<Arc<dyn InferenceGateway>>,
+    budget: Arc<dyn BudgetLedger>,
+    intel: Arc<dyn ThreatIntelFeed>,
 }
 impl SovirService {
     pub fn new(clock: Arc<dyn Clock>, ports: ServicePorts) -> Self {
@@ -113,6 +126,9 @@ impl SovirService {
             receipts: ports.receipts,
             idem: ports.idem,
             audit: ports.audit,
+            inference: ports.inference,
+            budget: ports.budget,
+            intel: ports.intel,
         }
     }
 
@@ -442,6 +458,16 @@ impl SovirService {
             };
             self.sink.enqueue(intervention).await?;
         }
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::EventIngested,
+            &format!(
+                "event:{} decision:{:?} policy:{}",
+                decision.event_id, decision.assessment.decision, decision.assessment.policy_version
+            ),
+        )
+        .await?;
         Ok(decision)
     }
 
@@ -800,5 +826,65 @@ impl SovirService {
             delivered += self.deliver_one(i, now).await? as u64;
         }
         Ok(delivered)
+    }
+
+    /// Inference boundary (B4/ADR-0012). Checks the privacy mode is
+    /// servable, enforces the tenant's hard budget cap BEFORE calling,
+    /// and records spend only after a successful verdict. No provider =>
+    /// honest refusal, never a fabricated verdict.
+    pub async fn assess_with_inference(
+        &self,
+        principal: &Principal,
+        req: InferenceRequest,
+    ) -> Result<InferenceVerdict, AppError> {
+        if !principal.has_scope(Scope::EventsWrite) {
+            return Err(AppError::Forbidden);
+        }
+        if !valid_identifier(&req.request_id) {
+            return Err(AppError::InvalidRequest);
+        }
+        let gw = self
+            .inference
+            .as_ref()
+            .ok_or(AppError::ProviderUnavailable)?;
+        if !gw.serves(req.privacy) {
+            return Err(AppError::ProviderUnavailable);
+        }
+        let spent = self.budget.spent_micro_usd(&principal.tenant_id).await?;
+        let cap = self.budget.cap_micro_usd(&principal.tenant_id).await?;
+        if spent.saturating_add(req.est_cost_micro_usd) > cap {
+            return Err(AppError::BudgetExceeded);
+        }
+        let verdict = gw.assess(&req).await?;
+        self.budget
+            .record_spend(&principal.tenant_id, req.est_cost_micro_usd)
+            .await?;
+        Ok(verdict)
+    }
+
+    /// Threat-intel ingest (B5): pulls candidates and keeps only
+    /// indicators with verifiable provenance and bounded values. Anything
+    /// else is dropped, never trusted.
+    pub async fn pull_intel(&self, principal: &Principal) -> Result<u64, AppError> {
+        if !principal.has_scope(Scope::EventsWrite) {
+            return Err(AppError::Forbidden);
+        }
+        let now = self.clock.now_ms();
+        let mut kept = 0u64;
+        for mut ind in self.intel.pull(0).await? {
+            if ind.provenance.is_empty() || !valid_identifier(&ind.value) {
+                continue; // unverified — drop
+            }
+            ind.tenant_id = principal.tenant_id.clone();
+            ind.at_ms = if ind.at_ms == 0 { now } else { ind.at_ms };
+            self.intel.record(ind).await?;
+            kept += 1;
+        }
+        Ok(kept)
+    }
+
+    /// Indicators already validated and recorded for the tenant.
+    pub async fn list_intel(&self, principal: &Principal) -> Result<Vec<IntelIndicator>, AppError> {
+        Ok(self.intel.list(&principal.tenant_id).await?)
     }
 }

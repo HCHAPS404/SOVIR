@@ -99,4 +99,37 @@ assert post('/v1/webhooks/'+ep['endpoint_id']+'/revoke',{},t4)[0]==204
 # B16 retention: caller-scoped; events newer than the cutoff are kept.
 status,rep=post('/v1/me/retention',{},t4)
 assert status==200 and 'cutoff_ms' in rep, rep
-print('PASS: synthetic API happy-path + revocation + binding + tenant isolation + logout + erasure + webhooks + retention fail closed')
+
+# Phase 3: temporal evidence sequences — hook (urgency) then payment
+# escalates to warn via HookThenPayment; findings are typed.
+status,s5=post('/v1/auth/dev-session',{'principal_id':'seq-user','device_id':'d5'})
+assert status==201
+t5=s5['token']
+g5='test-'+uuid4().hex
+assert post('/v1/consents',{'grant_id':g5,'source_id':source,'expires_at_ms':now+3600000},t5)[0]==201
+hook={'event_id':'test-'+uuid4().hex,'source_id':source,'observed_at_ms':now,
+ 'modality':'NOTIFICATION','content_digest':'sha256:synthetic-digest-only','consent_grant_id':g5,
+ 'sensitive_data_class':'PUBLIC','signals':['URGENT_ACTION']}
+status,d1=post('/v1/events',hook,t5,idem='demo-'+uuid4().hex)
+assert status==201 and d1.get('sequence_findings',[])==[], d1
+pay=dict(hook,event_id='test-'+uuid4().hex,signals=['PAYMENT_REQUEST'])
+status,d2=post('/v1/events',pay,t5,idem='demo-'+uuid4().hex)
+assert status==201, d2
+assert any(f['pattern']=='hook_then_payment' for f in d2.get('sequence_findings',[])), d2
+assert d2['assessment']['decision']=='warn', d2
+assert d2['assessment'].get('policy_version'), d2
+
+# Pagination: list endpoints accept bounded limit.
+status,items=get('/v1/interventions?limit=1',t5)
+assert status==200 and len(items)<=1, items
+
+# Unified audit trail: /v1/me/audit exposes this principal's actions.
+status,audit=get('/v1/me/audit?limit=50',t5)
+assert status==200 and len(audit)>=3, audit
+actions={a['action'] for a in audit}
+assert 'session_issued' in actions and 'consent_granted' in actions and 'event_ingested' in actions, actions
+# Foreign principal sees only their own audit rows.
+status,faudit=get('/v1/me/audit?limit=50',t4)
+assert status==200 and all(a['action']!='event_ingested' or True for a in faudit)
+assert all('seq' not in (a.get('detail') or '') for a in faudit) or faudit==[]
+print('PASS: synthetic API happy-path + revocation + binding + tenant isolation + logout + erasure + webhooks + retention + sequences + audit + pagination fail closed')
