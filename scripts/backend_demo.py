@@ -137,13 +137,16 @@ status,faudit=get('/v1/me/audit?limit=50',t4)
 assert status==200 and all(a['action']!='event_ingested' or True for a in faudit)
 assert all('seq' not in (a.get('detail') or '') for a in faudit) or faudit==[]
 
-# B4 seam: with no provider configured the endpoint refuses honestly
+# B4 seam: standard mode refuses honestly without a provider
 # (503 provider_unavailable) — it can never fabricate a verdict.
 status,body=post('/v1/inference/assess',{'request_id':'req-demo','signals':['URGENT_ACTION'],'privacy':'standard'},t5)
 assert status==503 and body['error']['code']=='provider_unavailable', (status,body)
-# Private mode can never reach a remote gateway either.
-status,body=post('/v1/inference/assess',{'request_id':'req-demo-2','signals':['URGENT_ACTION'],'privacy':'private'},t5)
-assert status==503, (status,body)
+# Private mode is served by the LOCAL heuristic gateway (zero egress):
+# real typed hypotheses with honest provenance, not a fabricated provider.
+status,body=post('/v1/inference/assess',{'request_id':'req-demo-2','signals':['URGENT_ACTION','PAYMENT_REQUEST'],'privacy':'private'},t5)
+assert status==200, (status,body)
+assert 'payment_fraud_attempt' in body['hypotheses'] and 'heuristic' in body['model_id'], body
+assert 'local_heuristic' in body['provenance'], body
 
 # B5 seam: no feed configured => pull keeps 0, list is empty.
 status,rep=post('/v1/intel/pull',{},t5)

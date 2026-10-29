@@ -1555,6 +1555,19 @@ impl IdempotencyStore for PgStore {
         }
         res
     }
+    async fn delete_expired_any(&self, cutoff_ms: u64) -> Result<u64, PortError> {
+        // Deliberately unscoped (privileged sweep path, not request traffic).
+        (async {
+            let n = sqlx::query("DELETE FROM idempotency_keys WHERE created_at_ms <= $1")
+                .bind(cutoff_ms as i64)
+                .execute(&self.pool)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+            Ok(n)
+        })
+        .await
+    }
 }
 #[async_trait::async_trait]
 impl sovir_ports::AuditLog for PgStore {
