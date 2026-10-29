@@ -1070,8 +1070,12 @@ async fn shutdown_signal() {
     };
     #[cfg(unix)]
     let sigterm = async {
-        let _ = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .map(|mut s| s.recv().await);
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => {
+                s.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
     };
     #[cfg(not(unix))]
     let sigterm = std::future::pending::<()>();
