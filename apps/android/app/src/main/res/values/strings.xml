@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SOVIR</string>
+    <string name="observer_service_description">Observa la interfaz de apps para extraer señales de riesgo (nunca texto ni valores). Actívala solo si quieres que SOVIR analice lo que ves.</string>
 </resources>

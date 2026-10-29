@@ -9,6 +9,7 @@ members = [
   "crates/sovir-persistence",
   "services/api",
   "services/migrations",
+  "services/observer",
 ]
 
 [workspace.package]
