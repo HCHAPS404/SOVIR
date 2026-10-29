@@ -638,3 +638,53 @@ impl RiskAnalyzer for DeterministicRiskAnalyzer {
         evaluate_signals(&event.signals)
     }
 }
+
+/// Real HTTP egress (ADR-0010). Only constructed when explicitly enabled;
+/// re-validates every URL against the allowlist per request, disables
+/// redirects and applies a fixed timeout. Never carries user payloads —
+/// callers pass the typed webhook body produced by `WebhookChannel`.
+pub struct ReqwestHttpEgress {
+    client: reqwest::Client,
+    allowed_hosts: Vec<String>,
+}
+impl ReqwestHttpEgress {
+    pub fn new(allowed_hosts: Vec<String>) -> Self {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("reqwest client build");
+        Self {
+            client,
+            allowed_hosts,
+        }
+    }
+}
+#[async_trait]
+impl HttpEgress for ReqwestHttpEgress {
+    async fn post(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(String, String)],
+    ) -> Result<(), PortError> {
+        // Defense in depth: the allowlist is enforced again at send time,
+        // not only at endpoint registration.
+        sovir_domain::validate_url_for_egress(url, &self.allowed_hosts)
+            .map_err(|_| PortError::Storage)?;
+        let mut req = self
+            .client
+            .post(url)
+            .body(body.to_string())
+            .header(reqwest::header::CONTENT_TYPE, "application/json");
+        for (k, v) in headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let res = req.send().await.map_err(|_| PortError::Storage)?;
+        if res.status().is_success() {
+            Ok(())
+        } else {
+            Err(PortError::Storage)
+        }
+    }
+}
