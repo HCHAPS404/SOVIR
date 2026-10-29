@@ -5,12 +5,12 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use sovir_domain::{
     evaluate_signals, Assessment, ConsentGrant, DeletionReceipt, DeliveryState, Device,
-    Intervention, InterventionKind, ObservedEvent, Session, WebhookEndpoint,
+    IdempotentResponse, Intervention, InterventionKind, ObservedEvent, Session, WebhookEndpoint,
 };
 use sovir_ports::{
     Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
-    EventRepository, HttpEgress, InterventionSink, PortError, RiskAnalyzer, SessionStore,
-    WebhookRegistry,
+    EventRepository, HttpEgress, IdempotencyStore, InterventionSink, PortError, RiskAnalyzer,
+    SessionStore, WebhookRegistry,
 };
 use std::{
     collections::HashMap,
@@ -444,6 +444,51 @@ impl DeletionReceiptStore for InMemoryDeletionReceiptStore {
                     .collect()
             })
             .map_err(|_| PortError::Storage)
+    }
+}
+/// Idempotency-Key store, scoped by (tenant, principal, key) (B10/B19).
+#[derive(Default)]
+pub struct InMemoryIdempotencyStore(RwLock<HashMap<(String, String, String), IdempotentResponse>>);
+#[async_trait]
+impl IdempotencyStore for InMemoryIdempotencyStore {
+    async fn get(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        idem_key: &str,
+    ) -> Result<Option<IdempotentResponse>, PortError> {
+        self.0
+            .read()
+            .map(|g| {
+                g.get(&(
+                    tenant_id.to_string(),
+                    principal_id.to_string(),
+                    idem_key.to_string(),
+                ))
+                .cloned()
+            })
+            .map_err(|_| PortError::Storage)
+    }
+    async fn put(&self, record: IdempotentResponse) -> Result<(), PortError> {
+        self.0.write().map_err(|_| PortError::Storage)?.insert(
+            (
+                record.tenant_id.clone(),
+                record.principal_id.clone(),
+                record.idem_key.clone(),
+            ),
+            record,
+        );
+        Ok(())
+    }
+    async fn delete_by_principal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<u64, PortError> {
+        let mut g = self.0.write().map_err(|_| PortError::Storage)?;
+        let before = g.len();
+        g.retain(|(t, p, _), _| t != tenant_id || p != principal_id);
+        Ok((before - g.len()) as u64)
     }
 }
 /// Development channel: pretends delivery always succeeds and keeps a count.

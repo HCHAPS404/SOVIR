@@ -182,6 +182,23 @@ pub struct DeletionReceipt {
     pub sessions_revoked: u64,
     pub devices_revoked: u64,
     pub labels_scrubbed: u64,
+    #[serde(default)]
+    pub idem_keys_deleted: u64,
+}
+
+/// Idempotent-ingest record (B10). Stores the request hash and the first
+/// response for an Idempotency-Key so replays return the same response and
+/// conflicting reuses are detected. Metadata only — no event payloads.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdempotentResponse {
+    pub tenant_id: String,
+    pub principal_id: String,
+    pub idem_key: String,
+    /// Hash of the request body the key was first used with.
+    pub body_hash: i64,
+    /// The stored response (EventDecision JSON).
+    pub response_json: serde_json::Value,
+    pub created_at_ms: u64,
 }
 
 /// Shared identifier rule: non-empty, bounded, no control characters.
@@ -519,5 +536,25 @@ mod tests {
         let v = serde_json::to_value(e).expect("serialize");
         assert_eq!(v["modality"], "URL");
         assert_eq!(v["sensitive_data_class"], "PUBLIC");
+    }
+    #[test]
+    fn egress_url_allowlist_is_strict() {
+        let allow = vec!["hooks.example.com".to_string(), "127.0.0.1".to_string()];
+        let ok = |u| validate_url_for_egress(u, &allow).is_ok();
+        let bad = |u| validate_url_for_egress(u, &allow).is_err();
+        assert!(ok("https://hooks.example.com/x"));
+        assert!(ok("http://127.0.0.1:8787/hook"));
+        assert!(bad("https://evil.example.com/"));
+        assert!(bad("https://hooks.example.com.evil.com/"));
+        assert!(bad("https://hooks.example.com./"));
+        assert!(bad("https://user:pw@hooks.example.com/"));
+        assert!(bad("https://hooks.example.com@evil.com/"));
+        assert!(bad("https://[::1]/"));
+        assert!(bad("ftp://hooks.example.com/"));
+        assert!(bad("hooks.example.com/path"));
+        assert!(bad("https:///path"));
+        assert!(bad("HTTPS://hooks.example.com/"));
+        assert!(bad("http://allowed-but-not-listed.com/"));
+        assert!(bad(""));
     }
 }

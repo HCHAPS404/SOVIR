@@ -61,6 +61,11 @@ status,foreign=post('/v1/auth/dev-session',{'principal_id':'other-user','device_
 assert status==201
 foreign_event=dict(event,event_id='test-'+uuid4().hex,consent_grant_id=grant2)
 assert post('/v1/events',foreign_event,foreign['token'],idem='demo-'+uuid4().hex)[0]==403
+# B19: a session in another tenant cannot reach 'dev'-tenant resources even
+# with a matching principal name — lookups are scoped by tenant first.
+status,other_tenant=post('/v1/auth/dev-session',{'principal_id':'demo-user','device_id':'demo-device','tenant_id':'tenant-b'})
+assert status==201
+assert post('/v1/events',dict(event,event_id='test-'+uuid4().hex,consent_grant_id=grant2),other_tenant['token'],idem='demo-'+uuid4().hex)[0]==403
 assert post('/v1/auth/logout',{},token)[0]==204
 assert post('/v1/events',foreign_event,token,idem='demo-'+uuid4().hex)[0]==401
 # Data governance: export returns the principal's records; purge erases them
@@ -94,4 +99,4 @@ assert post('/v1/webhooks/'+ep['endpoint_id']+'/revoke',{},t4)[0]==204
 # B16 retention: caller-scoped; events newer than the cutoff are kept.
 status,rep=post('/v1/me/retention',{},t4)
 assert status==200 and 'cutoff_ms' in rep, rep
-print('PASS: synthetic API happy-path + revocation + binding + logout + erasure + webhooks + retention fail closed')
+print('PASS: synthetic API happy-path + revocation + binding + tenant isolation + logout + erasure + webhooks + retention fail closed')

@@ -1,0 +1,7 @@
+   Compiling sovir-adapters v0.1.0 (C:\Users\jesui\OneDrive\Escritorio\PROYECTO\SOVIR\crates\sovir-adapters)
+   Compiling sovir-persistence v0.1.0 (C:\Users\jesui\OneDrive\Escritorio\PROYECTO\SOVIR\crates\sovir-persistence)
+   Compiling sovir-api v0.1.0 (C:\Users\jesui\OneDrive\Escritorio\PROYECTO\SOVIR\services\api)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.97s
+     Running `target\debug\sovir-api.exe`
+[2m2026-10-29T01:55:59.044910Z[0m [32m INFO[0m [2msovir_api[0m[2m:[0m starting loopback-only SOVIR development API [3maddr[0m[2m=[0m127.0.0.1:8787 [3menv[0m[2m=[0mtest
+error: process didn't exit successfully: `target\debug\sovir-api.exe` (exit code: 1)

@@ -7,8 +7,8 @@
 //! resolve another tenant's rows. Records carry the sealed tenant binding.
 use async_trait::async_trait;
 use sovir_domain::{
-    Assessment, ConsentGrant, DeletionReceipt, Device, Intervention, InterventionKind,
-    ObservedEvent, Session, WebhookEndpoint,
+    Assessment, ConsentGrant, DeletionReceipt, Device, IdempotentResponse, Intervention,
+    InterventionKind, ObservedEvent, Session, WebhookEndpoint,
 };
 use thiserror::Error;
 
@@ -204,6 +204,25 @@ pub trait HttpEgress: Send + Sync {
         body: &str,
         headers: &[(String, String)],
     ) -> Result<(), PortError>;
+}
+/// Idempotency-Key store (B10). Scoped by (tenant, principal) so keys of
+/// one principal never collide with another's. `put` is insert-once: a
+/// replayed key returns the existing record via `get`.
+#[async_trait]
+pub trait IdempotencyStore: Send + Sync {
+    async fn get(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        idem_key: &str,
+    ) -> Result<Option<IdempotentResponse>, PortError>;
+    async fn put(&self, record: IdempotentResponse) -> Result<(), PortError>;
+    /// Erasure support: drop the principal's keys on purge.
+    async fn delete_by_principal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<u64, PortError>;
 }
 /// Audit tombstones produced by erasure (B16). Receipts persist after purge;
 /// they carry counts and a pseudonymous principal id, never user content.

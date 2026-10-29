@@ -54,19 +54,30 @@
    cualquier otra configuración graba en memoria (cero red por defecto).
 7. **Propuestas** `b6-sync-tenancy.md` y `b7-billing-payments.md`:
    delimitadas para decisión del maintainer, sin código.
+8. **Idempotencia durable (migración 0008)**: puerto `IdempotencyStore`
+   (scoped por tenant+principal), tabla `idempotency_keys` con RLS +
+   `INSERT ON CONFLICT DO NOTHING`; `DELETE /v1/me/data` también borra las
+   claves del principal (`idem_keys_deleted` en reporte y recibo).
+9. **RLS verificado en CI**: paso `migrations` que conecta como `sovir_app`
+   y demuestra aislamiento (tenant-a ve 1 fila, tenant-b ve la suya, sin
+   tenant 0 filas, insert cross-tenant rechazado por WITH CHECK).
+10. **Esquema `ApiError` corregido** en OpenAPI: sobre real
+    `{error:{code,request_id,retryable}}`; tests SSRF de borde
+    (userinfo, subdominio, IPv6, esquema, mayúsculas, host vacío);
+    `backend_demo.py` verifica aislamiento cross-tenant en vivo.
 
 ## Verificación ejecutada (Windows 11, Rust 1.99.1, Python 3.12)
 
 | Comando | Resultado | Evidencia |
 |---|---|---|
 | `cargo fmt --all -- --check` | PASS | harness |
-| `cargo test --workspace` | PASS | 28 tests (dominio/app/API/migraciones) |
+| `cargo test --workspace` | PASS | 29 tests (dominio/app/API/migraciones) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS | sin warnings |
-| `uv run scripts/contract_check.py --self-test` | PASS | 67 checks + rechazos de self-test |
+| `uv run scripts/contract_check.py --self-test` | PASS | 70 checks + rechazos de self-test |
 | `cargo deny check` / `cargo audit` | PASS previo; rerun en CI | reqwest 0.12 nueva dep |
-| `python scripts/backend_demo.py` | PASS previo | rerun pendiente tras fase 2 |
-| Migraciones apply/revert (0001–0007) | verificado en CI | service container Postgres 17 |
-| `sovir_app` + RLS efectivo | diseñado en 0006 | sin test live hasta `SET LOCAL` middleware |
+| `python scripts/backend_demo.py` | PASS | incluye cross-tenant 403 + `idem_keys_deleted` |
+| Migraciones apply/revert (0001–0008) | verificado en CI | service container Postgres 17 |
+| `sovir_app` + RLS efectivo | verificado en CI | paso RLS del job `migrations` |
 | Egress real (`SOVIR_HTTP_EGRESS=real`) | NOT_RUN | requiere endpoint HTTP real; grabación es el default |
 | Inferencia remota / Modal / proveedores | NOT_IMPLEMENTED | USD 0 |
 
@@ -77,7 +88,6 @@
 | 1 | Revisión + merge de PRs #2–#11 en orden | maintainer | drafts verdes en CI |
 | 2 | PR de `feat/backend-phase2` (este) | revisión | draft abierto |
 | 3 | OIDC real → tenant desde token + `SET LOCAL app.tenant_id` + eliminar `dev-session` fuera de local/test | B6 propuesta aprobada | BLOQUEADO maintainer |
-| 4 | `cargo audit` en CI con reqwest | run de CI | pendiente |
 | — | FFI, Modal/GPU, pagos, despliegue | maintainer | BLOQUEADO |
 
 ## Decisiones pendientes del maintainer
