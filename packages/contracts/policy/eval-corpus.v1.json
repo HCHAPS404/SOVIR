@@ -1,0 +1,20 @@
+{
+  "corpus_version": "dev-eval-1",
+  "description": "Labeled synthetic signal sets for the dev risk policy pack. Labels are policy expectations, not ground-truth threats. Used by the domain eval test to report agreement/precision metrics.",
+  "cases": [
+    {"name": "benign_tracking_notice", "signals": [], "expect_risk": "unknown", "expect_decision": "observe"},
+    {"name": "payment_plus_unverified", "signals": ["PAYMENT_REQUEST", "IDENTITY_UNVERIFIED"], "expect_risk": "high", "expect_decision": "warn"},
+    {"name": "credential_plus_urgency", "signals": ["CREDENTIAL_REQUEST", "URGENT_ACTION"], "expect_risk": "high", "expect_decision": "warn"},
+    {"name": "payment_alone", "signals": ["PAYMENT_REQUEST"], "expect_risk": "elevated", "expect_decision": "review"},
+    {"name": "credential_alone", "signals": ["CREDENTIAL_REQUEST"], "expect_risk": "elevated", "expect_decision": "review"},
+    {"name": "dark_pattern_alone", "signals": ["CONSENT_DARK_PATTERN"], "expect_risk": "elevated", "expect_decision": "review"},
+    {"name": "hidden_fee_alone", "signals": ["HIDDEN_FEE_PATTERN"], "expect_risk": "elevated", "expect_decision": "review"},
+    {"name": "tracking_alone", "signals": ["TRACKING_OBSERVED"], "expect_risk": "elevated", "expect_decision": "review"},
+    {"name": "exposure_limit_alone", "signals": ["USER_DEFINED_EXPOSURE_LIMIT"], "expect_risk": "elevated", "expect_decision": "review"},
+    {"name": "unverified_alone", "signals": ["IDENTITY_UNVERIFIED"], "expect_risk": "unknown", "expect_decision": "observe"},
+    {"name": "urgency_alone", "signals": ["URGENT_ACTION"], "expect_risk": "unknown", "expect_decision": "observe"},
+    {"name": "urgency_plus_tracking", "signals": ["URGENT_ACTION", "TRACKING_OBSERVED"], "expect_risk": "elevated", "expect_decision": "review"},
+    {"name": "payment_plus_urgency", "signals": ["PAYMENT_REQUEST", "URGENT_ACTION"], "expect_risk": "high", "expect_decision": "warn"},
+    {"name": "full_scam_pattern", "signals": ["PAYMENT_REQUEST", "IDENTITY_UNVERIFIED", "URGENT_ACTION", "CONSENT_DARK_PATTERN"], "expect_risk": "high", "expect_decision": "warn"}
+  ]
+}

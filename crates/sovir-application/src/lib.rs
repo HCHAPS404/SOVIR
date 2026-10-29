@@ -1,9 +1,10 @@
 //! Use cases and orchestrated policy checks. No Axum, SQL or model SDK dependencies.
 use sovir_domain::{
-    intervention_for, next_attempt_ms, valid_identifier, validate_consent, validate_device,
-    validate_event, validate_url_for_egress, ConsentGrant, DeletionReceipt, DeliveryAuditEntry,
-    DeliveryState, Device, DomainError, EventDecision, Intervention, ObservedEvent, Platform,
-    Principal, Scope, Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
+    detect_sequences, intervention_for, next_attempt_ms, normalize_events, valid_identifier,
+    validate_consent, validate_device, validate_event, validate_url_for_egress, ConsentGrant,
+    DecisionKind, DeletionReceipt, DeliveryAuditEntry, DeliveryState, Device, DomainError,
+    EventDecision, Intervention, ObservedEvent, Platform, Principal, RiskLevel, Scope,
+    SequencePattern, Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
 };
 use sovir_ports::{
     Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
@@ -15,6 +16,9 @@ use thiserror::Error;
 
 /// Development sessions are short-lived; production session TTL is a separate decision.
 const DEV_SESSION_TTL_MS: u64 = 15 * 60 * 1000;
+/// Evidence correlation window for sequence detection (B2). Dev value;
+/// production tuning is a policy decision.
+const EVIDENCE_WINDOW_MS: u64 = 60 * 60 * 1000;
 
 #[derive(Debug, serde::Serialize)]
 pub struct PrincipalDataExport {
@@ -339,13 +343,42 @@ impl SovirService {
                 now,
             )
             .await?;
-        let assessment = self.risk.analyze(&event);
+        let mut assessment = self.risk.analyze(&event);
         let id = event.event_id.clone();
         self.events.insert_once(event).await?;
+        // Evidence window (B2/ADR-0011): correlate the principal's recent
+        // events; findings can only raise the decision floor, never weaken
+        // consent/device checks or trigger enforcement by themselves.
+        let since = now.saturating_sub(EVIDENCE_WINDOW_MS);
+        let window = normalize_events(
+            self.events
+                .list_recent(&principal.tenant_id, &principal.principal_id, since)
+                .await?,
+        );
+        let sequence_findings = detect_sequences(&window);
+        for f in &sequence_findings {
+            assessment
+                .reasons
+                .push(format!("Sequence: {:?} over {}ms", f.pattern, f.span_ms));
+        }
+        if sequence_findings
+            .iter()
+            .any(|f| matches!(f.pattern, SequencePattern::HookThenPayment))
+        {
+            // A lure followed by a payment request in-window escalates to Warn
+            // regardless of the single-event verdict.
+            assessment.decision = DecisionKind::Warn;
+            if assessment.risk_level != RiskLevel::High {
+                assessment.risk_level = RiskLevel::High;
+            }
+        } else if !sequence_findings.is_empty() && assessment.decision == DecisionKind::Observe {
+            assessment.decision = DecisionKind::Review;
+        }
         let decision = EventDecision {
             event_id: id,
             assessment,
             protected_action_executed: false,
+            sequence_findings,
         };
         // Deterministic policy: warn/review decisions enqueue an intervention
         // for the device channel. `Observe` produces nothing; there is no
