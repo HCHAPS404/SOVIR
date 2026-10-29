@@ -114,7 +114,7 @@ hook={'event_id':'test-'+uuid4().hex,'source_id':source,'observed_at_ms':now-100
  'sensitive_data_class':'PUBLIC','signals':['URGENT_ACTION']}
 status,d1=post('/v1/events',hook,t5,idem='demo-'+uuid4().hex)
 assert status==201 and d1.get('sequence_findings',[])==[], d1
-pay=dict(hook,event_id='test-'+uuid4().hex,signals=['PAYMENT_REQUEST'])
+pay=dict(hook,event_id='test-'+uuid4().hex,signals=['PAYMENT_REQUEST'],observed_at_ms=now)
 status,d2=post('/v1/events',pay,t5,idem='demo-'+uuid4().hex)
 assert status==201, d2
 assert any(f['pattern']=='hook_then_payment' for f in d2.get('sequence_findings',[])), d2
