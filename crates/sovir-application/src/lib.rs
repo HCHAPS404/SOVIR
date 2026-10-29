@@ -485,6 +485,25 @@ impl SovirService {
         })
     }
 
+    /// Global scheduled retention sweep (infrastructure caller, not a
+    /// principal). Deletes events and terminal interventions older than
+    /// `now - retention_ms` across ALL tenants — the only cross-tenant
+    /// operation in the service, restricted to the periodic sweep task.
+    pub async fn enforce_retention_global(
+        &self,
+        retention_ms: u64,
+    ) -> Result<RetentionReport, AppError> {
+        let cutoff_ms = self.clock.now_ms().saturating_sub(retention_ms);
+        Ok(RetentionReport {
+            cutoff_ms,
+            events_deleted: self.events.delete_older_than_any(cutoff_ms).await?,
+            terminal_interventions_deleted: self
+                .sink
+                .delete_terminal_older_than_any(cutoff_ms)
+                .await?,
+        })
+    }
+
     /// Erasure: hard-deletes events, grants and intervention records; revokes
     /// all sessions and devices (audit-preserving tombstones) and scrubs
     /// device labels. A durable `DeletionReceipt` records the counts — it is
