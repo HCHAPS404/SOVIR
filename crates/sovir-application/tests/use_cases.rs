@@ -23,7 +23,7 @@ fn service() -> SovirService {
         ServicePorts {
             grants: Arc::new(InMemoryConsentRepository::default()),
             events: Arc::new(InMemoryEventRepository::default()),
-            risk: Arc::new(DeterministicRiskAnalyzer),
+            risk: Arc::new(DeterministicRiskAnalyzer::default()),
             sessions: Arc::new(InMemorySessionStore::default()),
             devices: Arc::new(InMemoryDeviceRegistry::default()),
             sink: Arc::new(InMemoryInterventionSink::default()),
@@ -312,7 +312,7 @@ async fn webhook_delivery_signs_and_honors_allowlist_and_revocation() {
         ServicePorts {
             grants: Arc::new(InMemoryConsentRepository::default()),
             events: Arc::new(InMemoryEventRepository::default()),
-            risk: Arc::new(DeterministicRiskAnalyzer),
+            risk: Arc::new(DeterministicRiskAnalyzer::default()),
             sessions: Arc::new(InMemorySessionStore::default()),
             devices: Arc::new(InMemoryDeviceRegistry::default()),
             sink: Arc::new(InMemoryInterventionSink::default()),
@@ -408,4 +408,40 @@ async fn tenant_isolation_blocks_cross_tenant_access() {
     let devs_b = service.list_devices(&pb).await.unwrap();
     assert_eq!(devs_b.len(), 1);
     assert_eq!(devs_b[0].label, "rig-b");
+}
+#[tokio::test]
+async fn evidence_window_escalates_hook_then_payment() {
+    let service = service();
+    let p = principal("p-seq");
+    let now = 10_000u64; // FixedClock
+    let mut g = grant();
+    g.grant_id = "grant-seq".into();
+    g.expires_at_ms = now + 3_600_000;
+    service.grant(&p, g).await.unwrap();
+    // First event: a manipulation cue only — Review at most.
+    let mut hook = event();
+    hook.event_id = "hook".into();
+    hook.consent_grant_id = "grant-seq".into();
+    hook.observed_at_ms = now - 100;
+    hook.signals = vec![RiskSignal::UrgentAction];
+    let d1 = service.ingest(&p, hook).await.unwrap();
+    assert_eq!(d1.assessment.decision, sovir_domain::DecisionKind::Observe);
+    assert!(d1.sequence_findings.is_empty());
+    // Second event: payment request alone -> Review; with the hook in the
+    // window the sequence escalates it to Warn with findings attached.
+    let mut pay = event();
+    pay.event_id = "pay".into();
+    pay.consent_grant_id = "grant-seq".into();
+    pay.observed_at_ms = now;
+    pay.signals = vec![RiskSignal::PaymentRequest];
+    let d2 = service.ingest(&p, pay).await.unwrap();
+    assert_eq!(d2.assessment.decision, sovir_domain::DecisionKind::Warn);
+    assert!(d2
+        .sequence_findings
+        .iter()
+        .any(|f| f.pattern == sovir_domain::SequencePattern::HookThenPayment));
+    // An intervention was enqueued because the escalated decision is Warn.
+    let items = service.list_interventions(&p).await.unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].kind, sovir_domain::InterventionKind::WarnBanner);
 }

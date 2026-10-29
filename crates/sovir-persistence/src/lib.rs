@@ -428,6 +428,17 @@ impl EventRepository for PgStore {
             .rows_affected();
         Ok(n)
     }
+    async fn list_recent(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        since_ms: u64,
+    ) -> Result<Vec<ObservedEvent>, PortError> {
+        let mut events =
+            <Self as EventRepository>::list_by_principal(self, tenant_id, principal_id).await?;
+        events.retain(|e| e.observed_at_ms >= since_ms);
+        Ok(events)
+    }
 }
 
 #[async_trait]

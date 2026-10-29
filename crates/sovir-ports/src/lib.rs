@@ -70,6 +70,14 @@ pub trait EventRepository: Send + Sync {
     /// Global retention sweep: deletes every event older than `cutoff_ms`
     /// regardless of principal. Used only by the scheduled sweep job.
     async fn delete_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError>;
+    /// Evidence window (B2/ADR-0011): the principal's events observed at or
+    /// after `since_ms`, used to detect escalation sequences on ingest.
+    async fn list_recent(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        since_ms: u64,
+    ) -> Result<Vec<ObservedEvent>, PortError>;
 }
 pub trait RiskAnalyzer: Send + Sync {
     fn analyze(&self, event: &ObservedEvent) -> Assessment;

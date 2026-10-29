@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use sovir_domain::{
-    evaluate_signals, Assessment, ConsentGrant, DeletionReceipt, DeliveryState, Device,
-    IdempotentResponse, Intervention, InterventionKind, ObservedEvent, Session, WebhookEndpoint,
+    Assessment, ConsentGrant, DeletionReceipt, DeliveryState, Device, IdempotentResponse,
+    Intervention, InterventionKind, ObservedEvent, PolicyPack, Session, WebhookEndpoint,
 };
 use sovir_ports::{
     Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
@@ -158,6 +158,26 @@ impl EventRepository for InMemoryEventRepository {
         let before = events.len();
         events.retain(|_, e| e.observed_at_ms >= cutoff_ms);
         Ok((before - events.len()) as u64)
+    }
+    async fn list_recent(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        since_ms: u64,
+    ) -> Result<Vec<ObservedEvent>, PortError> {
+        self.0
+            .lock()
+            .map(|e| {
+                e.values()
+                    .filter(|x| {
+                        x.tenant_id == tenant_id
+                            && x.principal_id == principal_id
+                            && x.observed_at_ms >= since_ms
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .map_err(|_| PortError::Storage)
     }
 }
 #[derive(Default)]
@@ -676,11 +696,27 @@ impl DeliveryChannel for WebhookChannel {
         Ok(())
     }
 }
-#[derive(Default)]
-pub struct DeterministicRiskAnalyzer;
+/// Signal evaluator backed by a versioned `PolicyPack` (ADR-0011).
+/// Defaults to the built-in dev pack; a loaded pack can be injected for
+/// eval or future config-driven deployments.
+pub struct DeterministicRiskAnalyzer {
+    pub pack: PolicyPack,
+}
+impl Default for DeterministicRiskAnalyzer {
+    fn default() -> Self {
+        Self {
+            pack: PolicyPack::dev_pack(),
+        }
+    }
+}
+impl DeterministicRiskAnalyzer {
+    pub fn with_pack(pack: PolicyPack) -> Self {
+        Self { pack }
+    }
+}
 impl RiskAnalyzer for DeterministicRiskAnalyzer {
     fn analyze(&self, event: &ObservedEvent) -> Assessment {
-        evaluate_signals(&event.signals)
+        self.pack.evaluate(&event.signals)
     }
 }
 

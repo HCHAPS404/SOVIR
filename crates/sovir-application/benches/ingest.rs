@@ -21,7 +21,7 @@ fn service() -> SovirService {
         ServicePorts {
             grants: Arc::new(InMemoryConsentRepository::default()),
             events: Arc::new(InMemoryEventRepository::default()),
-            risk: Arc::new(DeterministicRiskAnalyzer),
+            risk: Arc::new(DeterministicRiskAnalyzer::default()),
             sessions: Arc::new(InMemorySessionStore::default()),
             devices: Arc::new(InMemoryDeviceRegistry::default()),
             sink: Arc::new(InMemoryInterventionSink::default()),
