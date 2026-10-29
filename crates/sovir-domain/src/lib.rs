@@ -100,6 +100,16 @@ pub enum Scope {
     SessionsWrite,
 }
 
+/// Verified identity claims produced by an `IdentityVerifier` (OIDC seam,
+/// B6). Carries no scopes: mapping claims→scopes is a policy decision made
+/// by the caller, never trusted from the token itself.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifiedIdentity {
+    pub tenant_id: String,
+    pub principal_id: String,
+    pub expires_at_ms: u64,
+}
+
 /// Authenticated caller context. Produced only by a `SessionStore` resolve;
 /// never constructed from client-supplied fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -252,6 +262,8 @@ pub enum AuditAction {
     DataPurged,
     RetentionEnforced,
     DispatchRan,
+    InferenceCalled,
+    IntelPulled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

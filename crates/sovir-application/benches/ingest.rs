@@ -33,6 +33,7 @@ fn service() -> SovirService {
             inference: None,
             budget: Arc::new(InMemoryBudgetLedger::default()),
             intel: Arc::new(InMemoryThreatIntel::default()),
+            identity: None,
         },
     )
 }

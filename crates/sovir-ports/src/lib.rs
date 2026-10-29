@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use sovir_domain::{
     Assessment, AuditEvent, ConsentGrant, DeletionReceipt, Device, IdempotentResponse,
     InferenceRequest, InferenceVerdict, IntelIndicator, Intervention, InterventionKind,
-    ObservedEvent, PrivacyMode, Session, WebhookEndpoint,
+    ObservedEvent, PrivacyMode, Session, VerifiedIdentity, WebhookEndpoint,
 };
 use thiserror::Error;
 
@@ -21,6 +21,8 @@ pub enum PortError {
     Duplicate,
     #[error("provider or capability not configured")]
     Unavailable,
+    #[error("credential verification failed")]
+    Unauthorized,
 }
 
 pub trait Clock: Send + Sync {
@@ -101,9 +103,10 @@ pub trait SessionStore: Send + Sync {
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<u64, PortError>;
-    /// Global hygiene: hard-deletes sessions already expired or revoked at
-    /// `now_ms`. Used only by the scheduled retention sweep; expired
-    /// sessions fail resolve anyway, so this is storage hygiene only.
+    /// Global hygiene: hard-deletes session tombstones whose expiry
+    /// timestamp is older than `cutoff_ms` (passed as now_ms). Revoked
+    /// sessions persist as audit tombstones until their natural expiry also
+    /// ages past the cutoff. Only the scheduled retention sweep calls this.
     async fn delete_expired(&self, now_ms: u64) -> Result<u64, PortError>;
 }
 /// Device inventory scoped by principal within a tenant. A device record is
@@ -235,6 +238,21 @@ pub trait HttpEgress: Send + Sync {
         let _ = (url, body, headers);
         Err(PortError::Unavailable)
     }
+    /// GET that returns the response body (OIDC/JWKS public-key retrieval).
+    /// Default refuses for the same reason: recording egress must never
+    /// fabricate key material.
+    async fn get(&self, url: &str, headers: &[(String, String)]) -> Result<String, PortError> {
+        let _ = (url, headers);
+        Err(PortError::Unavailable)
+    }
+}
+/// Verified caller identity (OIDC/B6). Producing one requires a real
+/// signature check against configured key material — dev sessions do NOT
+/// go through this path and remain self-declared.
+#[async_trait]
+pub trait IdentityVerifier: Send + Sync {
+    /// Verifies a bearer credential; returns typed claims or refuses.
+    async fn verify(&self, token: &str) -> Result<VerifiedIdentity, PortError>;
 }
 /// Unified sensitive-action audit trail. Entries are metadata tombstones:
 /// they survive erasure (like deletion receipts) so administrative actions
