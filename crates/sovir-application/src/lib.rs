@@ -48,6 +48,11 @@ pub struct RetentionReport {
     pub cutoff_ms: u64,
     pub events_deleted: u64,
     pub terminal_interventions_deleted: u64,
+    /// Session tombstones + expired idempotency keys dropped (global only).
+    #[serde(default)]
+    pub session_tombstones_deleted: u64,
+    #[serde(default)]
+    pub idem_keys_expired_deleted: u64,
 }
 
 #[derive(Debug, Error)]
@@ -649,6 +654,8 @@ impl SovirService {
                     cutoff_ms,
                 )
                 .await?,
+            session_tombstones_deleted: 0, // principal-scoped sweep keeps tombstones
+            idem_keys_expired_deleted: 0,
         })
     }
 
@@ -661,6 +668,10 @@ impl SovirService {
         retention_ms: u64,
     ) -> Result<RetentionReport, AppError> {
         let cutoff_ms = self.clock.now_ms().saturating_sub(retention_ms);
+        // Hygiene: drop aged session tombstones and expired idempotency keys
+        // in the same sweep (expiry older than the retention cutoff).
+        let sessions_deleted = self.sessions.delete_expired(cutoff_ms).await?;
+        let idem_deleted = self.idem.delete_expired_any(cutoff_ms).await?;
         let report = RetentionReport {
             cutoff_ms,
             events_deleted: self.events.delete_older_than_any(cutoff_ms).await?,
@@ -668,15 +679,13 @@ impl SovirService {
                 .sink
                 .delete_terminal_older_than_any(cutoff_ms)
                 .await?,
+            session_tombstones_deleted: sessions_deleted,
+            idem_keys_expired_deleted: idem_deleted,
         };
-        // Hygiene: drop aged session tombstones in the same sweep (expiry
-        // older than the retention cutoff — revoked sessions tombstone until
-        // their natural expiry ages past it too).
-        let sessions_deleted = self.sessions.delete_expired(cutoff_ms).await?;
         self.audit_global(
             AuditAction::RetentionEnforced,
             &format!(
-                "cutoff:{} events:{} interventions:{} sessions:{sessions_deleted}",
+                "cutoff:{} events:{} interventions:{} sessions:{sessions_deleted} idem:{idem_deleted}",
                 report.cutoff_ms, report.events_deleted, report.terminal_interventions_deleted
             ),
         )
@@ -854,6 +863,15 @@ impl SovirService {
     pub async fn list_audit(&self, principal: &Principal) -> Result<Vec<AuditEvent>, AppError> {
         Ok(self
             .audit
+            .list_by_principal(&principal.tenant_id, &principal.principal_id)
+            .await?)
+    }
+
+    /// The caller's stored observed events (read-back surface; digests and
+    /// typed signals only — never content).
+    pub async fn list_events(&self, principal: &Principal) -> Result<Vec<ObservedEvent>, AppError> {
+        Ok(self
+            .events
             .list_by_principal(&principal.tenant_id, &principal.principal_id)
             .await?)
     }

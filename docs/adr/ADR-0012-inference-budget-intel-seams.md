@@ -12,8 +12,14 @@ a future provider lands behind ports instead of leaking into the domain.
 
 1. **`InferenceGateway` port**: `assess(InferenceRequest) -> InferenceVerdict`.
    Requests carry typed signals and a `PrivacyMode` — never raw content.
-   The only shipped adapter is `LocalOnlyInferenceGateway`, which honestly
-   refuses (`PortError::Unavailable`): it can only serve `Private` mode,
+   The shipped adapters are: `LocalOnlyInferenceGateway`, which honestly
+   refuses (`PortError::Unavailable`); `HeuristicLocalInferenceGateway`, a
+   transparent rule table over typed signals serving `Private` mode with
+   zero egress — its `model_id`/`provenance` say heuristic, not ML;
+   `RemoteInferenceGateway`, HTTP via controlled egress (wired only when
+   URL+key+model+real egress are all set); and `CompositeInferenceGateway`,
+   which routes `Private` → local ALWAYS (private can never egress, even
+   with a provider configured) and `Standard` → remote-or-refuse.
    and no local model is installed. No endpoint exposes it yet.
 2. **`BudgetLedger` port**: per-tenant spend tracking in micro-USD with a
    configured cap. `assess_with_inference` refuses with `BudgetExceeded`

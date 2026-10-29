@@ -545,6 +545,12 @@ impl IdempotencyStore for InMemoryIdempotencyStore {
         g.retain(|(t, p, _), _| t != tenant_id || p != principal_id);
         Ok((before - g.len()) as u64)
     }
+    async fn delete_expired_any(&self, cutoff_ms: u64) -> Result<u64, PortError> {
+        let mut g = self.0.write().map_err(|_| PortError::Storage)?;
+        let before = g.len();
+        g.retain(|_, r| r.created_at_ms > cutoff_ms);
+        Ok((before - g.len()) as u64)
+    }
 }
 /// Development channel: pretends delivery always succeeds and keeps a count.
 /// Real delivery surfaces (OS notification, inbox) are platform adapters.
@@ -951,6 +957,143 @@ impl InferenceGateway for LocalOnlyInferenceGateway {
     }
     fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
         mode == sovir_domain::PrivacyMode::Private
+    }
+}
+/// Local heuristic inference (B4, ADR-0012): a transparent rule table over
+/// typed signals that serves `Private` mode with ZERO egress — this is the
+/// local-first inference path working end to end. It is NOT an ML model:
+/// every hypothesis maps to a documented rule, `model_id` says so, and
+/// `provenance` discloses the heuristic origin. A real local model or a
+/// vetted provider replaces this adapter without touching the boundary.
+#[derive(Default)]
+pub struct HeuristicLocalInferenceGateway;
+impl HeuristicLocalInferenceGateway {
+    /// (required signals, hypothesis, confidence bp). First match wins per
+    /// row; verdict confidence is the max matched bp.
+    const RULES: &'static [(&'static [sovir_domain::RiskSignal], &'static str, u16)] = &[
+        (
+            &[
+                sovir_domain::RiskSignal::CredentialRequest,
+                sovir_domain::RiskSignal::IdentityUnverified,
+            ],
+            "credential_phishing",
+            8500,
+        ),
+        (
+            &[
+                sovir_domain::RiskSignal::PaymentRequest,
+                sovir_domain::RiskSignal::UrgentAction,
+            ],
+            "payment_fraud_attempt",
+            8000,
+        ),
+        (
+            &[sovir_domain::RiskSignal::ConsentDarkPattern],
+            "manipulative_pattern",
+            6500,
+        ),
+        (
+            &[sovir_domain::RiskSignal::HiddenFeePattern],
+            "manipulative_pattern",
+            6500,
+        ),
+        (
+            &[sovir_domain::RiskSignal::CredentialRequest],
+            "credential_request_unverified",
+            6000,
+        ),
+        (
+            &[sovir_domain::RiskSignal::PaymentRequest],
+            "payment_request_unverified",
+            6000,
+        ),
+        (
+            &[sovir_domain::RiskSignal::TrackingObserved],
+            "privacy_tracking_exposure",
+            5500,
+        ),
+        (
+            &[sovir_domain::RiskSignal::IdentityUnverified],
+            "identity_unverified",
+            4000,
+        ),
+        (
+            &[sovir_domain::RiskSignal::UrgentAction],
+            "urgency_pressure",
+            4000,
+        ),
+    ];
+}
+#[async_trait]
+impl InferenceGateway for HeuristicLocalInferenceGateway {
+    async fn assess(
+        &self,
+        req: &sovir_domain::InferenceRequest,
+    ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+        if !self.serves(req.privacy) {
+            return Err(PortError::Unavailable); // standard must never hit local
+        }
+        let mut hypotheses: Vec<&'static str> = Vec::new();
+        let mut confidence_bp: u16 = 0;
+        for (required, label, bp) in Self::RULES {
+            if required.iter().all(|s| req.signals.contains(s)) && !hypotheses.contains(label) {
+                hypotheses.push(label);
+                confidence_bp = confidence_bp.max(*bp);
+            }
+        }
+        if hypotheses.is_empty() {
+            hypotheses.push("no_pattern_detected");
+            confidence_bp = 1000;
+        }
+        Ok(sovir_domain::InferenceVerdict {
+            request_id: req.request_id.clone(),
+            model_id: "sovir-heuristic-local-0.1".into(),
+            hypotheses: hypotheses.into_iter().map(str::to_string).collect(),
+            confidence_bp,
+            provenance: "local_heuristic_rules; no model, no egress; deterministic".into(),
+        })
+    }
+    fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+        mode == sovir_domain::PrivacyMode::Private
+    }
+}
+/// Privacy-mode router (ADR-0012): `Private` requests always go to the
+/// local gateway — a `Private` request can NEVER egress, even when a
+/// remote provider is configured. `Standard` goes to the remote gateway
+/// when present, else refuses.
+pub struct CompositeInferenceGateway {
+    local: Arc<dyn InferenceGateway>,
+    remote: Option<Arc<dyn InferenceGateway>>,
+}
+impl CompositeInferenceGateway {
+    pub fn new(
+        local: Arc<dyn InferenceGateway>,
+        remote: Option<Arc<dyn InferenceGateway>>,
+    ) -> Self {
+        Self { local, remote }
+    }
+}
+#[async_trait]
+impl InferenceGateway for CompositeInferenceGateway {
+    async fn assess(
+        &self,
+        req: &sovir_domain::InferenceRequest,
+    ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+        match req.privacy {
+            sovir_domain::PrivacyMode::Private => self.local.assess(req).await,
+            sovir_domain::PrivacyMode::Standard => match &self.remote {
+                Some(r) if r.serves(req.privacy) => r.assess(req).await,
+                _ => Err(PortError::Unavailable),
+            },
+        }
+    }
+    fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+        match mode {
+            sovir_domain::PrivacyMode::Private => self.local.serves(mode),
+            sovir_domain::PrivacyMode::Standard => {
+                self.remote.as_ref().is_some_and(|r| r.serves(mode))
+            }
+        }
     }
 }
 /// Per-tenant inference budget in micro-USD (B4). Dev adapter: a shared
@@ -1527,5 +1670,89 @@ mod tests {
             .with_expected_sha256("not-hex")
             .is_err());
         std::fs::remove_file(&path).ok();
+    }
+
+    fn inf_req(
+        signals: &[sovir_domain::RiskSignal],
+        privacy: sovir_domain::PrivacyMode,
+    ) -> sovir_domain::InferenceRequest {
+        sovir_domain::InferenceRequest {
+            request_id: "req-t".into(),
+            signals: signals.to_vec(),
+            privacy,
+            est_cost_micro_usd: 0,
+        }
+    }
+    #[tokio::test]
+    async fn heuristic_local_serves_private_with_honest_hypotheses() {
+        use sovir_domain::RiskSignal::*;
+        let g = HeuristicLocalInferenceGateway;
+        // Private only.
+        assert!(g.serves(sovir_domain::PrivacyMode::Private));
+        assert!(!g.serves(sovir_domain::PrivacyMode::Standard));
+        // Credential + unverified identity -> phishing hypothesis.
+        let v = g
+            .assess(&inf_req(
+                &[CredentialRequest, IdentityUnverified],
+                sovir_domain::PrivacyMode::Private,
+            ))
+            .await
+            .unwrap();
+        assert!(v.hypotheses.contains(&"credential_phishing".to_string()));
+        assert_eq!(v.confidence_bp, 8500);
+        assert_eq!(v.request_id, "req-t");
+        assert!(v.model_id.contains("heuristic"));
+        assert!(v.provenance.contains("local_heuristic"));
+        // Standard mode refused outright: private path never egresses.
+        assert!(matches!(
+            g.assess(&inf_req(
+                &[PaymentRequest],
+                sovir_domain::PrivacyMode::Standard
+            ))
+            .await,
+            Err(PortError::Unavailable)
+        ));
+        // Empty signal set -> honest low-confidence negative.
+        let v2 = g
+            .assess(&inf_req(&[], sovir_domain::PrivacyMode::Private))
+            .await
+            .unwrap();
+        assert_eq!(v2.hypotheses, vec!["no_pattern_detected".to_string()]);
+        assert_eq!(v2.confidence_bp, 1000);
+    }
+    #[tokio::test]
+    async fn composite_routes_private_to_local_never_remote() {
+        use sovir_domain::RiskSignal::*;
+        // Remote absent: private served locally, standard refused.
+        let g = CompositeInferenceGateway::new(Arc::new(HeuristicLocalInferenceGateway), None);
+        assert!(g.serves(sovir_domain::PrivacyMode::Private));
+        assert!(!g.serves(sovir_domain::PrivacyMode::Standard));
+        let v = g
+            .assess(&inf_req(
+                &[PaymentRequest, UrgentAction],
+                sovir_domain::PrivacyMode::Private,
+            ))
+            .await
+            .unwrap();
+        assert!(v.hypotheses.contains(&"payment_fraud_attempt".to_string()));
+        // With remote present: private STILL routed local (never egresses).
+        let g2 = CompositeInferenceGateway::new(
+            Arc::new(HeuristicLocalInferenceGateway),
+            Some(Arc::new(RemoteInferenceGateway::new(
+                Arc::new(RecordingHttpEgress::default()),
+                "https://provider.example/assess".to_string(),
+                "key".to_string(),
+                "model-x".to_string(),
+            ))),
+        );
+        assert!(g2.serves(sovir_domain::PrivacyMode::Standard));
+        let v2 = g2
+            .assess(&inf_req(
+                &[TrackingObserved],
+                sovir_domain::PrivacyMode::Private,
+            ))
+            .await
+            .unwrap();
+        assert!(v2.provenance.contains("local_heuristic"));
     }
 }

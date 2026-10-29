@@ -219,6 +219,8 @@ components:
         cutoff_ms: {type: integer}
         events_deleted: {type: integer}
         terminal_interventions_deleted: {type: integer}
+        session_tombstones_deleted: {type: integer}
+        idem_keys_expired_deleted: {type: integer}
     WebhookEndpoint:
       type: object
       description: Registered egress endpoint. Secret is dev-only plaintext.
@@ -448,4 +450,18 @@ paths:
         '400': {description: Invalid or prohibited data}
         '401': {description: Not authorized}
         '403': {description: Consent missing, expired, mismatched or revoked}
+    get:
+      summary: List the caller's stored observed events (metadata + typed signals)
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
+      responses:
+        '200': {description: Events, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+        '401': {description: Unauthorized}
+  /v1/version:
+    get:
+      summary: Build and contract version disclosure
+      responses:
+        '200': {description: Version info, content: {application/json: {schema: {type: object}}}}
         '409': {description: Duplicate event ID}

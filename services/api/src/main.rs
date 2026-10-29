@@ -29,6 +29,7 @@ use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 use tower::ServiceBuilder;
 use tower_http::{
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
+    set_header::SetResponseHeaderLayer,
     timeout::TimeoutLayer,
     trace::{DefaultOnResponse, TraceLayer},
 };
@@ -198,7 +199,7 @@ fn real_egress_enabled(allowlist: &[String], sovir_env: &str) -> bool {
 /// Remote inference gateway (ADR-0012): only wired when a real egress
 /// transport exists AND endpoint+key+model are all configured. Anything
 /// less => None => honest 503 provider_unavailable, never a fake verdict.
-fn inference_gateway(
+fn remote_inference_gateway(
     egress: &Arc<dyn sovir_ports::HttpEgress>,
     allowlist: &[String],
     sovir_env: &str,
@@ -214,6 +215,31 @@ fn inference_gateway(
         url,
         key,
         model,
+    )))
+}
+/// Inference composition (ADR-0012): `private` → local heuristic (zero
+/// egress, deterministic, provenance says heuristic); `standard` → remote
+/// provider when fully configured, else 503. `SOVIR_LOCAL_INFERENCE=off`
+/// disables the local path too (then everything refuses).
+fn inference_gateway(
+    egress: &Arc<dyn sovir_ports::HttpEgress>,
+    allowlist: &[String],
+    sovir_env: &str,
+) -> Option<Arc<dyn sovir_ports::InferenceGateway>> {
+    let remote = remote_inference_gateway(egress, allowlist, sovir_env);
+    let local_enabled = env::var("SOVIR_LOCAL_INFERENCE")
+        .map(|v| v != "off")
+        .unwrap_or(true);
+    if !local_enabled && remote.is_none() {
+        return None;
+    }
+    let local: Arc<dyn sovir_ports::InferenceGateway> = if local_enabled {
+        Arc::new(sovir_adapters::HeuristicLocalInferenceGateway)
+    } else {
+        Arc::new(sovir_adapters::LocalOnlyInferenceGateway)
+    };
+    Some(Arc::new(sovir_adapters::CompositeInferenceGateway::new(
+        local, remote,
     )))
 }
 /// Loads a versioned policy pack from `SOVIR_POLICY_PACK` (JSON file path).
@@ -509,6 +535,32 @@ async fn list_devices(
     items.truncate(list_limit(&q));
     Ok(Json(items))
 }
+/// Read-back of the caller's stored events (metadata + typed signals;
+/// paginated by ?limit).
+async fn list_events(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Vec<ObservedEvent>>, ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    let mut items = s
+        .service
+        .list_events(&p)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    items.truncate(list_limit(&q));
+    Ok(Json(items))
+}
+/// Build/version disclosure (ops + debugging): package version and the
+/// contract revision served. No secrets, no config values.
+async fn version() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "name": "sovir-api",
+        "version": env!("CARGO_PKG_VERSION"),
+        "contract": "backend-dev.v0",
+        "build_sha": option_env!("SOVIR_BUILD_SHA").unwrap_or("dev"),
+    }))
+}
 async fn revoke_device(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -652,7 +704,12 @@ async fn list_audit(
 }
 /// B4 seam (ADR-0012): server prices each request — a client can never
 /// set its own spend. Default $0.01 in micro-USD per call.
+/// Server-side price per request: remote calls cost the configured
+/// micro-USD; local heuristic inference is free (zero egress, no provider).
 fn inference_request_cost_micros() -> u64 {
+    if env::var("SOVIR_INFERENCE_URL").is_err() {
+        return 0; // local heuristic path — nothing to bill
+    }
     std::env::var("SOVIR_INFERENCE_REQ_COST_MICROS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -837,7 +894,8 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/devices/{id}/revoke", post(revoke_device))
         .route("/v1/consents", post(grant))
         .route("/v1/consents/{id}/revoke", post(revoke))
-        .route("/v1/events", post(ingest))
+        .route("/v1/events", post(ingest).get(list_events))
+        .route("/v1/version", get(version))
         .route("/v1/interventions", get(list_interventions))
         .route("/v1/interventions/dispatch", post(dispatch))
         .route("/v1/me/data", get(export_data).delete(purge_data))
@@ -875,7 +933,25 @@ fn build_router(state: AppState) -> Router {
                     StatusCode::REQUEST_TIMEOUT,
                     Duration::from_secs(30),
                 ))
-                .layer(DefaultBodyLimit::max(64 * 1024)),
+                .layer(DefaultBodyLimit::max(64 * 1024))
+                // Baseline response hardening — the API never renders HTML
+                // but headers cost nothing and prevent sniffing/embedding.
+                .layer(SetResponseHeaderLayer::overriding(
+                    axum::http::header::X_CONTENT_TYPE_OPTIONS,
+                    axum::http::HeaderValue::from_static("nosniff"),
+                ))
+                .layer(SetResponseHeaderLayer::overriding(
+                    axum::http::header::X_FRAME_OPTIONS,
+                    axum::http::HeaderValue::from_static("DENY"),
+                ))
+                .layer(SetResponseHeaderLayer::overriding(
+                    axum::http::header::CACHE_CONTROL,
+                    axum::http::HeaderValue::from_static("no-store"),
+                ))
+                .layer(SetResponseHeaderLayer::overriding(
+                    axum::http::header::REFERRER_POLICY,
+                    axum::http::HeaderValue::from_static("no-referrer"),
+                )),
         )
         .with_state(state)
 }
@@ -981,8 +1057,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = build_router(state);
     tracing::info!(addr = %addr, env = %sovir_env, "starting loopback-only SOVIR development API");
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    // Graceful shutdown: in-flight requests finish on Ctrl+C/SIGTERM
+    // instead of dying mid-transaction (tenant_tx commits or rolls back).
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
     Ok(())
+}
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let sigterm = async {
+        let _ = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .map(|mut s| s.recv().await);
+    };
+    #[cfg(not(unix))]
+    let sigterm = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = sigterm => {},
+    }
+    tracing::info!("shutdown signal received; draining in-flight requests");
 }
 
 #[cfg(test)]

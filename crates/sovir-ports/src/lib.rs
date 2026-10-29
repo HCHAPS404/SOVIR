@@ -311,6 +311,10 @@ pub trait IdempotencyStore: Send + Sync {
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<u64, PortError>;
+    /// Global hygiene: hard-delete keys older than `cutoff_ms` across all
+    /// tenants — replay windows expire with retention. Cross-tenant by
+    /// design; only the scheduled retention sweep calls it.
+    async fn delete_expired_any(&self, cutoff_ms: u64) -> Result<u64, PortError>;
 }
 /// Audit tombstones produced by erasure (B16). Receipts persist after purge;
 /// they carry counts and a pseudonymous principal id, never user content.
