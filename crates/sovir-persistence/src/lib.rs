@@ -27,6 +27,9 @@ fn map_storage(e: sqlx::Error) -> PortError {
 #[derive(Clone)]
 pub struct PgStore {
     pool: PgPool,
+    /// Default per-tenant inference cap (micro-USD) stamped on first
+    /// spend row. 0 = fail closed (ADR-0012).
+    budget_cap_micro_usd: i64,
 }
 impl PgStore {
     pub async fn connect(database_url: &str) -> Result<Self, sqlx::Error> {
@@ -35,7 +38,15 @@ impl PgStore {
             .acquire_timeout(Duration::from_secs(5))
             .connect(database_url)
             .await?;
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            budget_cap_micro_usd: 0,
+        })
+    }
+    /// Provisioning hook: default budget cap for tenants' first row.
+    pub fn with_budget_cap(mut self, micro_usd: u64) -> Self {
+        self.budget_cap_micro_usd = micro_usd.min(i64::MAX as u64) as i64;
+        self
     }
     /// Readiness probe: a real ping for the durable adapter.
     pub async fn healthy(&self) -> bool {
@@ -1300,6 +1311,7 @@ fn audit_action_str(a: sovir_domain::AuditAction) -> &'static str {
         SessionIssued => "session_issued",
         ConsentGranted => "consent_granted",
         ConsentRevoked => "consent_revoked",
+        EventIngested => "event_ingested",
         DeviceRegistered => "device_registered",
         DeviceRevoked => "device_revoked",
         WebhookRegistered => "webhook_registered",
@@ -1315,6 +1327,7 @@ fn audit_action_from(s: &str) -> sovir_domain::AuditAction {
         "session_issued" => SessionIssued,
         "consent_granted" => ConsentGranted,
         "consent_revoked" => ConsentRevoked,
+        "event_ingested" => EventIngested,
         "device_registered" => DeviceRegistered,
         "device_revoked" => DeviceRevoked,
         "webhook_registered" => WebhookRegistered,
@@ -1322,5 +1335,95 @@ fn audit_action_from(s: &str) -> sovir_domain::AuditAction {
         "data_purged" => DataPurged,
         "retention_enforced" => RetentionEnforced,
         _ => DispatchRan,
+    }
+}
+#[async_trait::async_trait]
+impl sovir_ports::BudgetLedger for PgStore {
+    async fn spent_micro_usd(&self, tenant_id: &str) -> Result<u64, PortError> {
+        let row: Option<(i64,)> =
+            sqlx::query_as("SELECT spent_micro_usd FROM inference_budget WHERE tenant_id = $1")
+                .bind(tenant_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(map_storage)?;
+        Ok(row.map(|r| r.0.max(0) as u64).unwrap_or(0))
+    }
+    async fn cap_micro_usd(&self, tenant_id: &str) -> Result<u64, PortError> {
+        let row: Option<(i64,)> =
+            sqlx::query_as("SELECT cap_micro_usd FROM inference_budget WHERE tenant_id = $1")
+                .bind(tenant_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(map_storage)?;
+        // No provisioned row => cap 0. Fail closed, like the dev adapter.
+        Ok(row.map(|r| r.0.max(0) as u64).unwrap_or(0))
+    }
+    async fn record_spend(&self, tenant_id: &str, micro_usd: u64) -> Result<(), PortError> {
+        sqlx::query(
+            "INSERT INTO inference_budget (tenant_id, spent_micro_usd, cap_micro_usd)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (tenant_id) DO UPDATE
+             SET spent_micro_usd = inference_budget.spent_micro_usd + $2",
+        )
+        .bind(tenant_id)
+        .bind(micro_usd.min(i64::MAX as u64) as i64)
+        .bind(self.budget_cap_micro_usd)
+        .execute(&self.pool)
+        .await
+        .map_err(map_storage)?;
+        Ok(())
+    }
+}
+#[async_trait::async_trait]
+impl sovir_ports::ThreatIntelFeed for PgStore {
+    /// No external feed is wired: pulling returns nothing. Candidates
+    /// only enter through application-layer validation + `record`.
+    async fn pull(&self, _since_ms: u64) -> Result<Vec<sovir_domain::IntelIndicator>, PortError> {
+        Ok(Vec::new())
+    }
+    async fn record(&self, ind: sovir_domain::IntelIndicator) -> Result<(), PortError> {
+        sqlx::query(
+            "INSERT INTO intel_indicators
+             (indicator_id, tenant_id, kind, value, confidence_bp, provenance, at_ms)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+             ON CONFLICT (indicator_id) DO NOTHING",
+        )
+        .bind(&ind.indicator_id)
+        .bind(&ind.tenant_id)
+        .bind(&ind.kind)
+        .bind(&ind.value)
+        .bind(ind.confidence_bp as i32)
+        .bind(&ind.provenance)
+        .bind(ind.at_ms as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(map_storage)?;
+        Ok(())
+    }
+    async fn list(&self, tenant_id: &str) -> Result<Vec<sovir_domain::IntelIndicator>, PortError> {
+        let rows = sqlx::query_as::<_, (String, String, String, i32, String, i64)>(
+            "SELECT indicator_id, kind, value, confidence_bp, provenance, at_ms
+             FROM intel_indicators WHERE tenant_id = $1 ORDER BY at_ms",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_storage)?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(indicator_id, kind, value, confidence_bp, provenance, at_ms)| {
+                    sovir_domain::IntelIndicator {
+                        indicator_id,
+                        tenant_id: tenant_id.to_string(),
+                        kind,
+                        value,
+                        confidence_bp: confidence_bp.max(0) as u16,
+                        provenance,
+                        at_ms: at_ms as u64,
+                    }
+                },
+            )
+            .collect())
     }
 }

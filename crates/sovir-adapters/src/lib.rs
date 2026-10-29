@@ -9,9 +9,9 @@ use sovir_domain::{
     WebhookEndpoint,
 };
 use sovir_ports::{
-    AuditLog, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
-    EventRepository, HttpEgress, IdempotencyStore, InterventionSink, PortError, RiskAnalyzer,
-    SessionStore, WebhookRegistry,
+    AuditLog, BudgetLedger, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel,
+    DeviceRegistry, EventRepository, HttpEgress, IdempotencyStore, InferenceGateway,
+    InterventionSink, PortError, RiskAnalyzer, SessionStore, ThreatIntelFeed, WebhookRegistry,
 };
 use std::{
     collections::HashMap,
@@ -802,5 +802,106 @@ impl HttpEgress for ReqwestHttpEgress {
         } else {
             Err(PortError::Storage)
         }
+    }
+}
+/// Local-only inference adapter (ADR-0012). It can only serve `Private`
+/// mode and no local model is installed, so every call honestly refuses.
+/// A real local model or a vetted provider would implement this port.
+#[derive(Default)]
+pub struct LocalOnlyInferenceGateway;
+#[async_trait]
+impl InferenceGateway for LocalOnlyInferenceGateway {
+    async fn assess(
+        &self,
+        _req: &sovir_domain::InferenceRequest,
+    ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+        Err(PortError::Unavailable)
+    }
+    fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+        mode == sovir_domain::PrivacyMode::Private
+    }
+}
+/// Per-tenant inference budget in micro-USD (B4). Dev adapter: a shared
+/// cap for every tenant; production needs per-plan caps (B7 decision).
+pub struct InMemoryBudgetLedger {
+    spend: RwLock<std::collections::HashMap<String, u64>>,
+    cap_micro_usd: u64,
+}
+impl InMemoryBudgetLedger {
+    /// `cap_micro_usd`: 1_000_000 = USD 1.00.
+    pub fn with_cap(cap_micro_usd: u64) -> Self {
+        Self {
+            spend: RwLock::new(std::collections::HashMap::new()),
+            cap_micro_usd,
+        }
+    }
+}
+impl Default for InMemoryBudgetLedger {
+    fn default() -> Self {
+        Self::with_cap(0) // dev default: no spend allowed at all
+    }
+}
+#[async_trait]
+impl BudgetLedger for InMemoryBudgetLedger {
+    async fn spent_micro_usd(&self, tenant_id: &str) -> Result<u64, PortError> {
+        self.spend
+            .read()
+            .map(|g| *g.get(tenant_id).unwrap_or(&0))
+            .map_err(|_| PortError::Storage)
+    }
+    async fn cap_micro_usd(&self, _tenant_id: &str) -> Result<u64, PortError> {
+        Ok(self.cap_micro_usd)
+    }
+    async fn record_spend(&self, tenant_id: &str, micro_usd: u64) -> Result<(), PortError> {
+        *self
+            .spend
+            .write()
+            .map_err(|_| PortError::Storage)?
+            .entry(tenant_id.to_string())
+            .or_insert(0) += micro_usd;
+        Ok(())
+    }
+}
+/// In-memory threat-intel adapter (B5). `pending` is the candidate feed
+/// (seeded in tests); `stored` holds what the application validated and
+/// recorded. Pulling drains pending — items are consumed, not replayed.
+#[derive(Default)]
+pub struct InMemoryThreatIntel {
+    pending: RwLock<Vec<sovir_domain::IntelIndicator>>,
+    stored: RwLock<Vec<sovir_domain::IntelIndicator>>,
+}
+impl InMemoryThreatIntel {
+    /// Test helper: inject candidate items as the pull source.
+    pub fn seed(&self, items: Vec<sovir_domain::IntelIndicator>) {
+        if let Ok(mut g) = self.pending.write() {
+            g.extend(items);
+        }
+    }
+}
+#[async_trait]
+impl ThreatIntelFeed for InMemoryThreatIntel {
+    async fn pull(&self, _since_ms: u64) -> Result<Vec<sovir_domain::IntelIndicator>, PortError> {
+        self.pending
+            .write()
+            .map(|mut g| std::mem::take(&mut *g))
+            .map_err(|_| PortError::Storage)
+    }
+    async fn record(&self, indicator: sovir_domain::IntelIndicator) -> Result<(), PortError> {
+        self.stored
+            .write()
+            .map_err(|_| PortError::Storage)?
+            .push(indicator);
+        Ok(())
+    }
+    async fn list(&self, tenant_id: &str) -> Result<Vec<sovir_domain::IntelIndicator>, PortError> {
+        self.stored
+            .read()
+            .map(|g| {
+                g.iter()
+                    .filter(|i| i.tenant_id == tenant_id)
+                    .cloned()
+                    .collect()
+            })
+            .map_err(|_| PortError::Storage)
     }
 }

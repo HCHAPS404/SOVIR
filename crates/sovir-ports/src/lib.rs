@@ -8,7 +8,8 @@
 use async_trait::async_trait;
 use sovir_domain::{
     Assessment, AuditEvent, ConsentGrant, DeletionReceipt, Device, IdempotentResponse,
-    Intervention, InterventionKind, ObservedEvent, Session, WebhookEndpoint,
+    InferenceRequest, InferenceVerdict, IntelIndicator, Intervention, InterventionKind,
+    ObservedEvent, PrivacyMode, Session, WebhookEndpoint,
 };
 use thiserror::Error;
 
@@ -18,6 +19,8 @@ pub enum PortError {
     Storage,
     #[error("event already processed")]
     Duplicate,
+    #[error("provider or capability not configured")]
+    Unavailable,
 }
 
 pub trait Clock: Send + Sync {
@@ -232,6 +235,32 @@ pub trait AuditLog: Send + Sync {
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<Vec<AuditEvent>, PortError>;
+}
+/// Remote/local inference boundary (B4/ADR-0012). Implementations decide
+/// which `PrivacyMode`s they may serve; the domain never picks providers.
+#[async_trait]
+pub trait InferenceGateway: Send + Sync {
+    /// Typed signals in, typed hypotheses out. Never raw content.
+    async fn assess(&self, req: &InferenceRequest) -> Result<InferenceVerdict, PortError>;
+    /// Which privacy modes this gateway may serve under the egress policy.
+    fn serves(&self, mode: PrivacyMode) -> bool;
+}
+/// Per-tenant inference budget, micro-USD (integer money). Fail closed:
+/// a request that would exceed the cap is refused before any call.
+#[async_trait]
+pub trait BudgetLedger: Send + Sync {
+    async fn spent_micro_usd(&self, tenant_id: &str) -> Result<u64, PortError>;
+    async fn cap_micro_usd(&self, tenant_id: &str) -> Result<u64, PortError>;
+    async fn record_spend(&self, tenant_id: &str, micro_usd: u64) -> Result<(), PortError>;
+}
+/// Threat-intel feed boundary (B5). `pull` returns candidate indicators
+/// from a configured source; `record`/`list` persist the ones that pass
+/// provenance validation in the application layer.
+#[async_trait]
+pub trait ThreatIntelFeed: Send + Sync {
+    async fn pull(&self, since_ms: u64) -> Result<Vec<IntelIndicator>, PortError>;
+    async fn record(&self, indicator: IntelIndicator) -> Result<(), PortError>;
+    async fn list(&self, tenant_id: &str) -> Result<Vec<IntelIndicator>, PortError>;
 }
 /// Idempotency-Key store (B10). Scoped by (tenant, principal) so keys of
 /// one principal never collide with another's. `put` is insert-once: a
