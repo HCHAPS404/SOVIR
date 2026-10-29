@@ -3,10 +3,10 @@
 //! In-memory adapters only — NOT a production or durable-store measurement.
 use criterion::{criterion_group, criterion_main, Criterion};
 use sovir_adapters::{
-    DeterministicRiskAnalyzer, InMemoryConsentRepository, InMemoryDeletionReceiptStore,
-    InMemoryDeviceRegistry, InMemoryEventRepository, InMemoryIdempotencyStore,
-    InMemoryInterventionSink, InMemorySessionStore, InMemoryWebhookRegistry,
-    RecordingDeliveryChannel, SystemClock,
+    DeterministicRiskAnalyzer, InMemoryAuditLog, InMemoryConsentRepository,
+    InMemoryDeletionReceiptStore, InMemoryDeviceRegistry, InMemoryEventRepository,
+    InMemoryIdempotencyStore, InMemoryInterventionSink, InMemorySessionStore,
+    InMemoryWebhookRegistry, RecordingDeliveryChannel, SystemClock,
 };
 use sovir_application::{ServicePorts, SovirService};
 use sovir_domain::{
@@ -29,6 +29,7 @@ fn service() -> SovirService {
             webhooks: Arc::new(InMemoryWebhookRegistry::default()),
             receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
             idem: Arc::new(InMemoryIdempotencyStore::default()),
+            audit: Arc::new(InMemoryAuditLog::default()),
         },
     )
 }

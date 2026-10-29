@@ -1,13 +1,13 @@
 //! Use cases and orchestrated policy checks. No Axum, SQL or model SDK dependencies.
 use sovir_domain::{
     detect_sequences, intervention_for, next_attempt_ms, normalize_events, valid_identifier,
-    validate_consent, validate_device, validate_event, validate_url_for_egress, ConsentGrant,
-    DecisionKind, DeletionReceipt, DeliveryAuditEntry, DeliveryState, Device, DomainError,
-    EventDecision, Intervention, ObservedEvent, Platform, Principal, RiskLevel, Scope,
-    SequencePattern, Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
+    validate_consent, validate_device, validate_event, validate_url_for_egress, AuditAction,
+    AuditEvent, ConsentGrant, DecisionKind, DeletionReceipt, DeliveryAuditEntry, DeliveryState,
+    Device, DomainError, EventDecision, Intervention, ObservedEvent, Platform, Principal,
+    RiskLevel, Scope, SequencePattern, Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
 };
 use sovir_ports::{
-    Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
+    AuditLog, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
     EventRepository, IdempotencyStore, InterventionSink, PortError, RiskAnalyzer, SessionStore,
     WebhookRegistry,
 };
@@ -80,6 +80,7 @@ pub struct ServicePorts {
     pub webhooks: Arc<dyn WebhookRegistry>,
     pub receipts: Arc<dyn DeletionReceiptStore>,
     pub idem: Arc<dyn IdempotencyStore>,
+    pub audit: Arc<dyn AuditLog>,
 }
 
 #[derive(Clone)]
@@ -95,6 +96,7 @@ pub struct SovirService {
     webhooks: Arc<dyn WebhookRegistry>,
     receipts: Arc<dyn DeletionReceiptStore>,
     idem: Arc<dyn IdempotencyStore>,
+    audit: Arc<dyn AuditLog>,
 }
 impl SovirService {
     pub fn new(clock: Arc<dyn Clock>, ports: ServicePorts) -> Self {
@@ -110,6 +112,7 @@ impl SovirService {
             webhooks: ports.webhooks,
             receipts: ports.receipts,
             idem: ports.idem,
+            audit: ports.audit,
         }
     }
 
@@ -159,6 +162,13 @@ impl SovirService {
             revoked: false,
         };
         self.sessions.issue(session.clone()).await?;
+        self.audit(
+            tenant_id,
+            principal_id,
+            AuditAction::SessionIssued,
+            &format!("ses:{} dev:{}", session.session_id, device_id),
+        )
+        .await?;
         Ok(session)
     }
 
@@ -218,6 +228,13 @@ impl SovirService {
         };
         validate_device(&device)?;
         self.devices.register(device.clone()).await?;
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::DeviceRegistered,
+            &format!("dev:{}", device.device_id),
+        )
+        .await?;
         Ok(device)
     }
 
@@ -271,6 +288,13 @@ impl SovirService {
                 i.state = DeliveryState::Expired;
                 self.sink.update(i).await?;
             }
+            self.audit(
+                &principal.tenant_id,
+                &principal.principal_id,
+                AuditAction::DeviceRevoked,
+                &format!("dev:{device_id}"),
+            )
+            .await?;
         }
         Ok(revoked)
     }
@@ -296,7 +320,15 @@ impl SovirService {
         {
             return Err(AppError::InvalidGrant);
         }
+        let grant_id = grant.grant_id.clone();
         self.grants.put(grant).await?;
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::ConsentGranted,
+            &format!("grant:{grant_id}"),
+        )
+        .await?;
         Ok(())
     }
     pub async fn revoke(&self, principal: &Principal, grant_id: &str) -> Result<bool, AppError> {
@@ -307,7 +339,17 @@ impl SovirService {
         // tenant-scoped get already makes cross-tenant grants invisible.
         match self.grants.get(&principal.tenant_id, grant_id).await? {
             Some(g) if g.principal_id == principal.principal_id => {
-                Ok(self.grants.revoke(&principal.tenant_id, grant_id).await?)
+                let n = self.grants.revoke(&principal.tenant_id, grant_id).await?;
+                if n {
+                    self.audit(
+                        &principal.tenant_id,
+                        &principal.principal_id,
+                        AuditAction::ConsentRevoked,
+                        &format!("grant:{grant_id}"),
+                    )
+                    .await?;
+                }
+                Ok(n)
             }
             Some(_) => Err(AppError::Forbidden),
             None => Ok(false),
@@ -438,6 +480,13 @@ impl SovirService {
             revoked_at_ms: None,
         };
         self.webhooks.register(ep.clone()).await?;
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::WebhookRegistered,
+            &format!("wh:{}", ep.endpoint_id),
+        )
+        .await?;
         Ok(ep)
     }
     pub async fn list_webhooks(
@@ -454,7 +503,7 @@ impl SovirService {
         principal: &Principal,
         endpoint_id: &str,
     ) -> Result<bool, AppError> {
-        Ok(self
+        let n = self
             .webhooks
             .revoke(
                 &principal.tenant_id,
@@ -462,7 +511,17 @@ impl SovirService {
                 endpoint_id,
                 self.clock.now_ms(),
             )
-            .await?)
+            .await?;
+        if n {
+            self.audit(
+                &principal.tenant_id,
+                &principal.principal_id,
+                AuditAction::WebhookRevoked,
+                &format!("wh:{endpoint_id}"),
+            )
+            .await?;
+        }
+        Ok(n)
     }
 
     /// Data governance (B16): everything stored for a principal — metadata
@@ -532,14 +591,26 @@ impl SovirService {
         retention_ms: u64,
     ) -> Result<RetentionReport, AppError> {
         let cutoff_ms = self.clock.now_ms().saturating_sub(retention_ms);
-        Ok(RetentionReport {
+        let now = self.clock.now_ms();
+        let report = RetentionReport {
             cutoff_ms,
             events_deleted: self.events.delete_older_than_any(cutoff_ms).await?,
             terminal_interventions_deleted: self
                 .sink
                 .delete_terminal_older_than_any(cutoff_ms)
                 .await?,
-        })
+        };
+        // Hygiene: drop expired/revoked session tombstones in the same sweep.
+        let sessions_deleted = self.sessions.delete_expired(now).await?;
+        self.audit_global(
+            AuditAction::RetentionEnforced,
+            &format!(
+                "cutoff:{} events:{} interventions:{} sessions:{sessions_deleted}",
+                report.cutoff_ms, report.events_deleted, report.terminal_interventions_deleted
+            ),
+        )
+        .await?;
+        Ok(report)
     }
 
     /// Erasure: hard-deletes events, grants and intervention records; revokes
@@ -613,47 +684,120 @@ impl SovirService {
                 idem_keys_deleted: report.idem_keys_deleted,
             })
             .await?;
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::DataPurged,
+            &format!("receipt:{}", report.receipt_id),
+        )
+        .await?;
         Ok(report)
     }
 
     /// Delivers every due intervention through the channel, recording state
     /// transitions and audit entries. Failures reschedule with backoff and
     /// expire after MAX_DELIVERY_ATTEMPTS. Returns the count delivered.
+    /// Scheduled global dispatcher: delivers due interventions across all
+    /// tenants using each intervention's own sealed binding. Infra-only;
+    /// the caller-scoped `dispatch_due` remains for manual dispatch.
+    pub async fn dispatch_due_global(&self) -> Result<u64, AppError> {
+        let now = self.clock.now_ms();
+        let mut delivered = 0u64;
+        for i in self.sink.due_any(now, 100).await? {
+            delivered += self.deliver_one(i, now).await? as u64;
+        }
+        self.audit_global(AuditAction::DispatchRan, &format!("delivered:{delivered}"))
+            .await?;
+        Ok(delivered)
+    }
+
+    /// Delivers a single due intervention; returns 1 on success.
+    async fn deliver_one(&self, mut i: Intervention, now: u64) -> Result<u32, AppError> {
+        i.attempts = i.attempts.saturating_add(1);
+        let from = i.state;
+        let mut delivered = 0u32;
+        match self.channel.send(&i).await {
+            Ok(()) => {
+                i.state = DeliveryState::Delivered;
+                i.last_error = None;
+                delivered = 1;
+            }
+            Err(e) => {
+                i.last_error = Some(e.to_string());
+                i.state = if i.attempts >= MAX_DELIVERY_ATTEMPTS {
+                    DeliveryState::Expired
+                } else {
+                    i.next_attempt_at_ms = next_attempt_ms(i.attempts, now);
+                    DeliveryState::Failed
+                };
+            }
+        }
+        i.audit.push(DeliveryAuditEntry {
+            at_ms: now,
+            from,
+            to: i.state,
+            detail: i.last_error.clone().unwrap_or_default(),
+        });
+        self.sink.update(i).await?;
+        Ok(delivered)
+    }
+
+    /// Cross-tenant audit entry for infrastructure operations (retention
+    /// sweeps, global dispatch). Not visible to `list_by_principal`.
+    async fn audit_global(&self, action: AuditAction, detail: &str) -> Result<(), AppError> {
+        self.audit
+            .record(AuditEvent {
+                audit_id: uuid::Uuid::new_v4().simple().to_string(),
+                tenant_id: String::new(),
+                principal_id: String::new(),
+                action,
+                detail: detail.chars().take(120).collect(),
+                at_ms: self.clock.now_ms(),
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Principal-scoped audit entry. Tombstone: survives erasure.
+    async fn audit(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        action: AuditAction,
+        detail: &str,
+    ) -> Result<(), AppError> {
+        self.audit
+            .record(AuditEvent {
+                audit_id: uuid::Uuid::new_v4().simple().to_string(),
+                tenant_id: tenant_id.to_string(),
+                principal_id: principal_id.to_string(),
+                action,
+                detail: detail.chars().take(120).collect(),
+                at_ms: self.clock.now_ms(),
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// The principal's own audit history.
+    pub async fn list_audit(&self, principal: &Principal) -> Result<Vec<AuditEvent>, AppError> {
+        Ok(self
+            .audit
+            .list_by_principal(&principal.tenant_id, &principal.principal_id)
+            .await?)
+    }
+
     pub async fn dispatch_due(&self, principal: &Principal) -> Result<u64, AppError> {
         if !principal.has_scope(Scope::EventsWrite) {
             return Err(AppError::Forbidden);
         }
         let now = self.clock.now_ms();
         let mut delivered = 0u64;
-        for mut i in self.sink.due(now, 50).await? {
+        for i in self.sink.due(now, 50).await? {
             if i.tenant_id != principal.tenant_id || i.principal_id != principal.principal_id {
                 continue;
             }
-            i.attempts = i.attempts.saturating_add(1);
-            let from = i.state;
-            match self.channel.send(&i).await {
-                Ok(()) => {
-                    i.state = DeliveryState::Delivered;
-                    i.last_error = None;
-                    delivered += 1;
-                }
-                Err(e) => {
-                    i.last_error = Some(e.to_string());
-                    i.state = if i.attempts >= MAX_DELIVERY_ATTEMPTS {
-                        DeliveryState::Expired
-                    } else {
-                        i.next_attempt_at_ms = next_attempt_ms(i.attempts, now);
-                        DeliveryState::Failed
-                    };
-                }
-            }
-            i.audit.push(DeliveryAuditEntry {
-                at_ms: now,
-                from,
-                to: i.state,
-                detail: i.last_error.clone().unwrap_or_default(),
-            });
-            self.sink.update(i).await?;
+            delivered += self.deliver_one(i, now).await? as u64;
         }
         Ok(delivered)
     }

@@ -7,11 +7,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sovir_adapters::{
-    CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryConsentRepository,
-    InMemoryDeletionReceiptStore, InMemoryDeviceRegistry, InMemoryEventRepository,
-    InMemoryIdempotencyStore, InMemoryInterventionSink, InMemorySessionStore,
-    InMemoryWebhookRegistry, RecordingDeliveryChannel, RecordingHttpEgress, SystemClock,
-    WebhookChannel,
+    CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryAuditLog,
+    InMemoryConsentRepository, InMemoryDeletionReceiptStore, InMemoryDeviceRegistry,
+    InMemoryEventRepository, InMemoryIdempotencyStore, InMemoryInterventionSink,
+    InMemorySessionStore, InMemoryWebhookRegistry, RecordingDeliveryChannel, RecordingHttpEgress,
+    SystemClock, WebhookChannel,
 };
 use sovir_application::{AppError, PrincipalDataExport, PurgeReport, ServicePorts, SovirService};
 use sovir_domain::{
@@ -216,6 +216,7 @@ async fn compose_service(
                 webhooks: pg_wh,
                 receipts: Arc::new(pg.clone()),
                 idem: Arc::new(pg.clone()),
+                audit: Arc::new(pg.clone()),
             },
         );
         return (service, Some(pg));
@@ -261,6 +262,7 @@ fn dev_service_with(
                 }),
                 receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
                 idem: Arc::new(InMemoryIdempotencyStore::default()),
+                audit: Arc::new(InMemoryAuditLog::default()),
             },
         ),
         registry,
@@ -362,14 +364,16 @@ async fn register_device(
 async fn list_devices(
     State(s): State<AppState>,
     headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Vec<Device>>, ApiError> {
     let p = require_principal(&headers, &s).await?;
-    Ok(Json(
-        s.service
-            .list_devices(&p)
-            .await
-            .map_err(|e| map_error(e, &headers))?,
-    ))
+    let mut items = s
+        .service
+        .list_devices(&p)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    items.truncate(list_limit(&q));
+    Ok(Json(items))
 }
 async fn revoke_device(
     State(s): State<AppState>,
@@ -488,17 +492,43 @@ async fn ingest(
     }
     Ok((StatusCode::CREATED, Json(decision)))
 }
+/// Pagination: `?limit=N` (default 100, hard cap 500) truncates list
+/// responses. Dev-scale pagination — no cursor yet.
+const LIST_LIMIT_DEFAULT: usize = 100;
+const LIST_LIMIT_MAX: usize = 500;
+fn list_limit(q: &std::collections::HashMap<String, String>) -> usize {
+    q.get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(LIST_LIMIT_DEFAULT)
+        .min(LIST_LIMIT_MAX)
+}
+async fn list_audit(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Vec<sovir_domain::AuditEvent>>, ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    let mut items = s
+        .service
+        .list_audit(&p)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    items.truncate(list_limit(&q));
+    Ok(Json(items))
+}
 async fn list_interventions(
     State(s): State<AppState>,
     headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Vec<Intervention>>, ApiError> {
     let p = require_principal(&headers, &s).await?;
-    Ok(Json(
-        s.service
-            .list_interventions(&p)
-            .await
-            .map_err(|e| map_error(e, &headers))?,
-    ))
+    let mut items = s
+        .service
+        .list_interventions(&p)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    items.truncate(list_limit(&q));
+    Ok(Json(items))
 }
 #[derive(Serialize)]
 struct DispatchResult {
@@ -538,14 +568,16 @@ async fn register_webhook(
 async fn list_webhooks(
     State(s): State<AppState>,
     headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Vec<WebhookEndpoint>>, ApiError> {
     let p = require_principal(&headers, &s).await?;
-    Ok(Json(
-        s.service
-            .list_webhooks(&p)
-            .await
-            .map_err(|e| map_error(e, &headers))?,
-    ))
+    let mut items = s
+        .service
+        .list_webhooks(&p)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    items.truncate(list_limit(&q));
+    Ok(Json(items))
 }
 async fn revoke_webhook(
     State(s): State<AppState>,
@@ -623,6 +655,7 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/interventions", get(list_interventions))
         .route("/v1/interventions/dispatch", post(dispatch))
         .route("/v1/me/data", get(export_data).delete(purge_data))
+        .route("/v1/me/audit", get(list_audit))
         .route("/v1/me/retention", post(enforce_retention))
         .route("/v1/webhooks", post(register_webhook).get(list_webhooks))
         .route("/v1/webhooks/{id}/revoke", post(revoke_webhook))
@@ -712,6 +745,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "retention sweep"
                     ),
                     Err(e) => tracing::warn!(error = %e, "retention sweep failed"),
+                }
+            }
+        });
+    }
+    // Scheduled global dispatcher (B15 infra path): delivers due
+    // interventions every SOVIR_DISPATCH_SWEEP_MS; 0/unset disables it.
+    // Manual dispatch stays available at POST /v1/interventions/dispatch.
+    let dispatch_sweep_ms: u64 = env::var("SOVIR_DISPATCH_SWEEP_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    if dispatch_sweep_ms > 0 {
+        let svc = service.clone();
+        tokio::spawn(async move {
+            let mut tick =
+                tokio::time::interval(std::time::Duration::from_millis(dispatch_sweep_ms));
+            loop {
+                tick.tick().await;
+                match svc.dispatch_due_global().await {
+                    Ok(n) if n > 0 => tracing::info!(delivered = n, "dispatch sweep"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "dispatch sweep failed"),
                 }
             }
         });

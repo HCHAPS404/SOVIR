@@ -1,8 +1,9 @@
 use sovir_adapters::{
-    CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryConsentRepository,
-    InMemoryDeletionReceiptStore, InMemoryDeviceRegistry, InMemoryEventRepository,
-    InMemoryIdempotencyStore, InMemoryInterventionSink, InMemorySessionStore,
-    InMemoryWebhookRegistry, RecordingDeliveryChannel, RecordingHttpEgress, WebhookChannel,
+    CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryAuditLog,
+    InMemoryConsentRepository, InMemoryDeletionReceiptStore, InMemoryDeviceRegistry,
+    InMemoryEventRepository, InMemoryIdempotencyStore, InMemoryInterventionSink,
+    InMemorySessionStore, InMemoryWebhookRegistry, RecordingDeliveryChannel, RecordingHttpEgress,
+    WebhookChannel,
 };
 use sovir_application::{AppError, ServicePorts, SovirService};
 use sovir_domain::{
@@ -31,6 +32,7 @@ fn service() -> SovirService {
             webhooks: Arc::new(InMemoryWebhookRegistry::default()),
             receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
             idem: Arc::new(InMemoryIdempotencyStore::default()),
+            audit: Arc::new(InMemoryAuditLog::default()),
         },
     )
 }
@@ -323,6 +325,7 @@ async fn webhook_delivery_signs_and_honors_allowlist_and_revocation() {
             webhooks: registry,
             receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
             idem: Arc::new(InMemoryIdempotencyStore::default()),
+            audit: Arc::new(InMemoryAuditLog::default()),
         },
     );
     let p = principal("p-1");

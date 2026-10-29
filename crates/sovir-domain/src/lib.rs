@@ -186,6 +186,35 @@ pub struct DeletionReceipt {
     pub idem_keys_deleted: u64,
 }
 
+/// Unified sensitive-action audit (B16 hardening). Metadata only: the
+/// action, the actor binding and a small detail — never user content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditAction {
+    SessionIssued,
+    ConsentGranted,
+    ConsentRevoked,
+    DeviceRegistered,
+    DeviceRevoked,
+    WebhookRegistered,
+    WebhookRevoked,
+    DataPurged,
+    RetentionEnforced,
+    DispatchRan,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub audit_id: String,
+    #[serde(default)]
+    pub tenant_id: String,
+    pub principal_id: String,
+    pub action: AuditAction,
+    /// Small metadata detail (e.g. `grant:grant-1`); no payloads, no PII.
+    pub detail: String,
+    pub at_ms: u64,
+}
+
 /// Idempotent-ingest record (B10). Stores the request hash and the first
 /// response for an Idempotency-Key so replays return the same response and
 /// conflicting reuses are detected. Metadata only — no event payloads.
@@ -288,12 +317,12 @@ pub fn detect_sequences(events: &[ObservedEvent]) -> Vec<SequenceFinding> {
         RiskSignal::TrackingObserved,
     ];
     let has = |e: &ObservedEvent, s: RiskSignal| e.signals.contains(&s);
-    let first_with = |pred: &dyn Fn(&ObservedEvent) -> bool| events.iter().position(|e| pred(e));
+    let first_with = |pred: &dyn Fn(&ObservedEvent) -> bool| events.iter().position(pred);
     let later_with = |from: usize, pred: &dyn Fn(&ObservedEvent) -> bool| {
         events
             .iter()
             .skip(from + 1)
-            .position(|e| pred(e))
+            .position(pred)
             .map(|p| p + from + 1)
     };
     let mut findings = Vec::new();

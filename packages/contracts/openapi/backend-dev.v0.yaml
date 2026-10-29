@@ -143,6 +143,21 @@ components:
         sessions_revoked: {type: integer}
         devices_revoked: {type: integer}
         labels_scrubbed: {type: integer}
+        idem_keys_deleted: {type: integer}
+    AuditEvent:
+      type: object
+      description: Sensitive-action tombstone (metadata only; survives erasure).
+      properties:
+        audit_id: {type: string}
+        tenant_id: {type: string}
+        principal_id: {type: string}
+        action:
+          type: string
+          enum: [session_issued, consent_granted, consent_revoked, device_registered,
+                 device_revoked, webhook_registered, webhook_revoked, data_purged,
+                 retention_enforced, dispatch_ran]
+        detail: {type: string}
+        at_ms: {type: integer}
     PurgeReport:
       type: object
       properties:
@@ -153,6 +168,7 @@ components:
         sessions_revoked: {type: integer}
         devices_revoked: {type: integer}
         labels_scrubbed: {type: integer}
+        idem_keys_deleted: {type: integer}
     RetentionReport:
       type: object
       properties:
@@ -231,6 +247,10 @@ paths:
         '409': {description: Device id already registered}
     get:
       summary: List the calling principal's devices
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
       responses:
         '200': {description: Devices, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Device'}}}}}
         '401': {description: Unauthorized}
@@ -249,6 +269,10 @@ paths:
   /v1/interventions:
     get:
       summary: List interventions for the calling principal
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
       responses:
         '200': {description: Interventions, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Intervention'}}}}}
         '401': {description: Unauthorized}
@@ -275,6 +299,16 @@ paths:
       responses:
         '200': {description: Retention report, content: {application/json: {schema: {$ref: '#/components/schemas/RetentionReport'}}}}
         '401': {description: Unauthorized}
+  /v1/me/audit:
+    get:
+      summary: The caller's sensitive-action audit trail (tombstones survive erasure)
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
+      responses:
+        '200': {description: Audit events, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/AuditEvent'}}}}}
+        '401': {description: Unauthorized}
   /v1/webhooks:
     post:
       summary: Register a signed webhook endpoint (B20; SSRF allowlist enforced)
@@ -287,6 +321,10 @@ paths:
         '401': {description: Unauthorized}
     get:
       summary: List the caller's webhook endpoints
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
       responses:
         '200': {description: Endpoints, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/WebhookEndpoint'}}}}}
         '401': {description: Unauthorized}
