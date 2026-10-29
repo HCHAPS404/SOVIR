@@ -129,6 +129,7 @@ components:
         devices: {type: array, items: {$ref: '#/components/schemas/Device'}}
         interventions: {type: array, items: {$ref: '#/components/schemas/Intervention'}}
         deletion_receipts: {type: array, items: {$ref: '#/components/schemas/DeletionReceipt'}}
+        audit_events: {type: array, items: {$ref: '#/components/schemas/AuditEvent'}}
     DeletionReceipt:
       type: object
       description: Durable audit tombstone of an erasure; counts and pseudonymous id only.
@@ -155,7 +156,8 @@ components:
           type: string
           enum: [session_issued, consent_granted, consent_revoked, event_ingested,
                  device_registered, device_revoked, webhook_registered, webhook_revoked,
-                 data_purged, retention_enforced, dispatch_ran]
+                 data_purged, retention_enforced, dispatch_ran,
+                 inference_called, intel_pulled]
         detail: {type: string}
         at_ms: {type: integer}
     InferenceRequestBody:

@@ -48,6 +48,27 @@ impl PgStore {
         self.budget_cap_micro_usd = micro_usd.min(i64::MAX as u64) as i64;
         self
     }
+    /// Tenant-pinned transaction (ADR-0009 defense in depth). Every
+    /// tenant-scoped repo method runs inside `set_config('app.tenant_id',
+    /// …, true)` so RLS policies bite for a `sovir_app` connection even
+    /// if a query forgets its own WHERE clause. The migration owner
+    /// bypasses RLS anyway, so dev paths are unaffected. Global sweeps
+    /// and token-only lookups (`resolve`, `due_any`, `*_any`,
+    /// `delete_expired`, `pull`) deliberately keep the plain pool: under
+    /// a non-owner role they need a privileged connection — wiring that
+    /// is a deployment decision, not a code path here.
+    async fn tenant_tx(
+        &self,
+        tenant_id: &str,
+    ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, PortError> {
+        let mut tx = self.pool.begin().await.map_err(map_storage)?;
+        sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
+            .bind(tenant_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+        Ok(tx)
+    }
     /// Readiness probe: a real ping for the durable adapter.
     pub async fn healthy(&self) -> bool {
         sqlx::query("SELECT 1").execute(&self.pool).await.is_ok()
@@ -61,118 +82,167 @@ impl ConsentRepository for PgStore {
         tenant_id: &str,
         grant_id: &str,
     ) -> Result<Option<ConsentGrant>, PortError> {
-        sqlx::query_as::<_, (String, String, String, i64, bool)>(
-            "SELECT principal_id, device_id, source_id, expires_at_ms, revoked
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            sqlx::query_as::<_, (String, String, String, i64, bool)>(
+                "SELECT principal_id, device_id, source_id, expires_at_ms, revoked
              FROM consent_grants WHERE tenant_id = $1 AND grant_id = $2",
-        )
-        .bind(tenant_id)
-        .bind(grant_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(map_storage)?
-        .map(
-            |(principal_id, device_id, source_id, expires_at_ms, revoked)| {
-                Ok(ConsentGrant {
-                    grant_id: grant_id.to_string(),
-                    source_id,
-                    expires_at_ms: expires_at_ms as u64,
-                    revoked,
-                    principal_id,
-                    device_id,
-                    tenant_id: tenant_id.to_string(),
-                })
-            },
-        )
-        .transpose()
+            )
+            .bind(tenant_id)
+            .bind(grant_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_storage)?
+            .map(
+                |(principal_id, device_id, source_id, expires_at_ms, revoked)| {
+                    Ok(ConsentGrant {
+                        grant_id: grant_id.to_string(),
+                        source_id,
+                        expires_at_ms: expires_at_ms as u64,
+                        revoked,
+                        principal_id,
+                        device_id,
+                        tenant_id: tenant_id.to_string(),
+                    })
+                },
+            )
+            .transpose()
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn put(&self, grant: ConsentGrant) -> Result<(), PortError> {
-        sqlx::query(
-            "INSERT INTO consent_grants
+        let mut tx = self.tenant_tx(&grant.tenant_id).await?;
+        let res = (async {
+            sqlx::query(
+                "INSERT INTO consent_grants
              (tenant_id, grant_id, principal_id, device_id, source_id, expires_at_ms, revoked)
              VALUES ($1,$2,$3,$4,$5,$6,$7)",
-        )
-        .bind(&grant.tenant_id)
-        .bind(&grant.grant_id)
-        .bind(&grant.principal_id)
-        .bind(&grant.device_id)
-        .bind(&grant.source_id)
-        .bind(grant.expires_at_ms as i64)
-        .bind(grant.revoked)
-        .execute(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        Ok(())
+            )
+            .bind(&grant.tenant_id)
+            .bind(&grant.grant_id)
+            .bind(&grant.principal_id)
+            .bind(&grant.device_id)
+            .bind(&grant.source_id)
+            .bind(grant.expires_at_ms as i64)
+            .bind(grant.revoked)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn revoke(&self, tenant_id: &str, grant_id: &str) -> Result<bool, PortError> {
-        let n = sqlx::query(
-            "UPDATE consent_grants SET revoked = TRUE
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let n = sqlx::query(
+                "UPDATE consent_grants SET revoked = TRUE
              WHERE tenant_id = $1 AND grant_id = $2",
-        )
-        .bind(tenant_id)
-        .bind(grant_id)
-        .execute(&self.pool)
-        .await
-        .map_err(map_storage)?
-        .rows_affected();
-        Ok(n > 0)
+            )
+            .bind(tenant_id)
+            .bind(grant_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n > 0)
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn revoke_by_device(&self, tenant_id: &str, device_id: &str) -> Result<u64, PortError> {
-        let n = sqlx::query(
-            "UPDATE consent_grants SET revoked = TRUE
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let n = sqlx::query(
+                "UPDATE consent_grants SET revoked = TRUE
              WHERE tenant_id = $1 AND device_id = $2 AND NOT revoked",
-        )
-        .bind(tenant_id)
-        .bind(device_id)
-        .execute(&self.pool)
-        .await
-        .map_err(map_storage)?
-        .rows_affected();
-        Ok(n)
+            )
+            .bind(tenant_id)
+            .bind(device_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n)
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn list_by_principal(
         &self,
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<Vec<ConsentGrant>, PortError> {
-        let rows = sqlx::query_as::<_, (String, String, String, i64, bool)>(
-            "SELECT grant_id, device_id, source_id, expires_at_ms, revoked
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let rows = sqlx::query_as::<_, (String, String, String, i64, bool)>(
+                "SELECT grant_id, device_id, source_id, expires_at_ms, revoked
              FROM consent_grants
              WHERE tenant_id = $1 AND principal_id = $2 ORDER BY grant_id",
-        )
-        .bind(tenant_id)
-        .bind(principal_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        Ok(rows
-            .into_iter()
-            .map(
-                |(grant_id, device_id, source_id, expires_at_ms, revoked)| ConsentGrant {
-                    grant_id,
-                    source_id,
-                    expires_at_ms: expires_at_ms as u64,
-                    revoked,
-                    principal_id: principal_id.to_string(),
-                    device_id,
-                    tenant_id: tenant_id.to_string(),
-                },
             )
-            .collect())
+            .bind(tenant_id)
+            .bind(principal_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(rows
+                .into_iter()
+                .map(
+                    |(grant_id, device_id, source_id, expires_at_ms, revoked)| ConsentGrant {
+                        grant_id,
+                        source_id,
+                        expires_at_ms: expires_at_ms as u64,
+                        revoked,
+                        principal_id: principal_id.to_string(),
+                        device_id,
+                        tenant_id: tenant_id.to_string(),
+                    },
+                )
+                .collect())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn delete_by_principal(
         &self,
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<u64, PortError> {
-        let n =
-            sqlx::query("DELETE FROM consent_grants WHERE tenant_id = $1 AND principal_id = $2")
-                .bind(tenant_id)
-                .bind(principal_id)
-                .execute(&self.pool)
-                .await
-                .map_err(map_storage)?
-                .rows_affected();
-        Ok(n)
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let n = sqlx::query(
+                "DELETE FROM consent_grants WHERE tenant_id = $1 AND principal_id = $2",
+            )
+            .bind(tenant_id)
+            .bind(principal_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n)
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
 }
 
@@ -306,111 +376,135 @@ fn state_from(s: &str) -> DeliveryState {
 #[async_trait]
 impl EventRepository for PgStore {
     async fn insert_once(&self, event: ObservedEvent) -> Result<(), PortError> {
-        let signals: Vec<&str> = event.signals.iter().map(|s| signal_str(*s)).collect();
-        let res = sqlx::query(
-            "INSERT INTO observation_events
+        let mut tx = self.tenant_tx(&event.tenant_id).await?;
+        let res = (async {
+            let signals: Vec<&str> = event.signals.iter().map(|s| signal_str(*s)).collect();
+            let res = sqlx::query(
+                "INSERT INTO observation_events
              (tenant_id, event_id, principal_id, device_id, source_id, consent_grant_id,
               observed_at_ms, modality, sensitive_data_class, content_digest, signals)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
              ON CONFLICT (event_id) DO NOTHING",
-        )
-        .bind(&event.tenant_id)
-        .bind(&event.event_id)
-        .bind(&event.principal_id)
-        .bind(&event.device_id)
-        .bind(&event.source_id)
-        .bind(&event.consent_grant_id)
-        .bind(event.observed_at_ms as i64)
-        .bind(modality_str(event.modality))
-        .bind(class_str(event.sensitive_data_class))
-        .bind(&event.content_digest)
-        .bind(&signals)
-        .execute(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        if res.rows_affected() == 0 {
-            Err(PortError::Duplicate)
-        } else {
-            Ok(())
+            )
+            .bind(&event.tenant_id)
+            .bind(&event.event_id)
+            .bind(&event.principal_id)
+            .bind(&event.device_id)
+            .bind(&event.source_id)
+            .bind(&event.consent_grant_id)
+            .bind(event.observed_at_ms as i64)
+            .bind(modality_str(event.modality))
+            .bind(class_str(event.sensitive_data_class))
+            .bind(&event.content_digest)
+            .bind(&signals)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            if res.rows_affected() == 0 {
+                Err(PortError::Duplicate)
+            } else {
+                Ok(())
+            }
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
         }
+        res
     }
     async fn list_by_principal(
         &self,
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<Vec<ObservedEvent>, PortError> {
-        let rows = sqlx::query_as::<
-            _,
-            (
-                String,
-                String,
-                String,
-                String,
-                i64,
-                String,
-                String,
-                String,
-                Vec<String>,
-            ),
-        >(
-            "SELECT event_id, device_id, source_id, consent_grant_id, observed_at_ms,
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let rows = sqlx::query_as::<
+                _,
+                (
+                    String,
+                    String,
+                    String,
+                    String,
+                    i64,
+                    String,
+                    String,
+                    String,
+                    Vec<String>,
+                ),
+            >(
+                "SELECT event_id, device_id, source_id, consent_grant_id, observed_at_ms,
                     modality, sensitive_data_class, content_digest, signals
              FROM observation_events
              WHERE tenant_id = $1 AND principal_id = $2
              ORDER BY observed_at_ms, event_id",
-        )
-        .bind(tenant_id)
-        .bind(principal_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        Ok(rows
-            .into_iter()
-            .map(
-                |(
-                    event_id,
-                    device_id,
-                    source_id,
-                    consent_grant_id,
-                    observed_at_ms,
-                    modality,
-                    data_class,
-                    content_digest,
-                    signals,
-                )| {
-                    ObservedEvent {
-                        event_id,
-                        source_id,
-                        observed_at_ms: observed_at_ms as u64,
-                        modality: modality_from(&modality),
-                        content_digest,
-                        consent_grant_id,
-                        sensitive_data_class: class_from(&data_class),
-                        payload_ref: None,
-                        signals: signals.iter().filter_map(|s| signal_from(s)).collect(),
-                        principal_id: principal_id.to_string(),
-                        device_id,
-                        tenant_id: tenant_id.to_string(),
-                    }
-                },
             )
-            .collect())
+            .bind(tenant_id)
+            .bind(principal_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(rows
+                .into_iter()
+                .map(
+                    |(
+                        event_id,
+                        device_id,
+                        source_id,
+                        consent_grant_id,
+                        observed_at_ms,
+                        modality,
+                        data_class,
+                        content_digest,
+                        signals,
+                    )| {
+                        ObservedEvent {
+                            event_id,
+                            source_id,
+                            observed_at_ms: observed_at_ms as u64,
+                            modality: modality_from(&modality),
+                            content_digest,
+                            consent_grant_id,
+                            sensitive_data_class: class_from(&data_class),
+                            payload_ref: None,
+                            signals: signals.iter().filter_map(|s| signal_from(s)).collect(),
+                            principal_id: principal_id.to_string(),
+                            device_id,
+                            tenant_id: tenant_id.to_string(),
+                        }
+                    },
+                )
+                .collect())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn delete_by_principal(
         &self,
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<u64, PortError> {
-        let n = sqlx::query(
-            "DELETE FROM observation_events WHERE tenant_id = $1 AND principal_id = $2",
-        )
-        .bind(tenant_id)
-        .bind(principal_id)
-        .execute(&self.pool)
-        .await
-        .map_err(map_storage)?
-        .rows_affected();
-        Ok(n)
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let n = sqlx::query(
+                "DELETE FROM observation_events WHERE tenant_id = $1 AND principal_id = $2",
+            )
+            .bind(tenant_id)
+            .bind(principal_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n)
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn delete_older_than(
         &self,
@@ -418,18 +512,26 @@ impl EventRepository for PgStore {
         principal_id: &str,
         cutoff_ms: u64,
     ) -> Result<u64, PortError> {
-        let n = sqlx::query(
-            "DELETE FROM observation_events
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let n = sqlx::query(
+                "DELETE FROM observation_events
              WHERE tenant_id = $1 AND principal_id = $2 AND observed_at_ms < $3",
-        )
-        .bind(tenant_id)
-        .bind(principal_id)
-        .bind(cutoff_ms as i64)
-        .execute(&self.pool)
-        .await
-        .map_err(map_storage)?
-        .rows_affected();
-        Ok(n)
+            )
+            .bind(tenant_id)
+            .bind(principal_id)
+            .bind(cutoff_ms as i64)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n)
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn delete_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError> {
         let n = sqlx::query("DELETE FROM observation_events WHERE observed_at_ms < $1")
@@ -446,6 +548,7 @@ impl EventRepository for PgStore {
         principal_id: &str,
         since_ms: u64,
     ) -> Result<Vec<ObservedEvent>, PortError> {
+        // Delegates to list_by_principal (already tenant-tx scoped).
         let mut events =
             <Self as EventRepository>::list_by_principal(self, tenant_id, principal_id).await?;
         events.retain(|e| e.observed_at_ms >= since_ms);
@@ -456,6 +559,8 @@ impl EventRepository for PgStore {
 #[async_trait]
 impl SessionStore for PgStore {
     async fn issue(&self, session: Session) -> Result<(), PortError> {
+        let mut tx = self.tenant_tx(&session.tenant_id).await?;
+        let res = (async {
         (async {
             let scopes: Vec<&str> = session.scopes.iter().map(|s| scope_str(*s)).collect();
             sqlx::query(
@@ -471,11 +576,16 @@ impl SessionStore for PgStore {
             .bind(&scopes)
             .bind(session.expires_at_ms as i64)
             .bind(session.revoked)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(map_storage)?;
             Ok(())
         }).await
+        }).await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn resolve(&self, token: &str) -> Result<Option<Session>, PortError> {
         (async {
@@ -520,44 +630,62 @@ impl SessionStore for PgStore {
         .await
     }
     async fn revoke_by_device(&self, tenant_id: &str, device_id: &str) -> Result<u64, PortError> {
-        (async {
-            let n = sqlx::query(
-                "UPDATE sessions SET revoked = TRUE
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            (async {
+                let n = sqlx::query(
+                    "UPDATE sessions SET revoked = TRUE
                  WHERE tenant_id = $1 AND device_id = $2 AND NOT revoked",
-            )
-            .bind(tenant_id)
-            .bind(device_id)
-            .execute(&self.pool)
+                )
+                .bind(tenant_id)
+                .bind(device_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+                Ok(n)
+            })
             .await
-            .map_err(map_storage)?
-            .rows_affected();
-            Ok(n)
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn revoke_by_principal(
         &self,
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<u64, PortError> {
-        (async {
-            let n = sqlx::query(
-                "UPDATE sessions SET revoked = TRUE
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            (async {
+                let n = sqlx::query(
+                    "UPDATE sessions SET revoked = TRUE
                  WHERE tenant_id = $1 AND principal_id = $2 AND NOT revoked",
-            )
-            .bind(tenant_id)
-            .bind(principal_id)
-            .execute(&self.pool)
+                )
+                .bind(tenant_id)
+                .bind(principal_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+                Ok(n)
+            })
             .await
-            .map_err(map_storage)?
-            .rows_affected();
-            Ok(n)
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn delete_expired(&self, now_ms: u64) -> Result<u64, PortError> {
         (async {
-            let n = sqlx::query("DELETE FROM sessions WHERE revoked OR expires_at_ms <= $1")
+            // Tombstones age by expiry timestamp: revoked sessions persist as
+            // tombstones until their natural expiry also passes the cutoff.
+            let n = sqlx::query("DELETE FROM sessions WHERE expires_at_ms <= $1")
                 .bind(now_ms as i64)
                 .execute(&self.pool)
                 .await
@@ -572,27 +700,35 @@ impl SessionStore for PgStore {
 #[async_trait]
 impl DeviceRegistry for PgStore {
     async fn register(&self, device: Device) -> Result<(), PortError> {
-        (async {
-            sqlx::query(
-                "INSERT INTO devices
+        let mut tx = self.tenant_tx(&device.tenant_id).await?;
+        let res = (async {
+            (async {
+                sqlx::query(
+                    "INSERT INTO devices
                  (tenant_id, principal_id, device_id, platform, label,
                   registered_at_ms, last_seen_at_ms, revoked_at_ms)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-            )
-            .bind(&device.tenant_id)
-            .bind(&device.principal_id)
-            .bind(&device.device_id)
-            .bind(platform_str(device.platform))
-            .bind(&device.label)
-            .bind(device.registered_at_ms as i64)
-            .bind(device.last_seen_at_ms.map(|v| v as i64))
-            .bind(device.revoked_at_ms.map(|v| v as i64))
-            .execute(&self.pool)
+                )
+                .bind(&device.tenant_id)
+                .bind(&device.principal_id)
+                .bind(&device.device_id)
+                .bind(platform_str(device.platform))
+                .bind(&device.label)
+                .bind(device.registered_at_ms as i64)
+                .bind(device.last_seen_at_ms.map(|v| v as i64))
+                .bind(device.revoked_at_ms.map(|v| v as i64))
+                .execute(&mut *tx)
+                .await
+                .map_err(map_storage)?;
+                Ok(())
+            })
             .await
-            .map_err(map_storage)?;
-            Ok(())
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn get(
         &self,
@@ -600,36 +736,46 @@ impl DeviceRegistry for PgStore {
         principal_id: &str,
         device_id: &str,
     ) -> Result<Option<Device>, PortError> {
-        (async {
-            sqlx::query_as::<_, (String, String, i64, Option<i64>, Option<i64>)>(
-                "SELECT platform, label, registered_at_ms, last_seen_at_ms, revoked_at_ms
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            (async {
+                sqlx::query_as::<_, (String, String, i64, Option<i64>, Option<i64>)>(
+                    "SELECT platform, label, registered_at_ms, last_seen_at_ms, revoked_at_ms
                  FROM devices WHERE tenant_id = $1 AND principal_id = $2 AND device_id = $3",
-            )
-            .bind(tenant_id)
-            .bind(principal_id)
-            .bind(device_id)
-            .fetch_optional(&self.pool)
+                )
+                .bind(tenant_id)
+                .bind(principal_id)
+                .bind(device_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(map_storage)?
+                .map(
+                    |(platform, label, registered_at_ms, last_seen_at_ms, revoked_at_ms)| Device {
+                        device_id: device_id.to_string(),
+                        principal_id: principal_id.to_string(),
+                        tenant_id: tenant_id.to_string(),
+                        platform: platform_from(&platform),
+                        label,
+                        registered_at_ms: registered_at_ms as u64,
+                        last_seen_at_ms: last_seen_at_ms.map(|v| v as u64),
+                        revoked_at_ms: revoked_at_ms.map(|v| v as u64),
+                    },
+                )
+                .map_or(Ok(None), |d| Ok(Some(d)))
+            })
             .await
-            .map_err(map_storage)?
-            .map(
-                |(platform, label, registered_at_ms, last_seen_at_ms, revoked_at_ms)| Device {
-                    device_id: device_id.to_string(),
-                    principal_id: principal_id.to_string(),
-                    tenant_id: tenant_id.to_string(),
-                    platform: platform_from(&platform),
-                    label,
-                    registered_at_ms: registered_at_ms as u64,
-                    last_seen_at_ms: last_seen_at_ms.map(|v| v as u64),
-                    revoked_at_ms: revoked_at_ms.map(|v| v as u64),
-                },
-            )
-            .map_or(Ok(None), |d| Ok(Some(d)))
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn list(&self, tenant_id: &str, principal_id: &str) -> Result<Vec<Device>, PortError> {
-        (async {
-            let rows = sqlx::query_as::<
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            (async {
+                let rows = sqlx::query_as::<
                 _,
                 (String, String, String, i64, Option<i64>, Option<i64>),
             >(
@@ -638,35 +784,41 @@ impl DeviceRegistry for PgStore {
             )
             .bind(tenant_id)
             .bind(principal_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_storage)?;
-            Ok(rows
-                .into_iter()
-                .map(
-                    |(
-                        device_id,
-                        platform,
-                        label,
-                        registered_at_ms,
-                        last_seen_at_ms,
-                        revoked_at_ms,
-                    )| {
-                        Device {
+                Ok(rows
+                    .into_iter()
+                    .map(
+                        |(
                             device_id,
-                            principal_id: principal_id.to_string(),
-                            tenant_id: tenant_id.to_string(),
-                            platform: platform_from(&platform),
+                            platform,
                             label,
-                            registered_at_ms: registered_at_ms as u64,
-                            last_seen_at_ms: last_seen_at_ms.map(|v| v as u64),
-                            revoked_at_ms: revoked_at_ms.map(|v| v as u64),
-                        }
-                    },
-                )
-                .collect())
+                            registered_at_ms,
+                            last_seen_at_ms,
+                            revoked_at_ms,
+                        )| {
+                            Device {
+                                device_id,
+                                principal_id: principal_id.to_string(),
+                                tenant_id: tenant_id.to_string(),
+                                platform: platform_from(&platform),
+                                label,
+                                registered_at_ms: registered_at_ms as u64,
+                                last_seen_at_ms: last_seen_at_ms.map(|v| v as u64),
+                                revoked_at_ms: revoked_at_ms.map(|v| v as u64),
+                            }
+                        },
+                    )
+                    .collect())
+            })
+            .await
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn touch_seen(
         &self,
@@ -675,21 +827,29 @@ impl DeviceRegistry for PgStore {
         device_id: &str,
         now_ms: u64,
     ) -> Result<(), PortError> {
-        (async {
-            sqlx::query(
-                "UPDATE devices SET last_seen_at_ms = $4
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            (async {
+                sqlx::query(
+                    "UPDATE devices SET last_seen_at_ms = $4
                  WHERE tenant_id = $1 AND principal_id = $2 AND device_id = $3",
-            )
-            .bind(tenant_id)
-            .bind(principal_id)
-            .bind(device_id)
-            .bind(now_ms as i64)
-            .execute(&self.pool)
+                )
+                .bind(tenant_id)
+                .bind(principal_id)
+                .bind(device_id)
+                .bind(now_ms as i64)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_storage)?;
+                Ok(())
+            })
             .await
-            .map_err(map_storage)?;
-            Ok(())
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn revoke(
         &self,
@@ -698,22 +858,30 @@ impl DeviceRegistry for PgStore {
         device_id: &str,
         now_ms: u64,
     ) -> Result<bool, PortError> {
-        (async {
-            let n = sqlx::query(
-                "UPDATE devices SET revoked_at_ms = $4
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            (async {
+                let n = sqlx::query(
+                    "UPDATE devices SET revoked_at_ms = $4
                  WHERE tenant_id = $1 AND principal_id = $2 AND device_id = $3",
-            )
-            .bind(tenant_id)
-            .bind(principal_id)
-            .bind(device_id)
-            .bind(now_ms as i64)
-            .execute(&self.pool)
+                )
+                .bind(tenant_id)
+                .bind(principal_id)
+                .bind(device_id)
+                .bind(now_ms as i64)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+                Ok(n > 0)
+            })
             .await
-            .map_err(map_storage)?
-            .rows_affected();
-            Ok(n > 0)
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn scrub_label(
         &self,
@@ -721,22 +889,30 @@ impl DeviceRegistry for PgStore {
         principal_id: &str,
         device_id: &str,
     ) -> Result<u64, PortError> {
-        (async {
-            let n = sqlx::query(
-                "UPDATE devices SET label = '[redacted]'
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            (async {
+                let n = sqlx::query(
+                    "UPDATE devices SET label = '[redacted]'
                  WHERE tenant_id = $1 AND principal_id = $2 AND device_id = $3
                    AND label <> '[redacted]'",
-            )
-            .bind(tenant_id)
-            .bind(principal_id)
-            .bind(device_id)
-            .execute(&self.pool)
+                )
+                .bind(tenant_id)
+                .bind(principal_id)
+                .bind(device_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+                Ok(n)
+            })
             .await
-            .map_err(map_storage)?
-            .rows_affected();
-            Ok(n)
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
 }
 
@@ -793,31 +969,39 @@ const INTERVENTION_COLS: &str =
 #[async_trait]
 impl InterventionSink for PgStore {
     async fn enqueue(&self, i: Intervention) -> Result<(), PortError> {
-        (async {
-            sqlx::query(
-                "INSERT INTO interventions
+        let mut tx = self.tenant_tx(&i.tenant_id).await?;
+        let res = (async {
+            (async {
+                sqlx::query(
+                    "INSERT INTO interventions
                  (intervention_id, event_id, principal_id, device_id, tenant_id, kind, state,
                   attempts, created_at_ms, next_attempt_at_ms, last_error, audit)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
-            )
-            .bind(&i.intervention_id)
-            .bind(&i.event_id)
-            .bind(&i.principal_id)
-            .bind(&i.device_id)
-            .bind(&i.tenant_id)
-            .bind(kind_str(i.kind))
-            .bind(state_str(i.state))
-            .bind(i.attempts as i32)
-            .bind(i.created_at_ms as i64)
-            .bind(i.next_attempt_at_ms as i64)
-            .bind(&i.last_error)
-            .bind(serde_json::to_value(&i.audit).unwrap_or_default())
-            .execute(&self.pool)
+                )
+                .bind(&i.intervention_id)
+                .bind(&i.event_id)
+                .bind(&i.principal_id)
+                .bind(&i.device_id)
+                .bind(&i.tenant_id)
+                .bind(kind_str(i.kind))
+                .bind(state_str(i.state))
+                .bind(i.attempts as i32)
+                .bind(i.created_at_ms as i64)
+                .bind(i.next_attempt_at_ms as i64)
+                .bind(&i.last_error)
+                .bind(serde_json::to_value(&i.audit).unwrap_or_default())
+                .execute(&mut *tx)
+                .await
+                .map_err(map_storage)?;
+                Ok(())
+            })
             .await
-            .map_err(map_storage)?;
-            Ok(())
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn due_any(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError> {
         self.due(now_ms, limit).await
@@ -844,39 +1028,55 @@ impl InterventionSink for PgStore {
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<Vec<Intervention>, PortError> {
-        (async {
-            let q = format!(
-                "SELECT {INTERVENTION_COLS} FROM interventions
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res: Result<Vec<Intervention>, PortError> = (async {
+            (async {
+                let q = format!(
+                    "SELECT {INTERVENTION_COLS} FROM interventions
                  WHERE tenant_id = $1 AND principal_id = $2 ORDER BY created_at_ms"
-            );
-            let rows = sqlx::query_as::<_, InterventionRow>(&q)
-                .bind(tenant_id)
-                .bind(principal_id)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(map_storage)?;
-            rows.into_iter().map(row_to_intervention).collect()
+                );
+                let rows = sqlx::query_as::<_, InterventionRow>(&q)
+                    .bind(tenant_id)
+                    .bind(principal_id)
+                    .fetch_all(&mut *tx)
+                    .await
+                    .map_err(map_storage)?;
+                rows.into_iter().map(row_to_intervention).collect()
+            })
+            .await
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn update(&self, i: Intervention) -> Result<(), PortError> {
-        (async {
-            sqlx::query(
-                "UPDATE interventions SET state=$2, attempts=$3, next_attempt_at_ms=$4,
+        let mut tx = self.tenant_tx(&i.tenant_id).await?;
+        let res = (async {
+            (async {
+                sqlx::query(
+                    "UPDATE interventions SET state=$2, attempts=$3, next_attempt_at_ms=$4,
                  last_error=$5, audit=$6 WHERE intervention_id=$1",
-            )
-            .bind(&i.intervention_id)
-            .bind(state_str(i.state))
-            .bind(i.attempts as i32)
-            .bind(i.next_attempt_at_ms as i64)
-            .bind(&i.last_error)
-            .bind(serde_json::to_value(&i.audit).unwrap_or_default())
-            .execute(&self.pool)
+                )
+                .bind(&i.intervention_id)
+                .bind(state_str(i.state))
+                .bind(i.attempts as i32)
+                .bind(i.next_attempt_at_ms as i64)
+                .bind(&i.last_error)
+                .bind(serde_json::to_value(&i.audit).unwrap_or_default())
+                .execute(&mut *tx)
+                .await
+                .map_err(map_storage)?;
+                Ok(())
+            })
             .await
-            .map_err(map_storage)?;
-            Ok(())
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
 
     async fn delete_by_principal(
@@ -884,39 +1084,56 @@ impl InterventionSink for PgStore {
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<u64, PortError> {
-        (async {
-            let n =
-                sqlx::query("DELETE FROM interventions WHERE tenant_id = $1 AND principal_id = $2")
-                    .bind(tenant_id)
-                    .bind(principal_id)
-                    .execute(&self.pool)
-                    .await
-                    .map_err(map_storage)?
-                    .rows_affected();
-            Ok(n)
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            (async {
+                let n = sqlx::query(
+                    "DELETE FROM interventions WHERE tenant_id = $1 AND principal_id = $2",
+                )
+                .bind(tenant_id)
+                .bind(principal_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+                Ok(n)
+            })
+            .await
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn list_by_device(
         &self,
         tenant_id: &str,
         device_id: &str,
     ) -> Result<Vec<Intervention>, PortError> {
-        (async {
-            let q = format!(
-                "SELECT {INTERVENTION_COLS} FROM interventions
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res: Result<Vec<Intervention>, PortError> = (async {
+            (async {
+                let q = format!(
+                    "SELECT {INTERVENTION_COLS} FROM interventions
                  WHERE tenant_id = $1 AND device_id = $2 AND state IN ('pending','failed')
                  ORDER BY created_at_ms"
-            );
-            let rows = sqlx::query_as::<_, InterventionRow>(&q)
-                .bind(tenant_id)
-                .bind(device_id)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(map_storage)?;
-            rows.into_iter().map(row_to_intervention).collect()
+                );
+                let rows = sqlx::query_as::<_, InterventionRow>(&q)
+                    .bind(tenant_id)
+                    .bind(device_id)
+                    .fetch_all(&mut *tx)
+                    .await
+                    .map_err(map_storage)?;
+                rows.into_iter().map(row_to_intervention).collect()
+            })
+            .await
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn delete_terminal_older_than(
         &self,
@@ -924,22 +1141,30 @@ impl InterventionSink for PgStore {
         principal_id: &str,
         cutoff_ms: u64,
     ) -> Result<u64, PortError> {
-        (async {
-            let n = sqlx::query(
-                "DELETE FROM interventions
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            (async {
+                let n = sqlx::query(
+                    "DELETE FROM interventions
                  WHERE tenant_id = $1 AND principal_id = $2 AND created_at_ms < $3
                    AND state IN ('delivered','expired')",
-            )
-            .bind(tenant_id)
-            .bind(principal_id)
-            .bind(cutoff_ms as i64)
-            .execute(&self.pool)
+                )
+                .bind(tenant_id)
+                .bind(principal_id)
+                .bind(cutoff_ms as i64)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+                Ok(n)
+            })
             .await
-            .map_err(map_storage)?
-            .rows_affected();
-            Ok(n)
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn delete_terminal_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError> {
         (async {
@@ -961,80 +1186,96 @@ impl InterventionSink for PgStore {
 #[async_trait]
 impl DeletionReceiptStore for PgStore {
     async fn record(&self, receipt: DeletionReceipt) -> Result<(), PortError> {
-        (async {
-            sqlx::query(
-                "INSERT INTO deletion_receipts
+        let mut tx = self.tenant_tx(&receipt.tenant_id).await?;
+        let res = (async {
+            (async {
+                sqlx::query(
+                    "INSERT INTO deletion_receipts
                  (receipt_id, tenant_id, principal_id, purged_at_ms, events_deleted,
                   grants_deleted, interventions_deleted, sessions_revoked,
                   devices_revoked, labels_scrubbed, idem_keys_deleted)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
-            )
-            .bind(&receipt.receipt_id)
-            .bind(&receipt.tenant_id)
-            .bind(&receipt.principal_id)
-            .bind(receipt.purged_at_ms as i64)
-            .bind(receipt.events_deleted as i64)
-            .bind(receipt.grants_deleted as i64)
-            .bind(receipt.interventions_deleted as i64)
-            .bind(receipt.sessions_revoked as i64)
-            .bind(receipt.devices_revoked as i64)
-            .bind(receipt.labels_scrubbed as i64)
-            .bind(receipt.idem_keys_deleted as i64)
-            .execute(&self.pool)
+                )
+                .bind(&receipt.receipt_id)
+                .bind(&receipt.tenant_id)
+                .bind(&receipt.principal_id)
+                .bind(receipt.purged_at_ms as i64)
+                .bind(receipt.events_deleted as i64)
+                .bind(receipt.grants_deleted as i64)
+                .bind(receipt.interventions_deleted as i64)
+                .bind(receipt.sessions_revoked as i64)
+                .bind(receipt.devices_revoked as i64)
+                .bind(receipt.labels_scrubbed as i64)
+                .bind(receipt.idem_keys_deleted as i64)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_storage)?;
+                Ok(())
+            })
             .await
-            .map_err(map_storage)?;
-            Ok(())
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn list_by_principal(
         &self,
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<Vec<DeletionReceipt>, PortError> {
-        (async {
-            let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, i64, i64, i64)>(
-                "SELECT receipt_id, purged_at_ms, events_deleted, grants_deleted,
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            (async {
+                let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, i64, i64, i64)>(
+                    "SELECT receipt_id, purged_at_ms, events_deleted, grants_deleted,
                         interventions_deleted, sessions_revoked, devices_revoked,
                         labels_scrubbed, idem_keys_deleted
                  FROM deletion_receipts
                  WHERE tenant_id = $1 AND principal_id = $2 ORDER BY purged_at_ms",
-            )
-            .bind(tenant_id)
-            .bind(principal_id)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(map_storage)?;
-            Ok(rows
-                .into_iter()
-                .map(
-                    |(
-                        receipt_id,
-                        purged_at_ms,
-                        events_deleted,
-                        grants_deleted,
-                        interventions_deleted,
-                        sessions_revoked,
-                        devices_revoked,
-                        labels_scrubbed,
-                        idem_keys_deleted,
-                    )| DeletionReceipt {
-                        receipt_id,
-                        principal_id: principal_id.to_string(),
-                        tenant_id: tenant_id.to_string(),
-                        purged_at_ms: purged_at_ms as u64,
-                        events_deleted: events_deleted as u64,
-                        grants_deleted: grants_deleted as u64,
-                        interventions_deleted: interventions_deleted as u64,
-                        sessions_revoked: sessions_revoked as u64,
-                        devices_revoked: devices_revoked as u64,
-                        labels_scrubbed: labels_scrubbed as u64,
-                        idem_keys_deleted: idem_keys_deleted as u64,
-                    },
                 )
-                .collect())
+                .bind(tenant_id)
+                .bind(principal_id)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(map_storage)?;
+                Ok(rows
+                    .into_iter()
+                    .map(
+                        |(
+                            receipt_id,
+                            purged_at_ms,
+                            events_deleted,
+                            grants_deleted,
+                            interventions_deleted,
+                            sessions_revoked,
+                            devices_revoked,
+                            labels_scrubbed,
+                            idem_keys_deleted,
+                        )| DeletionReceipt {
+                            receipt_id,
+                            principal_id: principal_id.to_string(),
+                            tenant_id: tenant_id.to_string(),
+                            purged_at_ms: purged_at_ms as u64,
+                            events_deleted: events_deleted as u64,
+                            grants_deleted: grants_deleted as u64,
+                            interventions_deleted: interventions_deleted as u64,
+                            sessions_revoked: sessions_revoked as u64,
+                            devices_revoked: devices_revoked as u64,
+                            labels_scrubbed: labels_scrubbed as u64,
+                            idem_keys_deleted: idem_keys_deleted as u64,
+                        },
+                    )
+                    .collect())
+            })
+            .await
         })
-        .await
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
 }
 
@@ -1073,62 +1314,78 @@ fn kind_opt(s: &str) -> Option<InterventionKind> {
 #[async_trait]
 impl sovir_ports::WebhookRegistry for PgStore {
     async fn register(&self, ep: WebhookEndpoint) -> Result<(), PortError> {
-        let kinds: Vec<&str> = ep.kinds.iter().map(|k| kind_str(*k)).collect();
-        sqlx::query(
-            "INSERT INTO webhook_endpoints
+        let mut tx = self.tenant_tx(&ep.tenant_id).await?;
+        let res = (async {
+            let kinds: Vec<&str> = ep.kinds.iter().map(|k| kind_str(*k)).collect();
+            sqlx::query(
+                "INSERT INTO webhook_endpoints
              (endpoint_id, tenant_id, principal_id, url, secret, kinds,
               created_at_ms, revoked_at_ms)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-        )
-        .bind(&ep.endpoint_id)
-        .bind(&ep.tenant_id)
-        .bind(&ep.principal_id)
-        .bind(&ep.url)
-        .bind(&ep.secret)
-        .bind(&kinds)
-        .bind(ep.created_at_ms as i64)
-        .bind(ep.revoked_at_ms.map(|v| v as i64))
-        .execute(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        Ok(())
+            )
+            .bind(&ep.endpoint_id)
+            .bind(&ep.tenant_id)
+            .bind(&ep.principal_id)
+            .bind(&ep.url)
+            .bind(&ep.secret)
+            .bind(&kinds)
+            .bind(ep.created_at_ms as i64)
+            .bind(ep.revoked_at_ms.map(|v| v as i64))
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn list(
         &self,
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<Vec<WebhookEndpoint>, PortError> {
-        let rows = sqlx::query_as::<
-            _,
-            (
-                String,
-                String,
-                String,
-                String,
-                Vec<String>,
-                i64,
-                Option<i64>,
-                String,
-            ),
-        >(
-            "SELECT endpoint_id, principal_id, url, secret, kinds,
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let rows = sqlx::query_as::<
+                _,
+                (
+                    String,
+                    String,
+                    String,
+                    String,
+                    Vec<String>,
+                    i64,
+                    Option<i64>,
+                    String,
+                ),
+            >(
+                "SELECT endpoint_id, principal_id, url, secret, kinds,
                     created_at_ms, revoked_at_ms, tenant_id
              FROM webhook_endpoints
              WHERE tenant_id = $1 AND principal_id = $2 ORDER BY created_at_ms",
-        )
-        .bind(tenant_id)
-        .bind(principal_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        Ok(rows
-            .into_iter()
-            .map(|(id, pid, url, secret, kinds, c, r, t)| {
-                let mut w = row_to_webhook((id, pid, url, secret, kinds, c, r));
-                w.tenant_id = t;
-                w
-            })
-            .collect())
+            )
+            .bind(tenant_id)
+            .bind(principal_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(rows
+                .into_iter()
+                .map(|(id, pid, url, secret, kinds, c, r, t)| {
+                    let mut w = row_to_webhook((id, pid, url, secret, kinds, c, r));
+                    w.tenant_id = t;
+                    w
+                })
+                .collect())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn matching(
         &self,
@@ -1136,39 +1393,47 @@ impl sovir_ports::WebhookRegistry for PgStore {
         principal_id: &str,
         kind: InterventionKind,
     ) -> Result<Vec<WebhookEndpoint>, PortError> {
-        let rows = sqlx::query_as::<
-            _,
-            (
-                String,
-                String,
-                String,
-                String,
-                Vec<String>,
-                i64,
-                Option<i64>,
-                String,
-            ),
-        >(
-            "SELECT endpoint_id, principal_id, url, secret, kinds,
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let rows = sqlx::query_as::<
+                _,
+                (
+                    String,
+                    String,
+                    String,
+                    String,
+                    Vec<String>,
+                    i64,
+                    Option<i64>,
+                    String,
+                ),
+            >(
+                "SELECT endpoint_id, principal_id, url, secret, kinds,
                     created_at_ms, revoked_at_ms, tenant_id
              FROM webhook_endpoints
              WHERE tenant_id = $1 AND principal_id = $2 AND revoked_at_ms IS NULL
                AND $3 = ANY(kinds)",
-        )
-        .bind(tenant_id)
-        .bind(principal_id)
-        .bind(kind_str(kind))
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        Ok(rows
-            .into_iter()
-            .map(|(id, pid, url, secret, kinds, c, r, t)| {
-                let mut w = row_to_webhook((id, pid, url, secret, kinds, c, r));
-                w.tenant_id = t;
-                w
-            })
-            .collect())
+            )
+            .bind(tenant_id)
+            .bind(principal_id)
+            .bind(kind_str(kind))
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(rows
+                .into_iter()
+                .map(|(id, pid, url, secret, kinds, c, r, t)| {
+                    let mut w = row_to_webhook((id, pid, url, secret, kinds, c, r));
+                    w.tenant_id = t;
+                    w
+                })
+                .collect())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn revoke(
         &self,
@@ -1177,20 +1442,28 @@ impl sovir_ports::WebhookRegistry for PgStore {
         endpoint_id: &str,
         now_ms: u64,
     ) -> Result<bool, PortError> {
-        let n = sqlx::query(
-            "UPDATE webhook_endpoints SET revoked_at_ms = $4
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let n = sqlx::query(
+                "UPDATE webhook_endpoints SET revoked_at_ms = $4
              WHERE tenant_id = $1 AND principal_id = $2 AND endpoint_id = $3
                AND revoked_at_ms IS NULL",
-        )
-        .bind(tenant_id)
-        .bind(principal_id)
-        .bind(endpoint_id)
-        .bind(now_ms as i64)
-        .execute(&self.pool)
-        .await
-        .map_err(map_storage)?
-        .rows_affected();
-        Ok(n > 0)
+            )
+            .bind(tenant_id)
+            .bind(principal_id)
+            .bind(endpoint_id)
+            .bind(now_ms as i64)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n > 0)
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
 }
 #[async_trait::async_trait]
@@ -1201,109 +1474,150 @@ impl IdempotencyStore for PgStore {
         principal_id: &str,
         idem_key: &str,
     ) -> Result<Option<IdempotentResponse>, PortError> {
-        sqlx::query_as::<_, (i64, serde_json::Value, i64)>(
-            "SELECT body_hash, response_json, created_at_ms FROM idempotency_keys
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            sqlx::query_as::<_, (i64, serde_json::Value, i64)>(
+                "SELECT body_hash, response_json, created_at_ms FROM idempotency_keys
              WHERE tenant_id = $1 AND principal_id = $2 AND idem_key = $3",
-        )
-        .bind(tenant_id)
-        .bind(principal_id)
-        .bind(idem_key)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(map_storage)?
-        .map(
-            |(body_hash, response_json, created_at_ms)| IdempotentResponse {
-                tenant_id: tenant_id.to_string(),
-                principal_id: principal_id.to_string(),
-                idem_key: idem_key.to_string(),
-                body_hash,
-                response_json,
-                created_at_ms: created_at_ms as u64,
-            },
-        )
-        .map_or(Ok(None), |r| Ok(Some(r)))
+            )
+            .bind(tenant_id)
+            .bind(principal_id)
+            .bind(idem_key)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_storage)?
+            .map(
+                |(body_hash, response_json, created_at_ms)| IdempotentResponse {
+                    tenant_id: tenant_id.to_string(),
+                    principal_id: principal_id.to_string(),
+                    idem_key: idem_key.to_string(),
+                    body_hash,
+                    response_json,
+                    created_at_ms: created_at_ms as u64,
+                },
+            )
+            .map_or(Ok(None), |r| Ok(Some(r)))
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn put(&self, record: IdempotentResponse) -> Result<(), PortError> {
-        // Insert-once: a concurrent replay keeps the first stored response.
-        sqlx::query(
-            "INSERT INTO idempotency_keys
+        let mut tx = self.tenant_tx(&record.tenant_id).await?;
+        let res = (async {
+            // Insert-once: a concurrent replay keeps the first stored response.
+            sqlx::query(
+                "INSERT INTO idempotency_keys
              (tenant_id, principal_id, idem_key, body_hash, response_json, created_at_ms)
              VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (tenant_id, principal_id, idem_key) DO NOTHING",
-        )
-        .bind(&record.tenant_id)
-        .bind(&record.principal_id)
-        .bind(&record.idem_key)
-        .bind(record.body_hash)
-        .bind(&record.response_json)
-        .bind(record.created_at_ms as i64)
-        .execute(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        Ok(())
+            )
+            .bind(&record.tenant_id)
+            .bind(&record.principal_id)
+            .bind(&record.idem_key)
+            .bind(record.body_hash)
+            .bind(&record.response_json)
+            .bind(record.created_at_ms as i64)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn delete_by_principal(
         &self,
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<u64, PortError> {
-        let n =
-            sqlx::query("DELETE FROM idempotency_keys WHERE tenant_id = $1 AND principal_id = $2")
-                .bind(tenant_id)
-                .bind(principal_id)
-                .execute(&self.pool)
-                .await
-                .map_err(map_storage)?
-                .rows_affected();
-        Ok(n)
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let n = sqlx::query(
+                "DELETE FROM idempotency_keys WHERE tenant_id = $1 AND principal_id = $2",
+            )
+            .bind(tenant_id)
+            .bind(principal_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n)
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
 }
 #[async_trait::async_trait]
 impl sovir_ports::AuditLog for PgStore {
     async fn record(&self, event: sovir_domain::AuditEvent) -> Result<(), PortError> {
-        sqlx::query(
-            "INSERT INTO audit_events
+        let mut tx = self.tenant_tx(&event.tenant_id).await?;
+        let res = (async {
+            sqlx::query(
+                "INSERT INTO audit_events
              (audit_id, tenant_id, principal_id, action, detail, at_ms)
              VALUES ($1,$2,$3,$4,$5,$6)",
-        )
-        .bind(&event.audit_id)
-        .bind(&event.tenant_id)
-        .bind(&event.principal_id)
-        .bind(audit_action_str(event.action))
-        .bind(&event.detail)
-        .bind(event.at_ms as i64)
-        .execute(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        Ok(())
+            )
+            .bind(&event.audit_id)
+            .bind(&event.tenant_id)
+            .bind(&event.principal_id)
+            .bind(audit_action_str(event.action))
+            .bind(&event.detail)
+            .bind(event.at_ms as i64)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn list_by_principal(
         &self,
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<Vec<sovir_domain::AuditEvent>, PortError> {
-        let rows = sqlx::query_as::<_, (String, String, String, i64)>(
-            "SELECT audit_id, action, detail, at_ms FROM audit_events
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let rows = sqlx::query_as::<_, (String, String, String, i64)>(
+                "SELECT audit_id, action, detail, at_ms FROM audit_events
              WHERE tenant_id = $1 AND principal_id = $2 ORDER BY at_ms",
-        )
-        .bind(tenant_id)
-        .bind(principal_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        Ok(rows
-            .into_iter()
-            .map(
-                |(audit_id, action, detail, at_ms)| sovir_domain::AuditEvent {
-                    audit_id,
-                    tenant_id: tenant_id.to_string(),
-                    principal_id: principal_id.to_string(),
-                    action: audit_action_from(&action),
-                    detail,
-                    at_ms: at_ms as u64,
-                },
             )
-            .collect())
+            .bind(tenant_id)
+            .bind(principal_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(rows
+                .into_iter()
+                .map(
+                    |(audit_id, action, detail, at_ms)| sovir_domain::AuditEvent {
+                        audit_id,
+                        tenant_id: tenant_id.to_string(),
+                        principal_id: principal_id.to_string(),
+                        action: audit_action_from(&action),
+                        detail,
+                        at_ms: at_ms as u64,
+                    },
+                )
+                .collect())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
 }
 fn audit_action_str(a: sovir_domain::AuditAction) -> &'static str {
@@ -1320,6 +1634,8 @@ fn audit_action_str(a: sovir_domain::AuditAction) -> &'static str {
         DataPurged => "data_purged",
         RetentionEnforced => "retention_enforced",
         DispatchRan => "dispatch_ran",
+        InferenceCalled => "inference_called",
+        IntelPulled => "intel_pulled",
     }
 }
 fn audit_action_from(s: &str) -> sovir_domain::AuditAction {
@@ -1335,44 +1651,70 @@ fn audit_action_from(s: &str) -> sovir_domain::AuditAction {
         "webhook_revoked" => WebhookRevoked,
         "data_purged" => DataPurged,
         "retention_enforced" => RetentionEnforced,
+        "inference_called" => InferenceCalled,
+        "intel_pulled" => IntelPulled,
         _ => DispatchRan,
     }
 }
 #[async_trait::async_trait]
 impl sovir_ports::BudgetLedger for PgStore {
     async fn spent_micro_usd(&self, tenant_id: &str) -> Result<u64, PortError> {
-        let row: Option<(i64,)> =
-            sqlx::query_as("SELECT spent_micro_usd FROM inference_budget WHERE tenant_id = $1")
-                .bind(tenant_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(map_storage)?;
-        Ok(row.map(|r| r.0.max(0) as u64).unwrap_or(0))
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let row: Option<(i64,)> =
+                sqlx::query_as("SELECT spent_micro_usd FROM inference_budget WHERE tenant_id = $1")
+                    .bind(tenant_id)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(map_storage)?;
+            Ok(row.map(|r| r.0.max(0) as u64).unwrap_or(0))
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn cap_micro_usd(&self, tenant_id: &str) -> Result<u64, PortError> {
-        let row: Option<(i64,)> =
-            sqlx::query_as("SELECT cap_micro_usd FROM inference_budget WHERE tenant_id = $1")
-                .bind(tenant_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(map_storage)?;
-        // No provisioned row => cap 0. Fail closed, like the dev adapter.
-        Ok(row.map(|r| r.0.max(0) as u64).unwrap_or(0))
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let row: Option<(i64,)> =
+                sqlx::query_as("SELECT cap_micro_usd FROM inference_budget WHERE tenant_id = $1")
+                    .bind(tenant_id)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(map_storage)?;
+            // No provisioned row => cap 0. Fail closed, like the dev adapter.
+            Ok(row.map(|r| r.0.max(0) as u64).unwrap_or(0))
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn record_spend(&self, tenant_id: &str, micro_usd: u64) -> Result<(), PortError> {
-        sqlx::query(
-            "INSERT INTO inference_budget (tenant_id, spent_micro_usd, cap_micro_usd)
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            sqlx::query(
+                "INSERT INTO inference_budget (tenant_id, spent_micro_usd, cap_micro_usd)
              VALUES ($1, $2, $3)
              ON CONFLICT (tenant_id) DO UPDATE
              SET spent_micro_usd = inference_budget.spent_micro_usd + $2",
-        )
-        .bind(tenant_id)
-        .bind(micro_usd.min(i64::MAX as u64) as i64)
-        .bind(self.budget_cap_micro_usd)
-        .execute(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        Ok(())
+            )
+            .bind(tenant_id)
+            .bind(micro_usd.min(i64::MAX as u64) as i64)
+            .bind(self.budget_cap_micro_usd)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
 }
 #[async_trait::async_trait]
@@ -1383,48 +1725,64 @@ impl sovir_ports::ThreatIntelFeed for PgStore {
         Ok(Vec::new())
     }
     async fn record(&self, ind: sovir_domain::IntelIndicator) -> Result<(), PortError> {
-        sqlx::query(
-            "INSERT INTO intel_indicators
+        let mut tx = self.tenant_tx(&ind.tenant_id).await?;
+        let res = (async {
+            sqlx::query(
+                "INSERT INTO intel_indicators
              (indicator_id, tenant_id, kind, value, confidence_bp, provenance, at_ms)
              VALUES ($1,$2,$3,$4,$5,$6,$7)
              ON CONFLICT (indicator_id) DO NOTHING",
-        )
-        .bind(&ind.indicator_id)
-        .bind(&ind.tenant_id)
-        .bind(&ind.kind)
-        .bind(&ind.value)
-        .bind(ind.confidence_bp as i32)
-        .bind(&ind.provenance)
-        .bind(ind.at_ms as i64)
-        .execute(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        Ok(())
+            )
+            .bind(&ind.indicator_id)
+            .bind(&ind.tenant_id)
+            .bind(&ind.kind)
+            .bind(&ind.value)
+            .bind(ind.confidence_bp as i32)
+            .bind(&ind.provenance)
+            .bind(ind.at_ms as i64)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
     async fn list(&self, tenant_id: &str) -> Result<Vec<sovir_domain::IntelIndicator>, PortError> {
-        let rows = sqlx::query_as::<_, (String, String, String, i32, String, i64)>(
-            "SELECT indicator_id, kind, value, confidence_bp, provenance, at_ms
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let rows = sqlx::query_as::<_, (String, String, String, i32, String, i64)>(
+                "SELECT indicator_id, kind, value, confidence_bp, provenance, at_ms
              FROM intel_indicators WHERE tenant_id = $1 ORDER BY at_ms",
-        )
-        .bind(tenant_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_storage)?;
-        Ok(rows
-            .into_iter()
-            .map(
-                |(indicator_id, kind, value, confidence_bp, provenance, at_ms)| {
-                    sovir_domain::IntelIndicator {
-                        indicator_id,
-                        tenant_id: tenant_id.to_string(),
-                        kind,
-                        value,
-                        confidence_bp: confidence_bp.max(0) as u16,
-                        provenance,
-                        at_ms: at_ms as u64,
-                    }
-                },
             )
-            .collect())
+            .bind(tenant_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(rows
+                .into_iter()
+                .map(
+                    |(indicator_id, kind, value, confidence_bp, provenance, at_ms)| {
+                        sovir_domain::IntelIndicator {
+                            indicator_id,
+                            tenant_id: tenant_id.to_string(),
+                            kind,
+                            value,
+                            confidence_bp: confidence_bp.max(0) as u16,
+                            provenance,
+                            at_ms: at_ms as u64,
+                        }
+                    },
+                )
+                .collect())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
 }

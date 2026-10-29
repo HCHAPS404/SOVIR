@@ -6,7 +6,7 @@ use sha2::Sha256;
 use sovir_domain::{
     Assessment, AuditEvent, ConsentGrant, DeletionReceipt, DeliveryState, Device,
     IdempotentResponse, Intervention, InterventionKind, ObservedEvent, PolicyPack, Session,
-    WebhookEndpoint,
+    VerifiedIdentity, WebhookEndpoint,
 };
 use sovir_ports::{
     AuditLog, BudgetLedger, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel,
@@ -238,7 +238,7 @@ impl SessionStore for InMemorySessionStore {
     async fn delete_expired(&self, now_ms: u64) -> Result<u64, PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         let before = guard.len();
-        guard.retain(|_, s| !s.revoked && s.expires_at_ms > now_ms);
+        guard.retain(|_, s| s.expires_at_ms > now_ms);
         Ok((before - guard.len()) as u64)
     }
 }
@@ -825,6 +825,116 @@ impl HttpEgress for ReqwestHttpEgress {
         }
         res.text().await.map_err(|_| PortError::Storage)
     }
+    async fn get(&self, url: &str, headers: &[(String, String)]) -> Result<String, PortError> {
+        sovir_domain::validate_url_for_egress(url, &self.allowed_hosts)
+            .map_err(|_| PortError::Storage)?;
+        let mut req = self.client.get(url);
+        for (k, v) in headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let res = req.send().await.map_err(|_| PortError::Storage)?;
+        if !res.status().is_success() {
+            return Err(PortError::Unavailable);
+        }
+        res.text().await.map_err(|_| PortError::Storage)
+    }
+}
+/// OIDC seam (B6): verifies JWT bearer credentials against a JWKS document
+/// fetched through the controlled egress port (allowlisted GET, public key
+/// material only — no API key or client secret is involved). Verifies
+/// signature, `kid` selection, allowed algorithms, issuer, audience and
+/// expiry; tenant/principal come ONLY from validated claims — never from
+/// client-supplied fields. This is a seam, not a finished authn story:
+/// claim→scope mapping, key-rotation policy and the identity-provider
+/// decision remain maintainer decisions (ADR-0013).
+pub struct JwksIdentityVerifier {
+    jwks_url: String,
+    issuer: String,
+    audience: String,
+    /// Claim carrying tenant binding (e.g. "tenant_id" or an org claim).
+    tenant_claim: String,
+    /// Claim carrying the subject; defaults to "sub".
+    principal_claim: String,
+    algorithms: Vec<jsonwebtoken::Algorithm>,
+    egress: Arc<dyn HttpEgress>,
+    /// kid → JWK cache. Rotation is pull-based: an unknown kid triggers one
+    /// refetch, then fails closed.
+    keys: std::sync::RwLock<HashMap<String, jsonwebtoken::jwk::Jwk>>,
+}
+impl JwksIdentityVerifier {
+    pub fn new(
+        jwks_url: impl Into<String>,
+        issuer: impl Into<String>,
+        audience: impl Into<String>,
+        tenant_claim: impl Into<String>,
+        principal_claim: impl Into<String>,
+        algorithms: Vec<jsonwebtoken::Algorithm>,
+        egress: Arc<dyn HttpEgress>,
+    ) -> Self {
+        Self {
+            jwks_url: jwks_url.into(),
+            issuer: issuer.into(),
+            audience: audience.into(),
+            tenant_claim: tenant_claim.into(),
+            principal_claim: principal_claim.into(),
+            algorithms,
+            egress,
+            keys: std::sync::RwLock::new(HashMap::new()),
+        }
+    }
+    async fn fetch_jwks(&self) -> Result<Vec<jsonwebtoken::jwk::Jwk>, PortError> {
+        let body = self.egress.get(&self.jwks_url, &[]).await?;
+        let set: jsonwebtoken::jwk::JwkSet =
+            serde_json::from_str(&body).map_err(|_| PortError::Storage)?;
+        Ok(set.keys)
+    }
+    fn cached(&self, kid: &str) -> Option<jsonwebtoken::jwk::Jwk> {
+        self.keys.read().ok()?.get(kid).cloned()
+    }
+}
+#[async_trait]
+impl sovir_ports::IdentityVerifier for JwksIdentityVerifier {
+    async fn verify(&self, token: &str) -> Result<VerifiedIdentity, PortError> {
+        let header = jsonwebtoken::decode_header(token).map_err(|_| PortError::Unauthorized)?;
+        if !self.algorithms.contains(&header.alg) {
+            return Err(PortError::Unauthorized); // alg not allowlisted
+        }
+        let kid = header.kid.ok_or(PortError::Unauthorized)?;
+        // Key lookup: cache first, one refetch on miss (rotation), then fail.
+        let jwk = match self.cached(&kid) {
+            Some(j) => j,
+            None => {
+                let fetched = self.fetch_jwks().await?;
+                if let Ok(mut keys) = self.keys.write() {
+                    for j in fetched.iter().cloned() {
+                        if let Some(k) = j.common.key_id.clone() {
+                            keys.insert(k, j);
+                        }
+                    }
+                }
+                self.cached(&kid).ok_or(PortError::Unauthorized)?
+            }
+        };
+        let key = jsonwebtoken::DecodingKey::from_jwk(&jwk).map_err(|_| PortError::Unauthorized)?;
+        let mut validation = jsonwebtoken::Validation::new(header.alg);
+        validation.set_issuer(&[&self.issuer]);
+        validation.set_audience(&[&self.audience]);
+        let claims: serde_json::Map<String, serde_json::Value> =
+            jsonwebtoken::decode(token, &key, &validation)
+                .map_err(|_| PortError::Unauthorized)?
+                .claims;
+        let get_str =
+            |name: &str| -> Option<String> { claims.get(name)?.as_str().map(str::to_string) };
+        let exp = claims
+            .get("exp")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or(PortError::Unauthorized)?;
+        Ok(VerifiedIdentity {
+            tenant_id: get_str(&self.tenant_claim).ok_or(PortError::Unauthorized)?,
+            principal_id: get_str(&self.principal_claim).ok_or(PortError::Unauthorized)?,
+            expires_at_ms: exp.saturating_mul(1000),
+        })
+    }
 }
 /// Local-only inference adapter (ADR-0012). It can only serve `Private`
 /// mode and no local model is installed, so every call honestly refuses.
@@ -1011,21 +1121,46 @@ impl InferenceGateway for RemoteInferenceGateway {
 /// unreadable file = empty feed (fail closed), never an error.
 pub struct FileThreatIntelFeed {
     path: std::path::PathBuf,
+    /// Optional expected sha256 (hex) of the fixture file — integrity check
+    /// against a configured digest, NOT signature/authenticity verification.
+    expected_sha256: Option<String>,
 }
 impl FileThreatIntelFeed {
     pub fn new(path: impl Into<std::path::PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: path.into(),
+            expected_sha256: None,
+        }
+    }
+    /// Fail closed on digest mismatch or malformed expected hash.
+    pub fn with_expected_sha256(mut self, hex_digest: &str) -> Result<Self, PortError> {
+        let d = hex_digest.trim().to_ascii_lowercase();
+        if d.len() != 64 || !d.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(PortError::Unavailable);
+        }
+        self.expected_sha256 = Some(d);
+        Ok(self)
     }
 }
 #[async_trait]
 impl ThreatIntelFeed for FileThreatIntelFeed {
     async fn pull(&self, since_ms: u64) -> Result<Vec<sovir_domain::IntelIndicator>, PortError> {
-        let raw = match std::fs::read_to_string(&self.path) {
-            Ok(s) => s,
+        let raw = match std::fs::read(&self.path) {
+            Ok(b) => b,
+            Err(_) if self.expected_sha256.is_some() => {
+                return Err(PortError::Unavailable); // pinned fixture unreadable
+            }
             Err(_) => return Ok(Vec::new()),
         };
+        if let Some(expected) = &self.expected_sha256 {
+            use sha2::Digest;
+            let actual = hex::encode(sha2::Sha256::digest(&raw));
+            if &actual != expected {
+                return Err(PortError::Unavailable); // tampered fixture — fail closed
+            }
+        }
         let items: Vec<sovir_domain::IntelIndicator> =
-            serde_json::from_str(&raw).map_err(|_| PortError::Storage)?;
+            serde_json::from_slice(&raw).map_err(|_| PortError::Storage)?;
         Ok(items.into_iter().filter(|i| i.at_ms >= since_ms).collect())
     }
     async fn record(&self, _ind: sovir_domain::IntelIndicator) -> Result<(), PortError> {
@@ -1178,7 +1313,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!(
             "sovir-intel-{}-{}.json",
             std::process::id(),
-            items.len()
+            uuid::Uuid::new_v4().simple()
         ));
         std::fs::write(&path, serde_json::to_string(items).unwrap()).unwrap();
         path
@@ -1222,6 +1357,175 @@ mod tests {
         i.tenant_id = "t".into();
         feed.record(i).await.unwrap();
         assert_eq!(feed.list("t").await.unwrap().len(), 1);
+        std::fs::remove_file(&path).ok();
+    }
+
+    struct StaticGetEgress {
+        body: Option<String>,
+    }
+    #[async_trait]
+    impl HttpEgress for StaticGetEgress {
+        async fn post(&self, _u: &str, _b: &str, _h: &[(String, String)]) -> Result<(), PortError> {
+            Ok(())
+        }
+        async fn get(&self, _u: &str, _h: &[(String, String)]) -> Result<String, PortError> {
+            self.body.clone().ok_or(PortError::Unavailable)
+        }
+    }
+    const OIDC_SECRET: &[u8] = b"test-hs256-secret-do-not-use-in-prod";
+    fn jwks_doc() -> String {
+        // base64url(OIDC_SECRET) — precomputed, no padding (RFC 7518).
+        let k = "dGVzdC1oczI1Ni1zZWNyZXQtZG8tbm90LXVzZS1pbi1wcm9k";
+        format!(r#"{{"keys":[{{"kty":"oct","kid":"k1","alg":"HS256","k":"{k}"}}]}}"#)
+    }
+    fn oidc_verifier(body: Option<String>) -> JwksIdentityVerifier {
+        JwksIdentityVerifier::new(
+            "https://issuer.example/jwks.json",
+            "https://issuer.example",
+            "sovir-api",
+            "tenant_id",
+            "sub",
+            vec![jsonwebtoken::Algorithm::HS256],
+            Arc::new(StaticGetEgress { body }),
+        )
+    }
+    fn oidc_token(iss: &str, aud: &str, exp: u64) -> String {
+        #[derive(serde::Serialize)]
+        struct C<'a> {
+            iss: &'a str,
+            aud: &'a str,
+            exp: u64,
+            sub: &'a str,
+            tenant_id: &'a str,
+        }
+        let mut h = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+        h.kid = Some("k1".into());
+        jsonwebtoken::encode(
+            &h,
+            &C {
+                iss,
+                aud,
+                exp,
+                sub: "alice",
+                tenant_id: "tenant-a",
+            },
+            &jsonwebtoken::EncodingKey::from_secret(OIDC_SECRET),
+        )
+        .unwrap()
+    }
+    fn future_exp() -> u64 {
+        (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs())
+            + 600
+    }
+    use sovir_ports::IdentityVerifier;
+    #[tokio::test]
+    async fn jwks_verify_valid_token_yields_claims() {
+        let v = oidc_verifier(Some(jwks_doc()));
+        let t = oidc_token("https://issuer.example", "sovir-api", future_exp());
+        let id = v.verify(&t).await.unwrap();
+        assert_eq!(id.tenant_id, "tenant-a");
+        assert_eq!(id.principal_id, "alice");
+    }
+    #[tokio::test]
+    async fn jwks_rejects_wrong_issuer_audience_and_expiry() {
+        let v = oidc_verifier(Some(jwks_doc()));
+        for t in [
+            oidc_token("https://evil.example", "sovir-api", future_exp()),
+            oidc_token("https://issuer.example", "other-api", future_exp()),
+            oidc_token("https://issuer.example", "sovir-api", 1),
+        ] {
+            assert!(matches!(v.verify(&t).await, Err(PortError::Unauthorized)));
+        }
+    }
+    #[tokio::test]
+    async fn jwks_rejects_unknown_kid_and_unavailable_jwks() {
+        let mut h = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+        h.kid = Some("missing".into());
+        #[derive(serde::Serialize)]
+        struct C {
+            iss: &'static str,
+            aud: &'static str,
+            exp: u64,
+            sub: &'static str,
+            tenant_id: &'static str,
+        }
+        let c = C {
+            iss: "https://issuer.example",
+            aud: "sovir-api",
+            exp: future_exp(),
+            sub: "alice",
+            tenant_id: "tenant-a",
+        };
+        let bad_kid =
+            jsonwebtoken::encode(&h, &c, &jsonwebtoken::EncodingKey::from_secret(OIDC_SECRET))
+                .unwrap();
+        let v = oidc_verifier(Some(jwks_doc()));
+        assert!(matches!(
+            v.verify(&bad_kid).await,
+            Err(PortError::Unauthorized)
+        ));
+        // JWKS endpoint unreachable -> fails closed (Unavailable propagates
+        // honestly; it is transient, not a credential rejection).
+        let v2 = oidc_verifier(None);
+        assert!(v2
+            .verify(&oidc_token(
+                "https://issuer.example",
+                "sovir-api",
+                future_exp()
+            ))
+            .await
+            .is_err());
+    }
+    #[tokio::test]
+    async fn jwks_rejects_alg_not_allowlisted() {
+        // HS512 signed token against an HS256-allowlisted verifier.
+        let mut h = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS512);
+        h.kid = Some("k1".into());
+        #[derive(serde::Serialize)]
+        struct C {
+            iss: &'static str,
+            aud: &'static str,
+            exp: u64,
+            sub: &'static str,
+            tenant_id: &'static str,
+        }
+        let t = jsonwebtoken::encode(
+            &h,
+            &C {
+                iss: "https://issuer.example",
+                aud: "sovir-api",
+                exp: future_exp(),
+                sub: "a",
+                tenant_id: "t",
+            },
+            &jsonwebtoken::EncodingKey::from_secret(OIDC_SECRET),
+        )
+        .unwrap();
+        let v = oidc_verifier(Some(jwks_doc()));
+        assert!(matches!(v.verify(&t).await, Err(PortError::Unauthorized)));
+    }
+    #[tokio::test]
+    async fn file_feed_sha256_integrity() {
+        use sha2::Digest;
+        let path = fixture_file(&[ind("i1", 100)]);
+        let digest = hex::encode(sha2::Sha256::digest(std::fs::read(&path).unwrap()));
+        // Matching digest -> pulls.
+        let ok = FileThreatIntelFeed::new(&path)
+            .with_expected_sha256(&digest)
+            .unwrap();
+        assert_eq!(ok.pull(0).await.unwrap().len(), 1);
+        // Mismatched digest -> fail closed.
+        let bad = FileThreatIntelFeed::new(&path)
+            .with_expected_sha256(&"0".repeat(64))
+            .unwrap();
+        assert!(matches!(bad.pull(0).await, Err(PortError::Unavailable)));
+        // Malformed expected hash -> rejected at config time.
+        assert!(FileThreatIntelFeed::new(&path)
+            .with_expected_sha256("not-hex")
+            .is_err());
         std::fs::remove_file(&path).ok();
     }
 }

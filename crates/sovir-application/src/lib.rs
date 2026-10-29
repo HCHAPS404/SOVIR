@@ -29,6 +29,8 @@ pub struct PrincipalDataExport {
     pub devices: Vec<Device>,
     pub interventions: Vec<Intervention>,
     pub deletion_receipts: Vec<DeletionReceipt>,
+    /// Caller's own audit tombstones (metadata only — survives purges).
+    pub audit_events: Vec<sovir_domain::AuditEvent>,
 }
 #[derive(Debug, serde::Serialize)]
 pub struct PurgeReport {
@@ -91,6 +93,8 @@ pub struct ServicePorts {
     pub inference: Option<Arc<dyn InferenceGateway>>,
     pub budget: Arc<dyn BudgetLedger>,
     pub intel: Arc<dyn ThreatIntelFeed>,
+    /// Verified-identity seam (B6/ADR-0013). `None` = dev sessions only.
+    pub identity: Option<Arc<dyn sovir_ports::IdentityVerifier>>,
 }
 
 #[derive(Clone)]
@@ -110,6 +114,7 @@ pub struct SovirService {
     inference: Option<Arc<dyn InferenceGateway>>,
     budget: Arc<dyn BudgetLedger>,
     intel: Arc<dyn ThreatIntelFeed>,
+    identity: Option<Arc<dyn sovir_ports::IdentityVerifier>>,
 }
 impl SovirService {
     pub fn new(clock: Arc<dyn Clock>, ports: ServicePorts) -> Self {
@@ -129,6 +134,7 @@ impl SovirService {
             inference: ports.inference,
             budget: ports.budget,
             intel: ports.intel,
+            identity: ports.identity,
         }
     }
 
@@ -213,6 +219,40 @@ impl SovirService {
             }
         }
         Ok(principal)
+    }
+
+    /// Bearer dispatch (B6/ADR-0013): a JWT-shaped token (two dots) goes to
+    /// the configured `IdentityVerifier` and fails closed on rejection —
+    /// no silent downgrade to dev sessions. Anything else resolves through
+    /// the dev `SessionStore` (local/test only, self-declared tenant).
+    ///
+    /// Verified principals carry the same dev scope set for now: claim→scope
+    /// mapping is a pending maintainer decision, and `device_id` is empty —
+    /// OIDC device binding is unsolved, so device-revocation checks do not
+    /// apply on this path yet.
+    pub async fn authenticate_bearer(&self, token: &str) -> Result<Principal, AppError> {
+        if token.matches('.').count() == 2 {
+            let v = self.identity.as_ref().ok_or(AppError::Unauthorized)?;
+            let id = v.verify(token).await.map_err(|_| AppError::Unauthorized)?;
+            if !sovir_domain::valid_identifier(&id.tenant_id)
+                || !sovir_domain::valid_identifier(&id.principal_id)
+            {
+                return Err(AppError::Unauthorized);
+            }
+            return Ok(Principal {
+                principal_id: id.principal_id,
+                tenant_id: id.tenant_id,
+                device_id: String::new(),
+                session_id: String::new(),
+                scopes: vec![
+                    Scope::ConsentWrite,
+                    Scope::EventsWrite,
+                    Scope::DevicesWrite,
+                    Scope::SessionsWrite,
+                ],
+            });
+        }
+        self.authenticate(token).await
     }
 
     pub async fn logout(&self, token: &str) -> Result<bool, AppError> {
@@ -578,6 +618,10 @@ impl SovirService {
                 .receipts
                 .list_by_principal(&principal.tenant_id, &principal.principal_id)
                 .await?,
+            audit_events: self
+                .audit
+                .list_by_principal(&principal.tenant_id, &principal.principal_id)
+                .await?,
         })
     }
 
@@ -617,7 +661,6 @@ impl SovirService {
         retention_ms: u64,
     ) -> Result<RetentionReport, AppError> {
         let cutoff_ms = self.clock.now_ms().saturating_sub(retention_ms);
-        let now = self.clock.now_ms();
         let report = RetentionReport {
             cutoff_ms,
             events_deleted: self.events.delete_older_than_any(cutoff_ms).await?,
@@ -626,8 +669,10 @@ impl SovirService {
                 .delete_terminal_older_than_any(cutoff_ms)
                 .await?,
         };
-        // Hygiene: drop expired/revoked session tombstones in the same sweep.
-        let sessions_deleted = self.sessions.delete_expired(now).await?;
+        // Hygiene: drop aged session tombstones in the same sweep (expiry
+        // older than the retention cutoff — revoked sessions tombstone until
+        // their natural expiry ages past it too).
+        let sessions_deleted = self.sessions.delete_expired(cutoff_ms).await?;
         self.audit_global(
             AuditAction::RetentionEnforced,
             &format!(
@@ -843,13 +888,17 @@ impl SovirService {
         if !valid_identifier(&req.request_id) {
             return Err(AppError::InvalidRequest);
         }
-        let gw = self
-            .inference
-            .as_ref()
-            .ok_or(AppError::ProviderUnavailable)?;
-        if !gw.serves(req.privacy) {
+        let gw = self.inference.as_ref().filter(|g| g.serves(req.privacy));
+        let Some(gw) = gw else {
+            self.audit(
+                &principal.tenant_id,
+                &principal.principal_id,
+                AuditAction::InferenceCalled,
+                &format!("unavailable req:{}", req.request_id),
+            )
+            .await?;
             return Err(AppError::ProviderUnavailable);
-        }
+        };
         let spent = self.budget.spent_micro_usd(&principal.tenant_id).await?;
         let cap = self.budget.cap_micro_usd(&principal.tenant_id).await?;
         if spent.saturating_add(req.est_cost_micro_usd) > cap {
@@ -859,6 +908,16 @@ impl SovirService {
         self.budget
             .record_spend(&principal.tenant_id, req.est_cost_micro_usd)
             .await?;
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::InferenceCalled,
+            &format!(
+                "ok req:{} micros:{}",
+                req.request_id, req.est_cost_micro_usd
+            ),
+        )
+        .await?;
         Ok(verdict)
     }
 
@@ -871,8 +930,10 @@ impl SovirService {
         }
         let now = self.clock.now_ms();
         let mut kept = 0u64;
+        let mut dropped = 0u64;
         for mut ind in self.intel.pull(0).await? {
             if ind.provenance.is_empty() || !valid_identifier(&ind.value) {
+                dropped += 1;
                 continue; // unverified — drop
             }
             ind.tenant_id = principal.tenant_id.clone();
@@ -880,6 +941,13 @@ impl SovirService {
             self.intel.record(ind).await?;
             kept += 1;
         }
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::IntelPulled,
+            &format!("kept:{kept} dropped:{dropped}"),
+        )
+        .await?;
         Ok(kept)
     }
 

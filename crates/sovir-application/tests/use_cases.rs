@@ -34,6 +34,7 @@ fn ports() -> ServicePorts {
         inference: None,
         budget: Arc::new(InMemoryBudgetLedger::default()),
         intel: Arc::new(InMemoryThreatIntel::default()),
+        identity: None,
     }
 }
 fn service() -> SovirService {
@@ -332,6 +333,7 @@ async fn webhook_delivery_signs_and_honors_allowlist_and_revocation() {
             inference: None,
             budget: Arc::new(InMemoryBudgetLedger::default()),
             intel: Arc::new(InMemoryThreatIntel::default()),
+            identity: None,
         },
     );
     let p = principal("p-1");

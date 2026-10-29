@@ -41,8 +41,11 @@
 3. **Rol + RLS (migración 0006)**: rol `sovir_app` no-owner con políticas
    `tenant_isolation` en las 6 tablas principal-owned. El owner bypassa
    RLS (CI/migraciones); conectar como `sovir_app` sin
-   `SET app.tenant_id` cierra en vacío (fail closed). Middleware que haga
-   `SET LOCAL` por request queda pendiente de OIDC real.
+   `SET app.tenant_id` cierra en vacío (fail closed). Cierre de fase 3:
+   **`SET LOCAL app.tenant_id` implementado** — `tenant_tx()` envuelve
+   cada método principal-scoped en una transacción que fija el GUC antes
+   de consultar; las ops cross-tenant (`delete_expired`, `pull`, sweeps
+   globales) mantienen el pool sin scope — documentado como privilegiado.
 4. **Webhooks durables (migración 0007)**: tabla `webhook_endpoints` +
    `WebhookRegistry` en `PgStore`; con `DATABASE_URL` los endpoints son
    durables (in-memory sigue siendo el fallback).
@@ -96,6 +99,17 @@
    preserva bindings tenant/principal de cada intervención.
 5. **Paginación**: `?limit=` acotado (def. 100, máx 500) en
    `/v1/interventions`, `/v1/devices`, `/v1/webhooks`, `/v1/me/audit`.
+   Cierre: `inference_called` e `intel_pulled` registran gasto e ingesta;
+   `GET /v1/me/data` exporta también el audit trail propio.
+6. **Consolidación final** (este commit):
+   - `PgStore::tenant_tx` — `SET LOCAL app.tenant_id` por operación scoped.
+   - `SOVIR_POLICY_PACK` — carga de pack versionado desde JSON (B3 real).
+   - `SOVIR_INTEL_FIXTURE_SHA256` — integridad sha256 del fixture (no PKI).
+   - Tombstones de sesión por edad: `expires_at_ms <= cutoff` en el sweep.
+   - **OIDC seam (ADR-0013)**: `IdentityVerifier` port +
+     `JwksIdentityVerifier` (firma, kid, alg allowlist, iss/aud/exp,
+     claims→tenant) vía nuevo `HttpEgress::get` fail-closed; dispatch por
+     forma de token sin downgrade; verificado en vivo con RS256 real.
 6. **B4 seams (ADR-0012)**: puerto `InferenceGateway` (señales tipadas
    ↔ hipótesis tipadas, nunca contenido crudo ni acciones autorizadas),
    `PrivacyMode` (Standard/Private) con `serves()` por gateway, y
@@ -151,7 +165,7 @@
 |---|---|---|---|
 | 1 | Revisión + merge de PRs #2–#12 en orden | maintainer | drafts verdes en CI |
 | 2 | PR de `feat/backend-phase3` (este) | revisión | draft abierto |
-| 3 | OIDC real → tenant desde token + `SET LOCAL app.tenant_id` + eliminar `dev-session` fuera de local/test | B6 propuesta aprobada | BLOQUEADO maintainer |
+| 3 | OIDC → elegir provider + gatear dev-session fuera de local/test + claim→scope mapping + device binding | B6 propuesta aprobada | seam montado y verificado (JWKS RS256 real); provider ausente |
 | 4 | Proveedor de inferencia real (B4): gateway HTTP tras flag + cap provisionado | decisión maintainer + egress ADR | seam listo, provider ausente |
 | 5 | Feed threat-intel externo (B5): `pull` con provenance verificable | decisión maintainer | seam listo, feed ausente |
 | — | FFI, Modal/GPU, pagos, despliegue | maintainer | BLOQUEADO |

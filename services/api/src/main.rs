@@ -154,7 +154,7 @@ async fn require_principal(headers: &HeaderMap, state: &AppState) -> Result<Prin
         .ok_or_else(|| api_err(StatusCode::UNAUTHORIZED, "unauthorized", headers, false))?;
     state
         .service
-        .authenticate(token)
+        .authenticate_bearer(token)
         .await
         .map_err(|e| map_error(e, headers))
 }
@@ -216,6 +216,21 @@ fn inference_gateway(
         model,
     )))
 }
+/// Loads a versioned policy pack from `SOVIR_POLICY_PACK` (JSON file path).
+/// Unset → `dev_pack()`; set-but-invalid → startup refuses (fail closed).
+fn risk_analyzer() -> Arc<dyn sovir_ports::RiskAnalyzer> {
+    match env::var("SOVIR_POLICY_PACK") {
+        Ok(path) if !path.trim().is_empty() => {
+            let bytes = std::fs::read(&path)
+                .unwrap_or_else(|e| panic!("SOVIR_POLICY_PACK={path} unreadable: {e}"));
+            let pack: sovir_domain::PolicyPack = serde_json::from_slice(&bytes)
+                .unwrap_or_else(|e| panic!("SOVIR_POLICY_PACK={path} invalid: {e}"));
+            Arc::new(DeterministicRiskAnalyzer::with_pack(pack))
+        }
+        _ => Arc::new(DeterministicRiskAnalyzer::default()),
+    }
+}
+
 fn webhook_allowlist_env() -> Vec<String> {
     env::var("SOVIR_WEBHOOK_ALLOWLIST")
         .unwrap_or_else(|_| "127.0.0.1,localhost".into())
@@ -227,11 +242,54 @@ fn webhook_allowlist_env() -> Vec<String> {
 /// Intel source: a local JSON fixture when SOVIR_INTEL_FIXTURE is set,
 /// otherwise an empty in-memory source (pull returns nothing). Store
 /// side is whichever durable adapter the branch chose.
+/// OIDC seam (B6/ADR-0013): a JWKS verifier is built only when issuer +
+/// audience + JWKS URL are ALL configured; partial config refuses startup.
+/// The verifier fetches public keys through the controlled egress port —
+/// asymmetric algs only, allowlist enforced at fetch time. `None` = dev
+/// sessions only (default; JWT-shaped tokens then reject as unauthorized).
+fn identity_verifier(
+    egress: &Arc<dyn sovir_ports::HttpEgress>,
+) -> Option<Arc<dyn sovir_ports::IdentityVerifier>> {
+    let url = env::var("SOVIR_OIDC_JWKS_URL").ok();
+    let iss = env::var("SOVIR_OIDC_ISSUER").ok();
+    let aud = env::var("SOVIR_OIDC_AUDIENCE").ok();
+    if url.is_none() && iss.is_none() && aud.is_none() {
+        return None;
+    }
+    let (Some(url), Some(iss), Some(aud)) = (url, iss, aud) else {
+        panic!("OIDC partially configured: need SOVIR_OIDC_JWKS_URL+ISSUER+AUDIENCE");
+    };
+    Some(Arc::new(sovir_adapters::JwksIdentityVerifier::new(
+        url,
+        iss,
+        aud,
+        env::var("SOVIR_OIDC_TENANT_CLAIM").unwrap_or_else(|_| "tenant_id".into()),
+        env::var("SOVIR_OIDC_PRINCIPAL_CLAIM").unwrap_or_else(|_| "sub".into()),
+        vec![
+            jsonwebtoken::Algorithm::RS256,
+            jsonwebtoken::Algorithm::ES256,
+            jsonwebtoken::Algorithm::EdDSA,
+        ],
+        egress.clone(),
+    )))
+}
+
 fn intel_feed(
     store: Arc<dyn sovir_ports::ThreatIntelFeed>,
 ) -> Arc<dyn sovir_ports::ThreatIntelFeed> {
     let source: Arc<dyn sovir_ports::ThreatIntelFeed> = match env::var("SOVIR_INTEL_FIXTURE") {
-        Ok(path) if !path.is_empty() => Arc::new(sovir_adapters::FileThreatIntelFeed::new(path)),
+        Ok(path) if !path.is_empty() => {
+            let feed = sovir_adapters::FileThreatIntelFeed::new(path);
+            // Optional integrity check: SOVIR_INTEL_FIXTURE_SHA256 pins the
+            // fixture bytes. Malformed configured hash refuses startup.
+            match env::var("SOVIR_INTEL_FIXTURE_SHA256") {
+                Ok(d) if !d.trim().is_empty() => Arc::new(
+                    feed.with_expected_sha256(&d)
+                        .expect("SOVIR_INTEL_FIXTURE_SHA256 is not 64 hex chars"),
+                ),
+                _ => Arc::new(feed),
+            }
+        }
         _ => Arc::new(InMemoryThreatIntel::default()),
     };
     Arc::new(sovir_adapters::CompositeThreatIntelFeed::new(source, store))
@@ -263,7 +321,7 @@ async fn compose_service(
             ServicePorts {
                 grants: Arc::new(pg.clone()),
                 events: Arc::new(pg.clone()),
-                risk: Arc::new(DeterministicRiskAnalyzer::default()),
+                risk: risk_analyzer(),
                 sessions: Arc::new(pg.clone()),
                 devices: Arc::new(pg.clone()),
                 sink: Arc::new(pg.clone()),
@@ -278,6 +336,7 @@ async fn compose_service(
                 inference: inference_gateway(&egress, webhook_allowlist, sovir_env),
                 budget: Arc::new(pg.clone()),
                 intel: intel_feed(Arc::new(pg.clone())),
+                identity: identity_verifier(&egress),
             },
         );
         return (service, Some(pg));
@@ -312,7 +371,7 @@ fn dev_service_with(
             ServicePorts {
                 grants: Arc::new(InMemoryConsentRepository::default()),
                 events: Arc::new(InMemoryEventRepository::default()),
-                risk: Arc::new(DeterministicRiskAnalyzer::default()),
+                risk: risk_analyzer(),
                 sessions: Arc::new(InMemorySessionStore::default()),
                 devices: Arc::new(InMemoryDeviceRegistry::default()),
                 sink: Arc::new(InMemoryInterventionSink::default()),
@@ -337,6 +396,7 @@ fn dev_service_with(
                         .saturating_mul(1_000_000),
                 )),
                 intel: intel_feed(Arc::new(InMemoryThreatIntel::default())),
+                identity: webhooks.as_ref().and_then(|(_, e)| identity_verifier(e)),
             },
         ),
         registry,

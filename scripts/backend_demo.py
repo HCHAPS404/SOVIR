@@ -78,6 +78,8 @@ assert post('/v1/consents',{'grant_id':g3,'source_id':source,'expires_at_ms':now
 assert post('/v1/events',dict(event,event_id='test-'+uuid4().hex,consent_grant_id=g3),t3,idem='demo-'+uuid4().hex)[0]==201
 status,data=get('/v1/me/data',t3)
 assert status==200 and len(data['events'])==1 and len(data['grants'])==1, data
+# Export includes the caller's own audit tombstones (metadata only).
+assert any(a['action']=='event_ingested' for a in data.get('audit_events',[])), data.get('audit_events')
 import urllib.request as _r
 req=_r.Request(URL+'/v1/me/data',headers={'authorization':'Bearer '+t3},method='DELETE')
 with _r.urlopen(req,timeout=5) as resp:
