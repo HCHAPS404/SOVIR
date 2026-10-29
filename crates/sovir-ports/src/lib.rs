@@ -222,6 +222,19 @@ pub trait HttpEgress: Send + Sync {
         body: &str,
         headers: &[(String, String)],
     ) -> Result<(), PortError>;
+    /// POST that returns the response body (ADR-0012 inference path).
+    /// Default refuses: recording egress must never fabricate a provider
+    /// response, so gateways built on top fail closed unless a real
+    /// transport implements this.
+    async fn post_and_receive(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(String, String)],
+    ) -> Result<String, PortError> {
+        let _ = (url, body, headers);
+        Err(PortError::Unavailable)
+    }
 }
 /// Unified sensitive-action audit trail. Entries are metadata tombstones:
 /// they survive erasure (like deletion receipts) so administrative actions

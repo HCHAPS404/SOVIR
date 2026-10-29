@@ -184,12 +184,57 @@ fn map_error(e: AppError, headers: &HeaderMap) -> ApiError {
 /// SOVIR_HTTP_EGRESS=real AND an explicit allowlist is set AND the env is
 /// local/test. Everything else records — no network egress by default.
 fn pick_egress(allowlist: &[String], sovir_env: &str) -> Arc<dyn sovir_ports::HttpEgress> {
-    let wants_real = env::var("SOVIR_HTTP_EGRESS").unwrap_or_default() == "real";
-    if wants_real && !allowlist.is_empty() && matches!(sovir_env, "local" | "test") {
+    if real_egress_enabled(allowlist, sovir_env) {
         Arc::new(sovir_adapters::ReqwestHttpEgress::new(allowlist.to_vec()))
     } else {
         Arc::new(RecordingHttpEgress::default())
     }
+}
+fn real_egress_enabled(allowlist: &[String], sovir_env: &str) -> bool {
+    env::var("SOVIR_HTTP_EGRESS").unwrap_or_default() == "real"
+        && !allowlist.is_empty()
+        && matches!(sovir_env, "local" | "test")
+}
+/// Remote inference gateway (ADR-0012): only wired when a real egress
+/// transport exists AND endpoint+key+model are all configured. Anything
+/// less => None => honest 503 provider_unavailable, never a fake verdict.
+fn inference_gateway(
+    egress: &Arc<dyn sovir_ports::HttpEgress>,
+    allowlist: &[String],
+    sovir_env: &str,
+) -> Option<Arc<dyn sovir_ports::InferenceGateway>> {
+    if !real_egress_enabled(allowlist, sovir_env) {
+        return None;
+    }
+    let url = env::var("SOVIR_INFERENCE_URL").ok()?;
+    let key = env::var("SOVIR_INFERENCE_KEY").ok()?;
+    let model = env::var("SOVIR_INFERENCE_MODEL").ok()?;
+    Some(Arc::new(sovir_adapters::RemoteInferenceGateway::new(
+        egress.clone(),
+        url,
+        key,
+        model,
+    )))
+}
+fn webhook_allowlist_env() -> Vec<String> {
+    env::var("SOVIR_WEBHOOK_ALLOWLIST")
+        .unwrap_or_else(|_| "127.0.0.1,localhost".into())
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+/// Intel source: a local JSON fixture when SOVIR_INTEL_FIXTURE is set,
+/// otherwise an empty in-memory source (pull returns nothing). Store
+/// side is whichever durable adapter the branch chose.
+fn intel_feed(
+    store: Arc<dyn sovir_ports::ThreatIntelFeed>,
+) -> Arc<dyn sovir_ports::ThreatIntelFeed> {
+    let source: Arc<dyn sovir_ports::ThreatIntelFeed> = match env::var("SOVIR_INTEL_FIXTURE") {
+        Ok(path) if !path.is_empty() => Arc::new(sovir_adapters::FileThreatIntelFeed::new(path)),
+        _ => Arc::new(InMemoryThreatIntel::default()),
+    };
+    Arc::new(sovir_adapters::CompositeThreatIntelFeed::new(source, store))
 }
 /// Durable adapter when `DATABASE_URL` is set (fails closed on connect
 /// error); in-memory otherwise.
@@ -230,9 +275,9 @@ async fn compose_service(
                 receipts: Arc::new(pg.clone()),
                 idem: Arc::new(pg.clone()),
                 audit: Arc::new(pg.clone()),
-                inference: None,
+                inference: inference_gateway(&egress, webhook_allowlist, sovir_env),
                 budget: Arc::new(pg.clone()),
-                intel: Arc::new(pg.clone()),
+                intel: intel_feed(Arc::new(pg.clone())),
             },
         );
         return (service, Some(pg));
@@ -254,10 +299,10 @@ fn dev_service_with(
     Option<std::sync::Arc<dyn sovir_ports::WebhookRegistry>>,
 ) {
     let registry = webhooks.as_ref().map(|(r, _)| r.clone());
-    let channel: Arc<dyn sovir_ports::DeliveryChannel> = match webhooks {
+    let channel: Arc<dyn sovir_ports::DeliveryChannel> = match &webhooks {
         Some((r, e)) => Arc::new(CompositeDeliveryChannel(vec![
             Arc::new(RecordingDeliveryChannel::default()),
-            Arc::new(WebhookChannel::new(r, e)),
+            Arc::new(WebhookChannel::new(r.clone(), e.clone())),
         ])),
         None => Arc::new(RecordingDeliveryChannel::default()),
     };
@@ -279,9 +324,19 @@ fn dev_service_with(
                 receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
                 idem: Arc::new(InMemoryIdempotencyStore::default()),
                 audit: Arc::new(InMemoryAuditLog::default()),
-                inference: None,
-                budget: Arc::new(InMemoryBudgetLedger::default()),
-                intel: Arc::new(InMemoryThreatIntel::default()),
+                inference: webhooks.as_ref().and_then(|(_, e)| {
+                    let allowlist = webhook_allowlist_env();
+                    let sovir_env = env::var("SOVIR_ENV").unwrap_or_default();
+                    inference_gateway(e, &allowlist, &sovir_env)
+                }),
+                budget: Arc::new(InMemoryBudgetLedger::with_cap(
+                    env::var("SOVIR_INFERENCE_BUDGET_USD")
+                        .ok()
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .unwrap_or(0)
+                        .saturating_mul(1_000_000),
+                )),
+                intel: intel_feed(Arc::new(InMemoryThreatIntel::default())),
             },
         ),
         registry,
@@ -535,6 +590,58 @@ async fn list_audit(
     items.truncate(list_limit(&q));
     Ok(Json(items))
 }
+/// B4 seam (ADR-0012): server prices each request — a client can never
+/// set its own spend. Default $0.01 in micro-USD per call.
+fn inference_request_cost_micros() -> u64 {
+    std::env::var("SOVIR_INFERENCE_REQ_COST_MICROS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(10_000)
+}
+async fn assess_inference(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(mut req): Json<sovir_domain::InferenceRequest>,
+) -> Result<Json<sovir_domain::InferenceVerdict>, ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    req.est_cost_micro_usd = inference_request_cost_micros();
+    let verdict = s
+        .service
+        .assess_with_inference(&p, req)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    Ok(Json(verdict))
+}
+#[derive(serde::Serialize)]
+struct IntelPullReport {
+    kept: u64,
+}
+async fn pull_intel(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<IntelPullReport>, ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    let kept = s
+        .service
+        .pull_intel(&p)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    Ok(Json(IntelPullReport { kept }))
+}
+async fn list_intel(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Vec<sovir_domain::IntelIndicator>>, ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    let mut items = s
+        .service
+        .list_intel(&p)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    items.truncate(list_limit(&q));
+    Ok(Json(items))
+}
 async fn list_interventions(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -675,6 +782,9 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/interventions/dispatch", post(dispatch))
         .route("/v1/me/data", get(export_data).delete(purge_data))
         .route("/v1/me/audit", get(list_audit))
+        .route("/v1/inference/assess", post(assess_inference))
+        .route("/v1/intel/pull", post(pull_intel))
+        .route("/v1/intel", get(list_intel))
         .route("/v1/me/retention", post(enforce_retention))
         .route("/v1/webhooks", post(register_webhook).get(list_webhooks))
         .route("/v1/webhooks/{id}/revoke", post(revoke_webhook))

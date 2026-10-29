@@ -202,7 +202,9 @@ pub struct InferenceRequest {
     pub request_id: String,
     pub signals: Vec<RiskSignal>,
     pub privacy: PrivacyMode,
-    /// Estimated spend cap for this single call, micro-USD.
+    /// Estimated spend cap for this single call, micro-USD. Optional on
+    /// input — the server prices every request itself (ADR-0012).
+    #[serde(default)]
     pub est_cost_micro_usd: u64,
 }
 
@@ -673,6 +675,23 @@ pub fn validate_url_for_egress(url: &str, allowed_hosts: &[String]) -> Result<()
         return Err(DomainError::InvalidIdentifier);
     }
     Ok(())
+}
+
+/// Host portion of an http(s) URL for provenance labeling. Same parsing
+/// rules as `validate_url_for_egress`; returns None on anything unusual.
+pub fn host_of(url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))?;
+    if rest.contains('@') {
+        return None;
+    }
+    let host = rest.split('/').next()?.split(':').next()?;
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]

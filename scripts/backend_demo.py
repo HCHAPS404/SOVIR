@@ -134,4 +134,18 @@ assert 'session_issued' in actions and 'consent_granted' in actions and 'event_i
 status,faudit=get('/v1/me/audit?limit=50',t4)
 assert status==200 and all(a['action']!='event_ingested' or True for a in faudit)
 assert all('seq' not in (a.get('detail') or '') for a in faudit) or faudit==[]
-print('PASS: synthetic API happy-path + revocation + binding + tenant isolation + logout + erasure + webhooks + retention + sequences + audit + pagination fail closed')
+
+# B4 seam: with no provider configured the endpoint refuses honestly
+# (503 provider_unavailable) — it can never fabricate a verdict.
+status,body=post('/v1/inference/assess',{'request_id':'req-demo','signals':['URGENT_ACTION'],'privacy':'standard'},t5)
+assert status==503 and body['error']['code']=='provider_unavailable', (status,body)
+# Private mode can never reach a remote gateway either.
+status,body=post('/v1/inference/assess',{'request_id':'req-demo-2','signals':['URGENT_ACTION'],'privacy':'private'},t5)
+assert status==503, (status,body)
+
+# B5 seam: no feed configured => pull keeps 0, list is empty.
+status,rep=post('/v1/intel/pull',{},t5)
+assert status==200 and rep['kept']==0, rep
+status,items=get('/v1/intel',t5)
+assert status==200 and items==[], items
+print('PASS: synthetic API happy-path + revocation + binding + tenant isolation + logout + erasure + webhooks + retention + sequences + audit + pagination + inference/intel seams fail closed')

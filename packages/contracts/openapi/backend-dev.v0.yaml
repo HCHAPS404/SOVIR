@@ -153,10 +153,52 @@ components:
         principal_id: {type: string}
         action:
           type: string
-          enum: [session_issued, consent_granted, consent_revoked, device_registered,
-                 device_revoked, webhook_registered, webhook_revoked, data_purged,
-                 retention_enforced, dispatch_ran]
+          enum: [session_issued, consent_granted, consent_revoked, event_ingested,
+                 device_registered, device_revoked, webhook_registered, webhook_revoked,
+                 data_purged, retention_enforced, dispatch_ran]
         detail: {type: string}
+        at_ms: {type: integer}
+    InferenceRequestBody:
+      type: object
+      description: >-
+        Client half of contracts/schemas/inference-request.v0. Signals and
+        privacy only; est_cost_micro_usd is accepted but overridden by the
+        server so callers never price their own spend.
+      required: [request_id, signals, privacy]
+      properties:
+        request_id: {type: string}
+        signals:
+          type: array
+          items:
+            type: string
+            enum: [CREDENTIAL_REQUEST, PAYMENT_REQUEST, URGENT_ACTION,
+                   IDENTITY_UNVERIFIED, TRACKING_OBSERVED, HIDDEN_FEE_PATTERN,
+                   CONSENT_DARK_PATTERN, USER_DEFINED_EXPOSURE_LIMIT]
+        privacy: {type: string, enum: [standard, private]}
+        est_cost_micro_usd: {type: integer}
+    InferenceVerdict:
+      type: object
+      description: Typed hypotheses only — never an authorized action.
+      properties:
+        request_id: {type: string}
+        model_id: {type: string}
+        hypotheses: {type: array, items: {type: string}}
+        confidence_bp: {type: integer, minimum: 0, maximum: 10000}
+        provenance: {type: string}
+    IntelPullReport:
+      type: object
+      properties:
+        kept: {type: integer}
+    IntelIndicator:
+      type: object
+      description: Verified threat-intel indicator (provenance mandatory).
+      properties:
+        indicator_id: {type: string}
+        tenant_id: {type: string}
+        kind: {type: string}
+        value: {type: string}
+        confidence_bp: {type: integer, minimum: 0, maximum: 10000}
+        provenance: {type: string}
         at_ms: {type: integer}
     PurgeReport:
       type: object
@@ -308,6 +350,37 @@ paths:
           schema: {type: integer, default: 100, maximum: 500}
       responses:
         '200': {description: Audit events, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/AuditEvent'}}}}}
+        '401': {description: Unauthorized}
+  /v1/inference/assess:
+    post:
+      summary: Remote inference via configured provider (B4 seam; 503 when no provider is wired)
+      description: >-
+        est_cost_micro_usd is ignored — the server prices every request
+        (SOVIR_INFERENCE_REQ_COST_MICROS) so a caller can never set its
+        own spend. Budget cap is enforced before any provider call.
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/InferenceRequestBody'}}}
+      responses:
+        '200': {description: Typed verdict, content: {application/json: {schema: {$ref: '#/components/schemas/InferenceVerdict'}}}}
+        '401': {description: Unauthorized}
+        '429': {description: Budget exceeded}
+        '503': {description: No provider configured or privacy mode not servable}
+  /v1/intel/pull:
+    post:
+      summary: Pull threat-intel candidates; keeps only items with verifiable provenance (B5)
+      responses:
+        '200': {description: Kept count, content: {application/json: {schema: {$ref: '#/components/schemas/IntelPullReport'}}}}
+        '401': {description: Unauthorized}
+  /v1/intel:
+    get:
+      summary: Verified intel indicators recorded for the caller's tenant
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
+      responses:
+        '200': {description: Indicators, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/IntelIndicator'}}}}}
         '401': {description: Unauthorized}
   /v1/webhooks:
     post:

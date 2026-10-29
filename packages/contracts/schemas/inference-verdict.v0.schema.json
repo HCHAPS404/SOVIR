@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sovir://contracts/inference-verdict.v0",
+  "title": "InferenceVerdict v0 (provider boundary, ADR-0012)",
+  "description": "What a provider may return: typed hypotheses + confidence + model id. A verdict can never authorize an action; only policy code does that.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "model_id", "hypotheses", "confidence_bp"],
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "model_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "hypotheses": {"type": "array", "items": {"type": "string", "maxLength": 256}},
+    "confidence_bp": {"type": "integer", "minimum": 0, "maximum": 10000}
+  }
+}
