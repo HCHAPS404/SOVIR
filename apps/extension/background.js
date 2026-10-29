@@ -90,6 +90,31 @@ async function dedupe(tabId, key) {
   return false;
 }
 
+// Content-script registration: sites granted via chrome.permissions get
+// the extractor auto-injected on every load (persistAcrossSessions) —
+// observation survives reloads/navigation until the origin is revoked.
+async function syncScripts() {
+  const { origins } = await chrome.permissions.getAll();
+  const sites = (origins ?? []).filter((o) => !o.startsWith(API));
+  try {
+    await chrome.scripting.unregisterContentScripts({ ids: ["sovir-observer"] });
+  } catch {}
+  if (!sites.length) return;
+  await chrome.scripting.registerContentScripts([
+    {
+      id: "sovir-observer",
+      matches: sites,
+      js: ["content.js"],
+      persistAcrossSessions: true,
+      runAt: "document_idle",
+    },
+  ]);
+}
+chrome.runtime.onStartup.addListener(syncScripts);
+chrome.runtime.onInstalled.addListener(syncScripts);
+chrome.permissions.onAdded.addListener(syncScripts);
+chrome.permissions.onRemoved.addListener(syncScripts);
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "get-state") {
     getState()
