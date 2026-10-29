@@ -202,6 +202,44 @@ mod win {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credential_titles_signal() {
+        let s = extract_signals("Iniciar sesión - Banco", "chrome.exe");
+        assert!(s.contains(&"CREDENTIAL_REQUEST"));
+    }
+
+    #[test]
+    fn payment_titles_signal() {
+        let s = extract_signals("Checkout — tarjeta", "msedge.exe");
+        assert!(s.contains(&"PAYMENT_REQUEST"));
+    }
+
+    #[test]
+    fn urgency_titles_signal() {
+        let s = extract_signals("Cuenta suspendida — act now", "firefox.exe");
+        assert!(s.contains(&"URGENT_ACTION"));
+    }
+
+    #[test]
+    fn benign_titles_produce_nothing() {
+        assert!(extract_signals("Documento.txt - Bloc de notas", "notepad.exe").is_empty());
+        assert!(extract_signals("bandeja de entrada", "OUTLOOK.EXE").is_empty());
+    }
+
+    #[test]
+    fn digest_binds_process_and_signals_only() {
+        let a = sha256_hex("chrome.exe|URGENT_ACTION");
+        let b = sha256_hex("chrome.exe|URGENT_ACTION");
+        assert_eq!(a, b);
+        assert_ne!(a, sha256_hex("chrome.exe|URGENT_ACTION,otro titulo"));
+        assert_eq!(a.len(), 64);
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()

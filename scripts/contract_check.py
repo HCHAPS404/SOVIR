@@ -20,6 +20,7 @@ vacuous by asserting deliberately-invalid documents are rejected.
 """
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -126,6 +127,100 @@ def migration_checks() -> None:
         check(len(down_sql.strip()) > 0, f"migrations: {base}.down.sql is non-empty")
 
 
+CONSOLE_API_TS = ROOT / "apps/console/lib/api.ts"
+CONSOLE_ACTIONS_TS = ROOT / "apps/console/lib/actions.ts"
+CONSOLE_DEVICES_TSX = ROOT / "apps/console/app/devices/page.tsx"
+
+
+def _resolve_required(doc: dict, schema: dict, base: Path) -> set[str]:
+    """Resolve a requestBody schema's ``required`` list across #/ refs and
+    local file refs (e.g. the ObservedEvent schema lives outside the YAML)."""
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        if ref.startswith("#/components/schemas/"):
+            schema = doc.get("components", {}).get("schemas", {}).get(ref.rsplit("/", 1)[-1], {})
+        elif "://" not in ref:
+            target = (base.parent / ref).resolve()
+            if target.is_file():
+                schema = json.loads(target.read_text(encoding="utf-8"))
+    return set(schema.get("required", []))
+
+
+def _collect_enums(doc: dict) -> dict[str, set[str]]:
+    """Map JSON field name -> allowed enum values across the contract."""
+    enums: dict[str, set[str]] = {}
+
+    def walk(node):
+        if isinstance(node, dict):
+            props = node.get("properties")
+            if isinstance(props, dict):
+                for name, prop in props.items():
+                    vals = prop.get("enum") or prop.get("items", {}).get("enum")
+                    if vals:
+                        enums.setdefault(name, set()).update(vals)
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(doc)
+    event_schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    walk(event_schema)
+    return enums
+
+
+def console_client_checks(doc: dict) -> None:
+    """Drift gate: the console's server-side client may only call contract
+    paths, must send every required request field, and may only use enum
+    literals the contract declares (the 422 class of bug)."""
+    src = CONSOLE_API_TS.read_text(encoding="utf-8")
+    check(CONSOLE_API_TS.is_file(), "console: lib/api.ts present")
+    paths = doc.get("paths", {})
+
+    called: dict[str, str] = {}
+    for m in re.finditer(r'call<[^>]*>\(\s*[`"]([^`"]+)', src):
+        norm = re.sub(r"\$\{[^}]*\}", "", m.group(1)).split("?")[0]
+        called[norm] = m.group(1)
+        check(norm in paths, f"console: client path {norm} exists in OpenAPI")
+
+    for block in re.finditer(r"export const (\w+) = [^;]+;", src, re.S):
+        b = block.group(0)
+        pm = re.search(r'call<[^>]*>\(\s*[`"]([^`"]+)', b)
+        mm = re.search(r'method:\s*"(\w+)"', b)
+        bm = re.search(r"JSON\.stringify\(\{(.*?)\}\)", b, re.S)
+        if not (pm and mm and bm):
+            continue
+        path = re.sub(r"\$\{[^}]*\}", "", pm.group(1)).split("?")[0]
+        method = mm.group(1).lower()
+        sent = set(re.findall(r"([a-zA-Z_]+)\s*[:,}]", bm.group(1)))
+        op = (paths.get(path) or {}).get(method) or {}
+        check(bool(op), f"console: {method.upper()} {path} exists as {method.upper()} in OpenAPI")
+        body_schema = (
+            op.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
+        )
+        required = _resolve_required(doc, body_schema, OPENAPI)
+        missing = required - sent
+        check(not missing, f"console: {method.upper()} {path} sends required fields {sorted(required)}")
+
+    enums = _collect_enums(doc)
+    all_ts = src + CONSOLE_ACTIONS_TS.read_text(encoding="utf-8") + CONSOLE_DEVICES_TSX.read_text(
+        encoding="utf-8"
+    )
+    for field, pattern in {
+        "modality": r'modality:\s*"([A-Z_]+)"',
+        "sensitive_data_class": r'sensitive_data_class:\s*"([A-Z_]+)"',
+        "platform": r'"(ANDROID|IOS|WINDOWS|MACOS|LINUX|BROWSER_EXTENSION)"',
+        "signals": r'signals:\s*\[([^\]]*)\]',
+    }.items():
+        allowed = enums.get(field, set())
+        literals = set(re.findall(pattern, all_ts))
+        if field == "signals":
+            literals = set(re.findall(r'"([A-Z_]+)"', "".join(literals)))
+        bad = literals - allowed if allowed else set()
+        check(not bad, f"console: {field} literals within contract enum {sorted(literals) or '[]'}")
+
+
 def self_test(validator: Draft202012Validator) -> None:
     valid = json.loads((FIXTURE_DIR / "observation.synthetic.json").read_text(encoding="utf-8"))
     variants = {
@@ -144,11 +239,13 @@ def main() -> int:
                         help="also assert that invalid documents are rejected")
     args = parser.parse_args()
 
+    openapi_doc = yaml.safe_load(OPENAPI.read_text(encoding="utf-8"))
     openapi_checks()
     validator = schema_checks()
     fixture_checks(validator)
     synthetic_cases_checks()
     migration_checks()
+    console_client_checks(openapi_doc)
     if args.self_test:
         self_test(validator)
 
