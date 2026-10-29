@@ -111,18 +111,34 @@
 8. **Limpieza de sesiones expiradas**: índice `sessions_expiry` (0009);
    los tombstones de sesión se conservan por gobernanza — expiración no
    borra evidencia.
+9. **B4 montado end-to-end (sin provider)**: `RemoteInferenceGateway` —
+   adapter HTTP real sobre `HttpEgress.post_and_receive` (método nuevo del
+   puerto; default `Unavailable` para que el egress de grabación jamás
+   fabrique veredictos). Sirve SOLO `Standard` — `Private` nunca egresa
+   por invariante. Contratos versionados `inference-request.v0` /
+   `inference-verdict.v0` en `packages/contracts/schemas` — señales
+   tipadas adentro, contenido estructuralmente imposible fuera.
+   `POST /v1/inference/assess` con precio server-side
+   (`SOVIR_INFERENCE_REQ_COST_MICROS` — el cliente nunca fija su coste).
+   Cableado solo si `SOVIR_HTTP_EGRESS=real` + `SOVIR_INFERENCE_URL`/`KEY`/
+   `MODEL` — si falta algo, 503 honesto.
+10. **B5 montado (sin feed externo)**: `FileThreatIntelFeed` (fixture JSON
+    por `SOVIR_INTEL_FIXTURE`, fail closed si falta) +
+    `CompositeThreatIntelFeed` (source→pull, store→record/list) para que
+    el feed alimente la tabla durable. `POST /v1/intel/pull` +
+    `GET /v1/intel` con paginación.
 
 ## Verificación ejecutada (Windows 11, Rust 1.99.1, Python 3.12)
 
 | Comando | Resultado | Evidencia |
 |---|---|---|
 | `cargo fmt --all -- --check` | PASS | harness |
-| `cargo test --workspace` | PASS | 42 tests (dominio/app/API/migraciones + B4/B5) |
+| `cargo test --workspace` | PASS | 50 tests (dominio/app/API/migraciones + B4/B5 + adapters) |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS | sin warnings |
 | `uv run scripts/contract_check.py --self-test` | PASS | 76 checks + rechazos de self-test |
 | `python scripts/harness.py check` / `eval` | PASS | eval: corpus sintético, sin modelo real |
 | `cargo deny check` / `cargo audit` | PASS previo; rerun en CI | reqwest 0.12 nueva dep |
-| `python scripts/backend_demo.py` | PASS | cross-tenant 403 + secuencias + audit + `?limit=` |
+| `python scripts/backend_demo.py` | PASS | cross-tenant 403 + secuencias + audit + `?limit=` + seams 503/empty |
 | Migraciones apply/revert (0001–0010) | verificado en CI | service container Postgres 17 |
 | `sovir_app` + RLS efectivo | verificado en CI | paso RLS cubre audit/budget/intel |
 | Egress real (`SOVIR_HTTP_EGRESS=real`) | NOT_RUN | requiere endpoint HTTP real; grabación es el default |

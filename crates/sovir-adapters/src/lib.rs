@@ -15,7 +15,7 @@ use sovir_ports::{
 };
 use std::{
     collections::HashMap,
-    sync::{Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -803,6 +803,28 @@ impl HttpEgress for ReqwestHttpEgress {
             Err(PortError::Storage)
         }
     }
+    async fn post_and_receive(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(String, String)],
+    ) -> Result<String, PortError> {
+        sovir_domain::validate_url_for_egress(url, &self.allowed_hosts)
+            .map_err(|_| PortError::Storage)?;
+        let mut req = self
+            .client
+            .post(url)
+            .body(body.to_string())
+            .header(reqwest::header::CONTENT_TYPE, "application/json");
+        for (k, v) in headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let res = req.send().await.map_err(|_| PortError::Storage)?;
+        if !res.status().is_success() {
+            return Err(PortError::Unavailable);
+        }
+        res.text().await.map_err(|_| PortError::Storage)
+    }
 }
 /// Local-only inference adapter (ADR-0012). It can only serve `Private`
 /// mode and no local model is installed, so every call honestly refuses.
@@ -903,5 +925,303 @@ impl ThreatIntelFeed for InMemoryThreatIntel {
                     .collect()
             })
             .map_err(|_| PortError::Storage)
+    }
+}
+/// Generic remote inference adapter (B4/ADR-0012). Provider-agnostic:
+/// any endpoint that accepts the versioned request shape and returns the
+/// versioned verdict shape works. Serves ONLY `Standard` mode —
+/// `Private` content never leaves the local boundary by design.
+/// All traffic goes through the `HttpEgress` port, so allowlist,
+/// timeout and redirect policy apply exactly like webhooks.
+pub struct RemoteInferenceGateway {
+    egress: Arc<dyn HttpEgress>,
+    endpoint: String,
+    api_key: String,
+    model_id: String,
+}
+impl RemoteInferenceGateway {
+    pub fn new(
+        egress: Arc<dyn HttpEgress>,
+        endpoint: String,
+        api_key: String,
+        model_id: String,
+    ) -> Self {
+        Self {
+            egress,
+            endpoint,
+            api_key,
+            model_id,
+        }
+    }
+}
+/// Provider response schema (contracts/schemas/inference-verdict.v0).
+#[derive(serde::Deserialize)]
+struct ProviderVerdict {
+    request_id: String,
+    model_id: String,
+    #[serde(default)]
+    hypotheses: Vec<String>,
+    #[serde(default)]
+    confidence_bp: u16,
+}
+#[async_trait]
+impl InferenceGateway for RemoteInferenceGateway {
+    async fn assess(
+        &self,
+        req: &sovir_domain::InferenceRequest,
+    ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+        let body = serde_json::json!({
+            "request_id": req.request_id,
+            "model": self.model_id,
+            "signals": req.signals,
+            "privacy": req.privacy,
+        })
+        .to_string();
+        let headers = vec![(
+            "authorization".to_string(),
+            format!("Bearer {}", self.api_key),
+        )];
+        let text = self
+            .egress
+            .post_and_receive(&self.endpoint, &body, &headers)
+            .await?;
+        let v: ProviderVerdict = serde_json::from_str(&text).map_err(|_| PortError::Storage)?;
+        if v.request_id != req.request_id {
+            return Err(PortError::Storage); // response not bound to request
+        }
+        let host = sovir_domain::host_of(&self.endpoint).unwrap_or_default();
+        Ok(sovir_domain::InferenceVerdict {
+            request_id: v.request_id,
+            model_id: v.model_id,
+            hypotheses: v.hypotheses,
+            confidence_bp: v.confidence_bp.min(10_000),
+            provenance: format!("remote:{host}"),
+        })
+    }
+    fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+        // Invariant: remote gateways may only ever serve Standard.
+        mode == sovir_domain::PrivacyMode::Standard
+    }
+}
+
+/// Threat-intel candidate source from a local JSON fixture file
+/// (`SOVIR_INTEL_FIXTURE`). Each pull re-reads the file and returns
+/// items with `at_ms >= since_ms`; provenance must already be present
+/// in the fixture — this adapter never fabricates it. Missing or
+/// unreadable file = empty feed (fail closed), never an error.
+pub struct FileThreatIntelFeed {
+    path: std::path::PathBuf,
+}
+impl FileThreatIntelFeed {
+    pub fn new(path: impl Into<std::path::PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+}
+#[async_trait]
+impl ThreatIntelFeed for FileThreatIntelFeed {
+    async fn pull(&self, since_ms: u64) -> Result<Vec<sovir_domain::IntelIndicator>, PortError> {
+        let raw = match std::fs::read_to_string(&self.path) {
+            Ok(s) => s,
+            Err(_) => return Ok(Vec::new()),
+        };
+        let items: Vec<sovir_domain::IntelIndicator> =
+            serde_json::from_str(&raw).map_err(|_| PortError::Storage)?;
+        Ok(items.into_iter().filter(|i| i.at_ms >= since_ms).collect())
+    }
+    async fn record(&self, _ind: sovir_domain::IntelIndicator) -> Result<(), PortError> {
+        Err(PortError::Unavailable) // source is read-only; store handles record
+    }
+    async fn list(&self, _tenant_id: &str) -> Result<Vec<sovir_domain::IntelIndicator>, PortError> {
+        Ok(Vec::new()) // store handles list
+    }
+}
+
+/// Composes a candidate source (pull) with a durable store
+/// (record/list). Lets a fixture/remote feed feed the PG or in-memory
+/// indicator table without either knowing about the other.
+pub struct CompositeThreatIntelFeed {
+    source: Arc<dyn ThreatIntelFeed>,
+    store: Arc<dyn ThreatIntelFeed>,
+}
+impl CompositeThreatIntelFeed {
+    pub fn new(source: Arc<dyn ThreatIntelFeed>, store: Arc<dyn ThreatIntelFeed>) -> Self {
+        Self { source, store }
+    }
+}
+#[async_trait]
+impl ThreatIntelFeed for CompositeThreatIntelFeed {
+    async fn pull(&self, since_ms: u64) -> Result<Vec<sovir_domain::IntelIndicator>, PortError> {
+        self.source.pull(since_ms).await
+    }
+    async fn record(&self, ind: sovir_domain::IntelIndicator) -> Result<(), PortError> {
+        self.store.record(ind).await
+    }
+    async fn list(&self, tenant_id: &str) -> Result<Vec<sovir_domain::IntelIndicator>, PortError> {
+        self.store.list(tenant_id).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sovir_domain::{InferenceRequest, IntelIndicator, PrivacyMode, RiskSignal};
+    use std::sync::Mutex as StdMutex;
+
+    /// Egress fake that returns a canned body on post_and_receive and
+    /// records what it was asked to send (no network, ever).
+    struct FakeEgress {
+        response: String,
+        sent: StdMutex<Vec<(String, String)>>,
+    }
+    #[async_trait]
+    impl HttpEgress for FakeEgress {
+        async fn post(&self, _u: &str, _b: &str, _h: &[(String, String)]) -> Result<(), PortError> {
+            Ok(())
+        }
+        async fn post_and_receive(
+            &self,
+            url: &str,
+            body: &str,
+            _h: &[(String, String)],
+        ) -> Result<String, PortError> {
+            self.sent
+                .lock()
+                .unwrap()
+                .push((url.to_string(), body.to_string()));
+            Ok(self.response.clone())
+        }
+    }
+
+    fn req() -> InferenceRequest {
+        InferenceRequest {
+            request_id: "r-1".into(),
+            signals: vec![RiskSignal::UrgentAction, RiskSignal::PaymentRequest],
+            privacy: PrivacyMode::Standard,
+            est_cost_micro_usd: 10_000,
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_gateway_serves_standard_only() {
+        let gw = RemoteInferenceGateway::new(
+            Arc::new(FakeEgress {
+                response: "{}".into(),
+                sent: StdMutex::new(vec![]),
+            }),
+            "https://provider.example.com/v1/assess".into(),
+            "k".into(),
+            "m".into(),
+        );
+        assert!(gw.serves(PrivacyMode::Standard));
+        assert!(!gw.serves(PrivacyMode::Private)); // private never egresses
+    }
+
+    #[tokio::test]
+    async fn remote_gateway_maps_verdict_with_provenance() {
+        let egress = Arc::new(FakeEgress {
+            response:
+                r#"{"request_id":"r-1","model_id":"m-9","hypotheses":["h1"],"confidence_bp":7000}"#
+                    .into(),
+            sent: StdMutex::new(vec![]),
+        });
+        let gw = RemoteInferenceGateway::new(
+            egress.clone(),
+            "https://provider.example.com/v1/assess".into(),
+            "k".into(),
+            "m-9".into(),
+        );
+        let v = gw.assess(&req()).await.unwrap();
+        assert_eq!(v.request_id, "r-1");
+        assert_eq!(v.model_id, "m-9");
+        assert_eq!(v.confidence_bp, 7_000);
+        assert_eq!(v.provenance, "remote:provider.example.com");
+        // The request carried typed signals only — never content.
+        let sent = egress.sent.lock().unwrap();
+        let body: serde_json::Value = serde_json::from_str(&sent[0].1).unwrap();
+        assert_eq!(body["signals"][0], "URGENT_ACTION");
+        assert!(body.get("content").is_none() && body.get("payload").is_none());
+    }
+
+    #[tokio::test]
+    async fn remote_gateway_rejects_mismatched_request_id() {
+        let gw = RemoteInferenceGateway::new(
+            Arc::new(FakeEgress {
+                response:
+                    r#"{"request_id":"other","model_id":"m","hypotheses":[],"confidence_bp":0}"#
+                        .into(),
+                sent: StdMutex::new(vec![]),
+            }),
+            "https://provider.example.com/v1/assess".into(),
+            "k".into(),
+            "m".into(),
+        );
+        assert!(gw.assess(&req()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn remote_gateway_fails_closed_on_recording_egress() {
+        // Recording egress has no post_and_receive -> Unavailable, and the
+        // verdict can never be fabricated.
+        let gw = RemoteInferenceGateway::new(
+            Arc::new(RecordingHttpEgress::default()),
+            "http://127.0.0.1:9/assess".into(),
+            "k".into(),
+            "m".into(),
+        );
+        assert!(matches!(
+            gw.assess(&req()).await,
+            Err(PortError::Unavailable)
+        ));
+    }
+
+    fn fixture_file(items: &[IntelIndicator]) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "sovir-intel-{}-{}.json",
+            std::process::id(),
+            items.len()
+        ));
+        std::fs::write(&path, serde_json::to_string(items).unwrap()).unwrap();
+        path
+    }
+    fn ind(id: &str, at_ms: u64) -> IntelIndicator {
+        IntelIndicator {
+            indicator_id: id.into(),
+            tenant_id: String::new(),
+            kind: "domain".into(),
+            value: "x.example.com".into(),
+            confidence_bp: 9_000,
+            provenance: "fixture:v1".into(),
+            at_ms,
+        }
+    }
+
+    #[tokio::test]
+    async fn file_feed_pulls_and_filters_by_since() {
+        let path = fixture_file(&[ind("old", 10), ind("new", 100)]);
+        let feed = FileThreatIntelFeed::new(&path);
+        let items = feed.pull(50).await.unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].indicator_id, "new");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn file_feed_missing_file_is_empty_not_error() {
+        let feed = FileThreatIntelFeed::new("definitely-not-here.json");
+        assert!(feed.pull(0).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn composite_feed_pulls_source_and_stores_to_sink() {
+        let path = fixture_file(&[ind("i1", 100)]);
+        let store = Arc::new(InMemoryThreatIntel::default());
+        let feed =
+            CompositeThreatIntelFeed::new(Arc::new(FileThreatIntelFeed::new(&path)), store.clone());
+        assert_eq!(feed.pull(0).await.unwrap().len(), 1);
+        let mut i = ind("i1", 100);
+        i.tenant_id = "t".into();
+        feed.record(i).await.unwrap();
+        assert_eq!(feed.list("t").await.unwrap().len(), 1);
+        std::fs::remove_file(&path).ok();
     }
 }
