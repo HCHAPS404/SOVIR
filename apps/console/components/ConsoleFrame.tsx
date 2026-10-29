@@ -3,7 +3,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import { account, enterprise, operation } from "../lib/nav";
+import { enterprise, operation } from "../lib/nav";
 import { RailNav } from "./RailNav";
 
 /// Presence check only — the token's validity is proven by the first
@@ -14,11 +14,6 @@ export async function requireApiSession() {
   const token = jar.get("sovir_api_token")?.value;
   if (!token) redirect("/sign-in");
   return token;
-}
-
-export async function sessionPrincipal() {
-  const jar = await cookies();
-  return jar.get("sovir_api_principal")?.value ?? "desconocido";
 }
 
 export async function ConsoleFrame({
@@ -45,7 +40,6 @@ export async function ConsoleFrame({
           groups={[
             { label: "Operación", items: operation },
             { label: "Organización", items: enterprise },
-            { label: "Cuenta", items: account },
           ]}
         />
         <div className="rail-foot">
