@@ -20,5 +20,27 @@ jobs:
         run: python3 scripts/design_harness.py
       - name: Verify synthetic fixture contracts
         run: python3 scripts/harness.py eval
-  # Add Rust, JS, Android, iOS, Windows and macOS jobs when actual projects exist.
+  extension-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax-check extension sources
+        run: |
+          for f in apps/extension/*.js; do node --check "$f" || exit 1; done
+      - name: Validate manifest shape and observer permissions
+        run: |
+          node -e "
+            const m = require('./apps/extension/manifest.json');
+            const fail = (w) => { console.error('manifest:', w); process.exit(1); };
+            if (m.manifest_version !== 3) fail('must be MV3');
+            const p = m.permissions ?? [];
+            if (!p.includes('scripting')) fail('needs scripting for opt-in injection');
+            if (!(m.host_permissions ?? []).includes('http://127.0.0.1:8787/*')) fail('loopback host missing');
+            if (!(m.optional_host_permissions ?? []).length) fail('per-site opt-in origins missing');
+            console.log('manifest OK');
+          "
+  # Remaining native jobs (Android, iOS, macOS) still deferred by toolchain.
   # Never mark them green by executing echo "pass".
