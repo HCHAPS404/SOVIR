@@ -1,4 +1,7 @@
 //! Interface boundaries. Infrastructure implementations live in adapters.
+//! I/O ports are async (ADR-0008); pure compute ports (Clock, RiskAnalyzer)
+//! stay synchronous.
+use async_trait::async_trait;
 use sovir_domain::{
     Assessment, ConsentGrant, DeletionReceipt, Device, Intervention, InterventionKind,
     ObservedEvent, Session, WebhookEndpoint,
@@ -16,26 +19,32 @@ pub enum PortError {
 pub trait Clock: Send + Sync {
     fn now_ms(&self) -> u64;
 }
+#[async_trait]
 pub trait ConsentRepository: Send + Sync {
-    fn get(&self, grant_id: &str) -> Result<Option<ConsentGrant>, PortError>;
-    fn put(&self, grant: ConsentGrant) -> Result<(), PortError>;
-    fn revoke(&self, grant_id: &str) -> Result<bool, PortError>;
+    async fn get(&self, grant_id: &str) -> Result<Option<ConsentGrant>, PortError>;
+    async fn put(&self, grant: ConsentGrant) -> Result<(), PortError>;
+    async fn revoke(&self, grant_id: &str) -> Result<bool, PortError>;
     /// Revokes every grant bound to a device. Returns count revoked.
-    fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError>;
+    async fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError>;
     /// Data governance: every grant owned by a principal (export) and hard
     /// deletion of them (erasure). Returns count affected for delete.
-    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ConsentGrant>, PortError>;
-    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
+    async fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ConsentGrant>, PortError>;
+    async fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
 }
+#[async_trait]
 pub trait EventRepository: Send + Sync {
-    fn insert_once(&self, event: ObservedEvent) -> Result<(), PortError>;
+    async fn insert_once(&self, event: ObservedEvent) -> Result<(), PortError>;
     /// Data governance export/erasure over the principal's stored events.
     /// Stored events are metadata only (digests, classes) — never payloads.
-    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ObservedEvent>, PortError>;
-    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
+    async fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ObservedEvent>, PortError>;
+    async fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
     /// Retention: hard-deletes events with `observed_at_ms` older than
     /// `cutoff_ms`. Scoped to a principal so retention is caller-owned.
-    fn delete_older_than(&self, principal_id: &str, cutoff_ms: u64) -> Result<u64, PortError>;
+    async fn delete_older_than(&self, principal_id: &str, cutoff_ms: u64)
+        -> Result<u64, PortError>;
+    /// Global retention sweep: deletes every event older than `cutoff_ms`
+    /// regardless of principal. Used only by the scheduled sweep job.
+    async fn delete_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError>;
 }
 pub trait RiskAnalyzer: Send + Sync {
     fn analyze(&self, event: &ObservedEvent) -> Assessment;
@@ -43,75 +52,105 @@ pub trait RiskAnalyzer: Send + Sync {
 /// Dev session lifecycle. Tokens are opaque; `resolve` returns the stored
 /// session regardless of expiry — expiry/revocation is enforced by
 /// `Session::principal(now)` so the decision stays in the domain.
+#[async_trait]
 pub trait SessionStore: Send + Sync {
-    fn issue(&self, session: Session) -> Result<(), PortError>;
-    fn resolve(&self, token: &str) -> Result<Option<Session>, PortError>;
-    fn revoke(&self, token: &str) -> Result<bool, PortError>;
+    async fn issue(&self, session: Session) -> Result<(), PortError>;
+    async fn resolve(&self, token: &str) -> Result<Option<Session>, PortError>;
+    async fn revoke(&self, token: &str) -> Result<bool, PortError>;
     /// Revokes every live session bound to a device. Returns count revoked.
-    fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError>;
+    async fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError>;
     /// Revokes every live session of a principal (used by erasure).
-    fn revoke_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
+    async fn revoke_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
 }
 /// Device inventory scoped by principal. A device record is never
 /// self-declared proof of authorization; registration only records inventory.
+#[async_trait]
 pub trait DeviceRegistry: Send + Sync {
-    fn register(&self, device: Device) -> Result<(), PortError>;
-    fn get(&self, principal_id: &str, device_id: &str) -> Result<Option<Device>, PortError>;
-    fn list(&self, principal_id: &str) -> Result<Vec<Device>, PortError>;
-    fn touch_seen(&self, principal_id: &str, device_id: &str, now_ms: u64)
-        -> Result<(), PortError>;
-    fn revoke(&self, principal_id: &str, device_id: &str, now_ms: u64) -> Result<bool, PortError>;
+    async fn register(&self, device: Device) -> Result<(), PortError>;
+    async fn get(&self, principal_id: &str, device_id: &str) -> Result<Option<Device>, PortError>;
+    async fn list(&self, principal_id: &str) -> Result<Vec<Device>, PortError>;
+    async fn touch_seen(
+        &self,
+        principal_id: &str,
+        device_id: &str,
+        now_ms: u64,
+    ) -> Result<(), PortError>;
+    async fn revoke(
+        &self,
+        principal_id: &str,
+        device_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, PortError>;
     /// Erasure support: replaces the user-supplied label with a redaction
     /// marker while keeping the revoked device tombstone. Returns count.
-    fn scrub_label(&self, principal_id: &str, device_id: &str) -> Result<u64, PortError>;
+    async fn scrub_label(&self, principal_id: &str, device_id: &str) -> Result<u64, PortError>;
 }
 /// Durable-ish queue of interventions awaiting delivery. State transitions,
 /// retry scheduling and audit entries are applied by the application layer;
 /// the sink only stores what it is given.
+#[async_trait]
 pub trait InterventionSink: Send + Sync {
-    fn enqueue(&self, intervention: Intervention) -> Result<(), PortError>;
-    fn due(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError>;
-    fn list(&self, principal_id: &str) -> Result<Vec<Intervention>, PortError>;
-    fn update(&self, intervention: Intervention) -> Result<(), PortError>;
+    async fn enqueue(&self, intervention: Intervention) -> Result<(), PortError>;
+    async fn due(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError>;
+    async fn list(&self, principal_id: &str) -> Result<Vec<Intervention>, PortError>;
+    async fn update(&self, intervention: Intervention) -> Result<(), PortError>;
     /// Data governance: hard deletion of the principal's intervention records.
-    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
+    async fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
     /// Pending/failed interventions bound to a device (used to expire them
     /// when the device is revoked).
-    fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError>;
+    async fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError>;
     /// Retention: hard-deletes interventions in a terminal state
     /// (Delivered/Expired) created before `cutoff_ms`, scoped to a principal.
-    fn delete_terminal_older_than(
+    async fn delete_terminal_older_than(
         &self,
         principal_id: &str,
         cutoff_ms: u64,
     ) -> Result<u64, PortError>;
-}
-/// Audit tombstones produced by erasure (B16). Receipts persist after purge;
-/// they carry counts and a pseudonymous principal id, never user content.
-pub trait DeletionReceiptStore: Send + Sync {
-    fn record(&self, receipt: DeletionReceipt) -> Result<(), PortError>;
-    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<DeletionReceipt>, PortError>;
+    /// Global retention sweep counterpart of `delete_terminal_older_than`.
+    async fn delete_terminal_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError>;
 }
 /// The actual delivery surface (notification, banner, inbox). The dev
 /// adapter records attempts in memory; real channels are platform adapters.
+#[async_trait]
 pub trait DeliveryChannel: Send + Sync {
-    fn send(&self, intervention: &Intervention) -> Result<(), PortError>;
+    async fn send(&self, intervention: &Intervention) -> Result<(), PortError>;
 }
 /// Registered webhook endpoints (B20).
+#[async_trait]
 pub trait WebhookRegistry: Send + Sync {
-    fn register(&self, endpoint: WebhookEndpoint) -> Result<(), PortError>;
-    fn list(&self, principal_id: &str) -> Result<Vec<WebhookEndpoint>, PortError>;
+    async fn register(&self, endpoint: WebhookEndpoint) -> Result<(), PortError>;
+    async fn list(&self, principal_id: &str) -> Result<Vec<WebhookEndpoint>, PortError>;
     /// Active endpoints of a principal subscribed to a given kind.
-    fn matching(
+    async fn matching(
         &self,
         principal_id: &str,
         kind: InterventionKind,
     ) -> Result<Vec<WebhookEndpoint>, PortError>;
-    fn revoke(&self, principal_id: &str, endpoint_id: &str, now_ms: u64)
-        -> Result<bool, PortError>;
+    async fn revoke(
+        &self,
+        principal_id: &str,
+        endpoint_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, PortError>;
 }
 /// Outbound HTTP egress. The dev adapter only records requests; a real HTTP
-/// adapter is gated behind explicit egress policy (B20/ADR pending).
+/// adapter is gated behind explicit egress policy (ADR-0010).
+#[async_trait]
 pub trait HttpEgress: Send + Sync {
-    fn post(&self, url: &str, body: &str, headers: &[(String, String)]) -> Result<(), PortError>;
+    async fn post(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(String, String)],
+    ) -> Result<(), PortError>;
+}
+/// Audit tombstones produced by erasure (B16). Receipts persist after purge;
+/// they carry counts and a pseudonymous principal id, never user content.
+#[async_trait]
+pub trait DeletionReceiptStore: Send + Sync {
+    async fn record(&self, receipt: DeletionReceipt) -> Result<(), PortError>;
+    async fn list_by_principal(
+        &self,
+        principal_id: &str,
+    ) -> Result<Vec<DeletionReceipt>, PortError>;
 }

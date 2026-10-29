@@ -18,6 +18,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["request-id", "timeout", "trace"] }
+async-trait = "0.1.92"
 
 [dev-dependencies]
 uuid.workspace = true

@@ -2,10 +2,9 @@
 //! schema in `infra/postgres/migrations`, RLS default-deny stands, and there is
 //! no tenant isolation or encryption at rest yet (see B21_PLATFORM_STATUS).
 //!
-//! Sync-over-async note: the ports are synchronous traits while sqlx is async.
-//! `block` uses `block_in_place` + `Handle::block_on`, which is only valid on a
-//! multi-thread Tokio runtime. Async ports are deferred to a future ADR; the
-//! in-memory adapters remain the default when `DATABASE_URL` is unset.
+//! The ports are async (ADR-0008); sqlx is used natively, no blocking bridge.
+//! In-memory adapters remain the default when `DATABASE_URL` is unset.
+use async_trait::async_trait;
 use sovir_domain::{
     ConsentGrant, DeletionReceipt, DeliveryState, Device, Intervention, InterventionKind, Modality,
     ObservedEvent, Platform, RiskSignal, Scope, SensitiveDataClass, Session,
@@ -15,14 +14,7 @@ use sovir_ports::{
     PortError, SessionStore,
 };
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::future::Future;
 use std::time::Duration;
-
-/// Run an async future from a sync port implementation. Requires a
-/// multi-thread runtime (tokio `full` enables `rt-multi-thread`).
-fn block<F: Future>(fut: F) -> F::Output {
-    tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(fut))
-}
 
 fn map_storage(e: sqlx::Error) -> PortError {
     match e {
@@ -50,9 +42,10 @@ impl PgStore {
     }
 }
 
+#[async_trait]
 impl ConsentRepository for PgStore {
-    fn get(&self, grant_id: &str) -> Result<Option<ConsentGrant>, PortError> {
-        block(async {
+    async fn get(&self, grant_id: &str) -> Result<Option<ConsentGrant>, PortError> {
+        (async {
             sqlx::query_as::<_, (String, String, String, i64, bool)>(
                 "SELECT principal_id, device_id, source_id, expires_at_ms, revoked
                  FROM consent_grants WHERE grant_id = $1",
@@ -75,9 +68,10 @@ impl ConsentRepository for PgStore {
             )
             .transpose()
         })
+        .await
     }
-    fn put(&self, grant: ConsentGrant) -> Result<(), PortError> {
-        block(async {
+    async fn put(&self, grant: ConsentGrant) -> Result<(), PortError> {
+        (async {
             sqlx::query(
                 "INSERT INTO consent_grants
                  (grant_id, principal_id, device_id, source_id, expires_at_ms, revoked)
@@ -94,9 +88,10 @@ impl ConsentRepository for PgStore {
             .map_err(map_storage)?;
             Ok(())
         })
+        .await
     }
-    fn revoke(&self, grant_id: &str) -> Result<bool, PortError> {
-        block(async {
+    async fn revoke(&self, grant_id: &str) -> Result<bool, PortError> {
+        (async {
             let n = sqlx::query("UPDATE consent_grants SET revoked = TRUE WHERE grant_id = $1")
                 .bind(grant_id)
                 .execute(&self.pool)
@@ -105,9 +100,10 @@ impl ConsentRepository for PgStore {
                 .rows_affected();
             Ok(n > 0)
         })
+        .await
     }
-    fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError> {
-        block(async {
+    async fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError> {
+        (async {
             let n = sqlx::query(
                 "UPDATE consent_grants SET revoked = TRUE WHERE device_id = $1 AND NOT revoked",
             )
@@ -118,9 +114,10 @@ impl ConsentRepository for PgStore {
             .rows_affected();
             Ok(n)
         })
+        .await
     }
-    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ConsentGrant>, PortError> {
-        block(async {
+    async fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ConsentGrant>, PortError> {
+        (async {
             let rows = sqlx::query_as::<_, (String, String, String, i64, bool)>(
                 "SELECT grant_id, device_id, source_id, expires_at_ms, revoked
                  FROM consent_grants WHERE principal_id = $1 ORDER BY grant_id",
@@ -143,9 +140,10 @@ impl ConsentRepository for PgStore {
                 )
                 .collect())
         })
+        .await
     }
-    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
-        block(async {
+    async fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+        (async {
             let n = sqlx::query("DELETE FROM consent_grants WHERE principal_id = $1")
                 .bind(principal_id)
                 .execute(&self.pool)
@@ -154,6 +152,7 @@ impl ConsentRepository for PgStore {
                 .rows_affected();
             Ok(n)
         })
+        .await
     }
 }
 
@@ -284,9 +283,10 @@ fn state_from(s: &str) -> DeliveryState {
     }
 }
 
+#[async_trait]
 impl EventRepository for PgStore {
-    fn insert_once(&self, event: ObservedEvent) -> Result<(), PortError> {
-        block(async {
+    async fn insert_once(&self, event: ObservedEvent) -> Result<(), PortError> {
+        (async {
             let signals: Vec<&str> = event.signals.iter().map(|s| signal_str(*s)).collect();
             let res = sqlx::query(
                 "INSERT INTO observation_events
@@ -314,9 +314,10 @@ impl EventRepository for PgStore {
                 Ok(())
             }
         })
+        .await
     }
-    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ObservedEvent>, PortError> {
-        block(async {
+    async fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ObservedEvent>, PortError> {
+        (async {
             let rows = sqlx::query_as::<
                 _,
                 (
@@ -370,9 +371,10 @@ impl EventRepository for PgStore {
                 )
                 .collect())
         })
+        .await
     }
-    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
-        block(async {
+    async fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+        (async {
             let n = sqlx::query("DELETE FROM observation_events WHERE principal_id = $1")
                 .bind(principal_id)
                 .execute(&self.pool)
@@ -381,9 +383,14 @@ impl EventRepository for PgStore {
                 .rows_affected();
             Ok(n)
         })
+        .await
     }
-    fn delete_older_than(&self, principal_id: &str, cutoff_ms: u64) -> Result<u64, PortError> {
-        block(async {
+    async fn delete_older_than(
+        &self,
+        principal_id: &str,
+        cutoff_ms: u64,
+    ) -> Result<u64, PortError> {
+        (async {
             let n = sqlx::query(
                 "DELETE FROM observation_events
                  WHERE principal_id = $1 AND observed_at_ms < $2",
@@ -396,12 +403,26 @@ impl EventRepository for PgStore {
             .rows_affected();
             Ok(n)
         })
+        .await
+    }
+    async fn delete_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError> {
+        (async {
+            let n = sqlx::query("DELETE FROM observation_events WHERE observed_at_ms < $1")
+                .bind(cutoff_ms as i64)
+                .execute(&self.pool)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+            Ok(n)
+        })
+        .await
     }
 }
 
+#[async_trait]
 impl SessionStore for PgStore {
-    fn issue(&self, session: Session) -> Result<(), PortError> {
-        block(async {
+    async fn issue(&self, session: Session) -> Result<(), PortError> {
+        (async {
             let scopes: Vec<&str> = session.scopes.iter().map(|s| scope_str(*s)).collect();
             sqlx::query(
                 "INSERT INTO sessions
@@ -420,10 +441,10 @@ impl SessionStore for PgStore {
             .await
             .map_err(map_storage)?;
             Ok(())
-        })
+        }).await
     }
-    fn resolve(&self, token: &str) -> Result<Option<Session>, PortError> {
-        block(async {
+    async fn resolve(&self, token: &str) -> Result<Option<Session>, PortError> {
+        (async {
             sqlx::query_as::<
                 _,
                 (String, String, String, String, Vec<String>, i64, bool),
@@ -450,10 +471,10 @@ impl SessionStore for PgStore {
                 },
             )
             .map_or(Ok(None), |s| Ok(Some(s)))
-        })
+        }).await
     }
-    fn revoke(&self, token: &str) -> Result<bool, PortError> {
-        block(async {
+    async fn revoke(&self, token: &str) -> Result<bool, PortError> {
+        (async {
             let n = sqlx::query("UPDATE sessions SET revoked = TRUE WHERE token = $1")
                 .bind(token)
                 .execute(&self.pool)
@@ -462,9 +483,10 @@ impl SessionStore for PgStore {
                 .rows_affected();
             Ok(n > 0)
         })
+        .await
     }
-    fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError> {
-        block(async {
+    async fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError> {
+        (async {
             let n = sqlx::query(
                 "UPDATE sessions SET revoked = TRUE WHERE device_id = $1 AND NOT revoked",
             )
@@ -475,9 +497,10 @@ impl SessionStore for PgStore {
             .rows_affected();
             Ok(n)
         })
+        .await
     }
-    fn revoke_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
-        block(async {
+    async fn revoke_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+        (async {
             let n = sqlx::query(
                 "UPDATE sessions SET revoked = TRUE WHERE principal_id = $1 AND NOT revoked",
             )
@@ -488,12 +511,14 @@ impl SessionStore for PgStore {
             .rows_affected();
             Ok(n)
         })
+        .await
     }
 }
 
+#[async_trait]
 impl DeviceRegistry for PgStore {
-    fn register(&self, device: Device) -> Result<(), PortError> {
-        block(async {
+    async fn register(&self, device: Device) -> Result<(), PortError> {
+        (async {
             sqlx::query(
                 "INSERT INTO devices
                  (principal_id, device_id, platform, label, registered_at_ms, last_seen_at_ms, revoked_at_ms)
@@ -510,10 +535,10 @@ impl DeviceRegistry for PgStore {
             .await
             .map_err(map_storage)?;
             Ok(())
-        })
+        }).await
     }
-    fn get(&self, principal_id: &str, device_id: &str) -> Result<Option<Device>, PortError> {
-        block(async {
+    async fn get(&self, principal_id: &str, device_id: &str) -> Result<Option<Device>, PortError> {
+        (async {
             sqlx::query_as::<_, (String, String, i64, Option<i64>, Option<i64>)>(
                 "SELECT platform, label, registered_at_ms, last_seen_at_ms, revoked_at_ms
                  FROM devices WHERE principal_id = $1 AND device_id = $2",
@@ -536,9 +561,10 @@ impl DeviceRegistry for PgStore {
             )
             .map_or(Ok(None), |d| Ok(Some(d)))
         })
+        .await
     }
-    fn list(&self, principal_id: &str) -> Result<Vec<Device>, PortError> {
-        block(async {
+    async fn list(&self, principal_id: &str) -> Result<Vec<Device>, PortError> {
+        (async {
             let rows = sqlx::query_as::<
                 _,
                 (String, String, String, i64, Option<i64>, Option<i64>),
@@ -574,14 +600,15 @@ impl DeviceRegistry for PgStore {
                 )
                 .collect())
         })
+        .await
     }
-    fn touch_seen(
+    async fn touch_seen(
         &self,
         principal_id: &str,
         device_id: &str,
         now_ms: u64,
     ) -> Result<(), PortError> {
-        block(async {
+        (async {
             sqlx::query(
                 "UPDATE devices SET last_seen_at_ms = $3
                  WHERE principal_id = $1 AND device_id = $2",
@@ -594,9 +621,15 @@ impl DeviceRegistry for PgStore {
             .map_err(map_storage)?;
             Ok(())
         })
+        .await
     }
-    fn revoke(&self, principal_id: &str, device_id: &str, now_ms: u64) -> Result<bool, PortError> {
-        block(async {
+    async fn revoke(
+        &self,
+        principal_id: &str,
+        device_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, PortError> {
+        (async {
             let n = sqlx::query(
                 "UPDATE devices SET revoked_at_ms = $3
                  WHERE principal_id = $1 AND device_id = $2",
@@ -610,9 +643,10 @@ impl DeviceRegistry for PgStore {
             .rows_affected();
             Ok(n > 0)
         })
+        .await
     }
-    fn scrub_label(&self, principal_id: &str, device_id: &str) -> Result<u64, PortError> {
-        block(async {
+    async fn scrub_label(&self, principal_id: &str, device_id: &str) -> Result<u64, PortError> {
+        (async {
             let n = sqlx::query(
                 "UPDATE devices SET label = '[redacted]'
                  WHERE principal_id = $1 AND device_id = $2 AND label <> '[redacted]'",
@@ -625,6 +659,7 @@ impl DeviceRegistry for PgStore {
             .rows_affected();
             Ok(n)
         })
+        .await
     }
 }
 
@@ -664,9 +699,10 @@ const INTERVENTION_COLS: &str =
     "intervention_id, event_id, principal_id, device_id, kind, state, attempts,
      created_at_ms, next_attempt_at_ms, last_error, audit";
 
+#[async_trait]
 impl InterventionSink for PgStore {
-    fn enqueue(&self, i: Intervention) -> Result<(), PortError> {
-        block(async {
+    async fn enqueue(&self, i: Intervention) -> Result<(), PortError> {
+        (async {
             sqlx::query(
                 "INSERT INTO interventions
                  (intervention_id, event_id, principal_id, device_id, kind, state,
@@ -689,9 +725,10 @@ impl InterventionSink for PgStore {
             .map_err(map_storage)?;
             Ok(())
         })
+        .await
     }
-    fn due(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError> {
-        block(async {
+    async fn due(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError> {
+        (async {
             let q = format!(
                 "SELECT {INTERVENTION_COLS} FROM interventions
                  WHERE state IN ('pending','failed') AND next_attempt_at_ms <= $1
@@ -705,9 +742,10 @@ impl InterventionSink for PgStore {
                 .map_err(map_storage)?;
             rows.into_iter().map(row_to_intervention).collect()
         })
+        .await
     }
-    fn list(&self, principal_id: &str) -> Result<Vec<Intervention>, PortError> {
-        block(async {
+    async fn list(&self, principal_id: &str) -> Result<Vec<Intervention>, PortError> {
+        (async {
             let q = format!(
                 "SELECT {INTERVENTION_COLS} FROM interventions
                  WHERE principal_id = $1 ORDER BY created_at_ms"
@@ -719,9 +757,10 @@ impl InterventionSink for PgStore {
                 .map_err(map_storage)?;
             rows.into_iter().map(row_to_intervention).collect()
         })
+        .await
     }
-    fn update(&self, i: Intervention) -> Result<(), PortError> {
-        block(async {
+    async fn update(&self, i: Intervention) -> Result<(), PortError> {
+        (async {
             sqlx::query(
                 "UPDATE interventions SET state=$2, attempts=$3, next_attempt_at_ms=$4,
                  last_error=$5, audit=$6 WHERE intervention_id=$1",
@@ -737,10 +776,11 @@ impl InterventionSink for PgStore {
             .map_err(map_storage)?;
             Ok(())
         })
+        .await
     }
 
-    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
-        block(async {
+    async fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+        (async {
             let n = sqlx::query("DELETE FROM interventions WHERE principal_id = $1")
                 .bind(principal_id)
                 .execute(&self.pool)
@@ -749,9 +789,10 @@ impl InterventionSink for PgStore {
                 .rows_affected();
             Ok(n)
         })
+        .await
     }
-    fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError> {
-        block(async {
+    async fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError> {
+        (async {
             let q = format!(
                 "SELECT {INTERVENTION_COLS} FROM interventions
                  WHERE device_id = $1 AND state IN ('pending','failed')
@@ -764,13 +805,14 @@ impl InterventionSink for PgStore {
                 .map_err(map_storage)?;
             rows.into_iter().map(row_to_intervention).collect()
         })
+        .await
     }
-    fn delete_terminal_older_than(
+    async fn delete_terminal_older_than(
         &self,
         principal_id: &str,
         cutoff_ms: u64,
     ) -> Result<u64, PortError> {
-        block(async {
+        (async {
             let n = sqlx::query(
                 "DELETE FROM interventions
                  WHERE principal_id = $1 AND created_at_ms < $2
@@ -784,12 +826,29 @@ impl InterventionSink for PgStore {
             .rows_affected();
             Ok(n)
         })
+        .await
+    }
+    async fn delete_terminal_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError> {
+        (async {
+            let n = sqlx::query(
+                "DELETE FROM interventions
+                 WHERE created_at_ms < $1 AND state IN ('delivered','expired')",
+            )
+            .bind(cutoff_ms as i64)
+            .execute(&self.pool)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n)
+        })
+        .await
     }
 }
 
+#[async_trait]
 impl DeletionReceiptStore for PgStore {
-    fn record(&self, receipt: DeletionReceipt) -> Result<(), PortError> {
-        block(async {
+    async fn record(&self, receipt: DeletionReceipt) -> Result<(), PortError> {
+        (async {
             sqlx::query(
                 "INSERT INTO deletion_receipts
                  (receipt_id, principal_id, purged_at_ms, events_deleted,
@@ -811,9 +870,13 @@ impl DeletionReceiptStore for PgStore {
             .map_err(map_storage)?;
             Ok(())
         })
+        .await
     }
-    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<DeletionReceipt>, PortError> {
-        block(async {
+    async fn list_by_principal(
+        &self,
+        principal_id: &str,
+    ) -> Result<Vec<DeletionReceipt>, PortError> {
+        (async {
             let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, i64, i64)>(
                 "SELECT receipt_id, purged_at_ms, events_deleted, grants_deleted,
                         interventions_deleted, sessions_revoked, devices_revoked,
@@ -850,5 +913,6 @@ impl DeletionReceiptStore for PgStore {
                 )
                 .collect())
         })
+        .await
     }
 }

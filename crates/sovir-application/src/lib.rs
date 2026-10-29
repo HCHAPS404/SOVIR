@@ -113,7 +113,7 @@ impl SovirService {
 
     /// Issues a short-lived development session for a synthetic principal.
     /// If the device is registered it must belong to the principal and be active.
-    pub fn issue_dev_session(
+    pub async fn issue_dev_session(
         &self,
         principal_id: &str,
         device_id: &str,
@@ -121,7 +121,7 @@ impl SovirService {
         if !valid_identifier(principal_id) || !valid_identifier(device_id) {
             return Err(AppError::InvalidRequest);
         }
-        if let Some(d) = self.devices.get(principal_id, device_id)? {
+        if let Some(d) = self.devices.get(principal_id, device_id).await? {
             if !d.is_active() {
                 return Err(AppError::DeviceRevoked);
             }
@@ -144,23 +144,25 @@ impl SovirService {
             expires_at_ms: now.saturating_add(DEV_SESSION_TTL_MS),
             revoked: false,
         };
-        self.sessions.issue(session.clone())?;
+        self.sessions.issue(session.clone()).await?;
         Ok(session)
     }
 
     /// Resolves a bearer token to a Principal. Fails closed on unknown,
     /// expired or revoked sessions, and on revoked registered devices.
-    pub fn authenticate(&self, token: &str) -> Result<Principal, AppError> {
+    pub async fn authenticate(&self, token: &str) -> Result<Principal, AppError> {
         let session = self
             .sessions
-            .resolve(token)?
+            .resolve(token)
+            .await?
             .ok_or(AppError::Unauthorized)?;
         let principal = session
             .principal(self.clock.now_ms())
             .ok_or(AppError::Unauthorized)?;
         if let Some(d) = self
             .devices
-            .get(&principal.principal_id, &principal.device_id)?
+            .get(&principal.principal_id, &principal.device_id)
+            .await?
         {
             if !d.is_active() {
                 return Err(AppError::DeviceRevoked);
@@ -169,11 +171,11 @@ impl SovirService {
         Ok(principal)
     }
 
-    pub fn logout(&self, token: &str) -> Result<bool, AppError> {
-        Ok(self.sessions.revoke(token)?)
+    pub async fn logout(&self, token: &str) -> Result<bool, AppError> {
+        Ok(self.sessions.revoke(token).await?)
     }
 
-    pub fn register_device(
+    pub async fn register_device(
         &self,
         principal: &Principal,
         device_id: Option<&str>,
@@ -196,30 +198,35 @@ impl SovirService {
             revoked_at_ms: None,
         };
         validate_device(&device)?;
-        self.devices.register(device.clone())?;
+        self.devices.register(device.clone()).await?;
         Ok(device)
     }
 
-    pub fn list_devices(&self, principal: &Principal) -> Result<Vec<Device>, AppError> {
-        Ok(self.devices.list(&principal.principal_id)?)
+    pub async fn list_devices(&self, principal: &Principal) -> Result<Vec<Device>, AppError> {
+        Ok(self.devices.list(&principal.principal_id).await?)
     }
 
     /// Revokes the device, every session bound to it and every consent grant
     /// bound to it. Revocation fails closed: after this call the device can
     /// neither authenticate nor ingest.
-    pub fn revoke_device(&self, principal: &Principal, device_id: &str) -> Result<bool, AppError> {
+    pub async fn revoke_device(
+        &self,
+        principal: &Principal,
+        device_id: &str,
+    ) -> Result<bool, AppError> {
         if !principal.has_scope(Scope::DevicesWrite) {
             return Err(AppError::Forbidden);
         }
         let now = self.clock.now_ms();
         let revoked = self
             .devices
-            .revoke(&principal.principal_id, device_id, now)?;
+            .revoke(&principal.principal_id, device_id, now)
+            .await?;
         if revoked {
-            self.sessions.revoke_by_device(device_id)?;
-            self.grants.revoke_by_device(device_id)?;
+            self.sessions.revoke_by_device(device_id).await?;
+            self.grants.revoke_by_device(device_id).await?;
             // Fail closed: pending deliveries to a revoked device expire now.
-            for mut i in self.sink.list_by_device(device_id)? {
+            for mut i in self.sink.list_by_device(device_id).await? {
                 i.audit.push(DeliveryAuditEntry {
                     at_ms: now,
                     from: i.state,
@@ -227,7 +234,7 @@ impl SovirService {
                     detail: "device revoked".to_string(),
                 });
                 i.state = DeliveryState::Expired;
-                self.sink.update(i)?;
+                self.sink.update(i).await?;
             }
         }
         Ok(revoked)
@@ -236,7 +243,11 @@ impl SovirService {
     /// Records a consent grant bound to the authenticated principal and device.
     /// The binding is sealed here; client-supplied binding fields are ignored
     /// at deserialization (`skip_deserializing`).
-    pub fn grant(&self, principal: &Principal, mut grant: ConsentGrant) -> Result<(), AppError> {
+    pub async fn grant(
+        &self,
+        principal: &Principal,
+        mut grant: ConsentGrant,
+    ) -> Result<(), AppError> {
         if !principal.has_scope(Scope::ConsentWrite) {
             return Err(AppError::Forbidden);
         }
@@ -249,17 +260,17 @@ impl SovirService {
         {
             return Err(AppError::InvalidGrant);
         }
-        self.grants.put(grant)?;
+        self.grants.put(grant).await?;
         Ok(())
     }
-    pub fn revoke(&self, principal: &Principal, grant_id: &str) -> Result<bool, AppError> {
+    pub async fn revoke(&self, principal: &Principal, grant_id: &str) -> Result<bool, AppError> {
         if !principal.has_scope(Scope::ConsentWrite) {
             return Err(AppError::Forbidden);
         }
         // Only the owning principal may revoke: verify binding first.
-        match self.grants.get(grant_id)? {
+        match self.grants.get(grant_id).await? {
             Some(g) if g.principal_id == principal.principal_id => {
-                Ok(self.grants.revoke(grant_id)?)
+                Ok(self.grants.revoke(grant_id).await?)
             }
             Some(_) => Err(AppError::Forbidden),
             None => Ok(false),
@@ -268,7 +279,7 @@ impl SovirService {
     /// Seals the event with the session's principal/device binding, then
     /// enforces the consent invariant (grant scope + same binding) before
     /// analysis and dedup-insert.
-    pub fn ingest(
+    pub async fn ingest(
         &self,
         principal: &Principal,
         mut event: ObservedEvent,
@@ -282,14 +293,16 @@ impl SovirService {
         validate_event(&event, now)?;
         let grant = self
             .grants
-            .get(&event.consent_grant_id)?
+            .get(&event.consent_grant_id)
+            .await?
             .ok_or(AppError::ConsentNotFound)?;
         validate_consent(&event, &grant, now)?;
         self.devices
-            .touch_seen(&principal.principal_id, &principal.device_id, now)?;
+            .touch_seen(&principal.principal_id, &principal.device_id, now)
+            .await?;
         let assessment = self.risk.analyze(&event);
         let id = event.event_id.clone();
-        self.events.insert_once(event)?;
+        self.events.insert_once(event).await?;
         let decision = EventDecision {
             event_id: id,
             assessment,
@@ -312,19 +325,22 @@ impl SovirService {
                 last_error: None,
                 audit: vec![],
             };
-            self.sink.enqueue(intervention)?;
+            self.sink.enqueue(intervention).await?;
         }
         Ok(decision)
     }
 
-    pub fn list_interventions(&self, principal: &Principal) -> Result<Vec<Intervention>, AppError> {
-        Ok(self.sink.list(&principal.principal_id)?)
+    pub async fn list_interventions(
+        &self,
+        principal: &Principal,
+    ) -> Result<Vec<Intervention>, AppError> {
+        Ok(self.sink.list(&principal.principal_id).await?)
     }
 
     /// Registers an outbound webhook endpoint (B20). The URL must pass the
     /// egress allowlist; the secret is generated, returned once and stored
     /// with the endpoint (dev-grade; production must use managed secrets).
-    pub fn register_webhook(
+    pub async fn register_webhook(
         &self,
         principal: &Principal,
         url: &str,
@@ -344,32 +360,48 @@ impl SovirService {
             created_at_ms: self.clock.now_ms(),
             revoked_at_ms: None,
         };
-        self.webhooks.register(ep.clone())?;
+        self.webhooks.register(ep.clone()).await?;
         Ok(ep)
     }
-    pub fn list_webhooks(&self, principal: &Principal) -> Result<Vec<WebhookEndpoint>, AppError> {
-        Ok(self.webhooks.list(&principal.principal_id)?)
+    pub async fn list_webhooks(
+        &self,
+        principal: &Principal,
+    ) -> Result<Vec<WebhookEndpoint>, AppError> {
+        Ok(self.webhooks.list(&principal.principal_id).await?)
     }
-    pub fn revoke_webhook(
+    pub async fn revoke_webhook(
         &self,
         principal: &Principal,
         endpoint_id: &str,
     ) -> Result<bool, AppError> {
         Ok(self
             .webhooks
-            .revoke(&principal.principal_id, endpoint_id, self.clock.now_ms())?)
+            .revoke(&principal.principal_id, endpoint_id, self.clock.now_ms())
+            .await?)
     }
 
     /// Data governance (B16): everything stored for a principal — metadata
     /// only, never payloads or raw content.
-    pub fn export_data(&self, principal: &Principal) -> Result<PrincipalDataExport, AppError> {
+    pub async fn export_data(
+        &self,
+        principal: &Principal,
+    ) -> Result<PrincipalDataExport, AppError> {
         Ok(PrincipalDataExport {
             principal_id: principal.principal_id.clone(),
-            grants: self.grants.list_by_principal(&principal.principal_id)?,
-            events: self.events.list_by_principal(&principal.principal_id)?,
-            devices: self.devices.list(&principal.principal_id)?,
-            interventions: self.sink.list(&principal.principal_id)?,
-            deletion_receipts: self.receipts.list_by_principal(&principal.principal_id)?,
+            grants: self
+                .grants
+                .list_by_principal(&principal.principal_id)
+                .await?,
+            events: self
+                .events
+                .list_by_principal(&principal.principal_id)
+                .await?,
+            devices: self.devices.list(&principal.principal_id).await?,
+            interventions: self.sink.list(&principal.principal_id).await?,
+            deletion_receipts: self
+                .receipts
+                .list_by_principal(&principal.principal_id)
+                .await?,
         })
     }
 
@@ -377,7 +409,7 @@ impl SovirService {
     /// intervention records older than `now - retention_ms`. Pending/failed
     /// interventions are kept — they still owe delivery attempts. A global
     /// scheduled job over all principals is an infrastructure decision.
-    pub fn enforce_retention(
+    pub async fn enforce_retention(
         &self,
         principal: &Principal,
         retention_ms: u64,
@@ -387,10 +419,12 @@ impl SovirService {
             cutoff_ms,
             events_deleted: self
                 .events
-                .delete_older_than(&principal.principal_id, cutoff_ms)?,
+                .delete_older_than(&principal.principal_id, cutoff_ms)
+                .await?,
             terminal_interventions_deleted: self
                 .sink
-                .delete_terminal_older_than(&principal.principal_id, cutoff_ms)?,
+                .delete_terminal_older_than(&principal.principal_id, cutoff_ms)
+                .await?,
         })
     }
 
@@ -399,58 +433,74 @@ impl SovirService {
     /// device labels. A durable `DeletionReceipt` records the counts — it is
     /// audit metadata, not user content. The calling session is revoked too —
     /// the request still completes.
-    pub fn purge_data(&self, principal: &Principal) -> Result<PurgeReport, AppError> {
+    pub async fn purge_data(&self, principal: &Principal) -> Result<PurgeReport, AppError> {
         let now = self.clock.now_ms();
         let mut report = PurgeReport {
             receipt_id: uuid::Uuid::new_v4().simple().to_string(),
-            events_deleted: self.events.delete_by_principal(&principal.principal_id)?,
-            grants_deleted: self.grants.delete_by_principal(&principal.principal_id)?,
-            interventions_deleted: self.sink.delete_by_principal(&principal.principal_id)?,
-            sessions_revoked: self.sessions.revoke_by_principal(&principal.principal_id)?,
+            events_deleted: self
+                .events
+                .delete_by_principal(&principal.principal_id)
+                .await?,
+            grants_deleted: self
+                .grants
+                .delete_by_principal(&principal.principal_id)
+                .await?,
+            interventions_deleted: self
+                .sink
+                .delete_by_principal(&principal.principal_id)
+                .await?,
+            sessions_revoked: self
+                .sessions
+                .revoke_by_principal(&principal.principal_id)
+                .await?,
             devices_revoked: 0,
             labels_scrubbed: 0,
         };
-        for d in self.devices.list(&principal.principal_id)? {
+        for d in self.devices.list(&principal.principal_id).await? {
             report.labels_scrubbed += self
                 .devices
-                .scrub_label(&principal.principal_id, &d.device_id)?;
+                .scrub_label(&principal.principal_id, &d.device_id)
+                .await?;
             if d.is_active() {
                 self.devices
-                    .revoke(&principal.principal_id, &d.device_id, now)?;
-                self.sessions.revoke_by_device(&d.device_id)?;
+                    .revoke(&principal.principal_id, &d.device_id, now)
+                    .await?;
+                self.sessions.revoke_by_device(&d.device_id).await?;
                 report.devices_revoked += 1;
             }
         }
-        self.receipts.record(DeletionReceipt {
-            receipt_id: report.receipt_id.clone(),
-            principal_id: principal.principal_id.clone(),
-            purged_at_ms: now,
-            events_deleted: report.events_deleted,
-            grants_deleted: report.grants_deleted,
-            interventions_deleted: report.interventions_deleted,
-            sessions_revoked: report.sessions_revoked,
-            devices_revoked: report.devices_revoked,
-            labels_scrubbed: report.labels_scrubbed,
-        })?;
+        self.receipts
+            .record(DeletionReceipt {
+                receipt_id: report.receipt_id.clone(),
+                principal_id: principal.principal_id.clone(),
+                purged_at_ms: now,
+                events_deleted: report.events_deleted,
+                grants_deleted: report.grants_deleted,
+                interventions_deleted: report.interventions_deleted,
+                sessions_revoked: report.sessions_revoked,
+                devices_revoked: report.devices_revoked,
+                labels_scrubbed: report.labels_scrubbed,
+            })
+            .await?;
         Ok(report)
     }
 
     /// Delivers every due intervention through the channel, recording state
     /// transitions and audit entries. Failures reschedule with backoff and
     /// expire after MAX_DELIVERY_ATTEMPTS. Returns the count delivered.
-    pub fn dispatch_due(&self, principal: &Principal) -> Result<u64, AppError> {
+    pub async fn dispatch_due(&self, principal: &Principal) -> Result<u64, AppError> {
         if !principal.has_scope(Scope::EventsWrite) {
             return Err(AppError::Forbidden);
         }
         let now = self.clock.now_ms();
         let mut delivered = 0u64;
-        for mut i in self.sink.due(now, 50)? {
+        for mut i in self.sink.due(now, 50).await? {
             if i.principal_id != principal.principal_id {
                 continue;
             }
             i.attempts = i.attempts.saturating_add(1);
             let from = i.state;
-            match self.channel.send(&i) {
+            match self.channel.send(&i).await {
                 Ok(()) => {
                     i.state = DeliveryState::Delivered;
                     i.last_error = None;
@@ -472,7 +522,7 @@ impl SovirService {
                 to: i.state,
                 detail: i.last_error.clone().unwrap_or_default(),
             });
-            self.sink.update(i)?;
+            self.sink.update(i).await?;
         }
         Ok(delivered)
     }

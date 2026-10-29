@@ -30,6 +30,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
 
 [[package]]
+name = "async-trait"
+version = "0.1.92"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
+
+[[package]]
 name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -255,6 +266,7 @@ dependencies = [
  "ciborium",
  "clap",
  "criterion-plot",
+ "futures",
  "is-terminal",
  "itertools",
  "num-traits",
@@ -267,6 +279,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tinytemplate",
+ "tokio",
  "walkdir",
 ]
 
@@ -440,6 +453,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "futures"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a31d2a3fbaaeb2af2368bbdd904aa8e812d3c04a1ee10d3171f52d556e5d0a3"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-io",
+ "futures-sink",
+ "futures-task",
+ "futures-util",
 ]
 
 [[package]]
@@ -1478,6 +1505,7 @@ dependencies = [
 name = "sovir-adapters"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "hex",
  "hmac",
  "serde_json",
@@ -1490,6 +1518,7 @@ dependencies = [
 name = "sovir-api"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "serde",
  "serde_json",
@@ -1510,12 +1539,14 @@ dependencies = [
 name = "sovir-application"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "criterion",
  "serde",
  "sovir-adapters",
  "sovir-domain",
  "sovir-ports",
  "thiserror",
+ "tokio",
  "uuid",
 ]
 
@@ -1547,6 +1578,7 @@ dependencies = [
 name = "sovir-persistence"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "serde_json",
  "sovir-domain",
  "sovir-ports",
@@ -1558,6 +1590,7 @@ dependencies = [
 name = "sovir-ports"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "sovir-domain",
  "thiserror",
 ]

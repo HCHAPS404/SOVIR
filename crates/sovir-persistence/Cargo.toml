@@ -10,3 +10,4 @@ sovir-ports = { path = "../sovir-ports" }
 serde_json.workspace = true
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
 tokio.workspace = true
+async-trait = "0.1.92"
