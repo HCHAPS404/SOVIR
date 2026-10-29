@@ -340,7 +340,7 @@ pub enum SequencePattern {
 
 /// A detected sequence: which pattern, over what span, on which events.
 /// Carries event ids only — never payloads.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SequenceFinding {
     pub pattern: SequencePattern,
     pub span_ms: u64,
@@ -352,8 +352,20 @@ pub struct SequenceFinding {
 pub fn normalize_events(mut events: Vec<ObservedEvent>) -> Vec<ObservedEvent> {
     let mut seen = std::collections::HashSet::new();
     events.retain(|e| seen.insert(e.event_id.clone()));
-    events.sort_by_key(|e| e.observed_at_ms);
+    // Total deterministic order: equal timestamps tie-break on event_id so
+    // results never depend on storage iteration order (ADR-0011).
+    events.sort_by(|a, b| {
+        (a.observed_at_ms, a.event_id.as_str()).cmp(&(b.observed_at_ms, b.event_id.as_str()))
+    });
     events
+}
+
+/// `b` is strictly "after" `a`: a strictly later observed timestamp.
+/// Same-millisecond events carry no provable order — claiming a sequence
+/// there would be a coin flip decided by id sort or storage layout, so
+/// the honest answer is no finding (fail closed on order ambiguity).
+fn strictly_after(a: &ObservedEvent, b: &ObservedEvent) -> bool {
+    b.observed_at_ms > a.observed_at_ms
 }
 
 /// Detect escalation sequences inside a normalized window. Pure function;
@@ -366,34 +378,44 @@ pub fn detect_sequences(events: &[ObservedEvent]) -> Vec<SequenceFinding> {
         RiskSignal::TrackingObserved,
     ];
     let has = |e: &ObservedEvent, s: RiskSignal| e.signals.contains(&s);
-    let first_with = |pred: &dyn Fn(&ObservedEvent) -> bool| events.iter().position(pred);
-    let later_with = |from: usize, pred: &dyn Fn(&ObservedEvent) -> bool| {
-        events
-            .iter()
-            .skip(from + 1)
-            .position(pred)
-            .map(|p| p + from + 1)
+    // First pair (earlier, later) satisfying the pattern, scanned in the
+    // deterministic evidence order. Same-ms events still count as a
+    // sequence — the (ts, id) order decides, storage order never does.
+    let first_pair = |earlier: &dyn Fn(&ObservedEvent) -> bool,
+                      later: &dyn Fn(&ObservedEvent) -> bool|
+     -> Option<(usize, usize)> {
+        for (i, h) in events.iter().enumerate() {
+            if !earlier(h) {
+                continue;
+            }
+            for (j, p) in events.iter().enumerate() {
+                if j != i && later(p) && strictly_after(h, p) {
+                    return Some((i, j));
+                }
+            }
+        }
+        None
     };
     let mut findings = Vec::new();
     // hook cue earlier -> payment request later
-    if let Some(i) = first_with(&|e| MANIPULATION.iter().any(|m| has(e, *m))) {
-        if let Some(j) = later_with(i, &|e| has(e, RiskSignal::PaymentRequest)) {
-            findings.push(SequenceFinding {
-                pattern: SequencePattern::HookThenPayment,
-                span_ms: events[j].observed_at_ms - events[i].observed_at_ms,
-                event_ids: vec![events[i].event_id.clone(), events[j].event_id.clone()],
-            });
-        }
+    if let Some((i, j)) = first_pair(&|e| MANIPULATION.iter().any(|m| has(e, *m)), &|e| {
+        has(e, RiskSignal::PaymentRequest)
+    }) {
+        findings.push(SequenceFinding {
+            pattern: SequencePattern::HookThenPayment,
+            span_ms: events[j].observed_at_ms - events[i].observed_at_ms,
+            event_ids: vec![events[i].event_id.clone(), events[j].event_id.clone()],
+        });
     }
     // unverified identity earlier -> credential request later
-    if let Some(i) = first_with(&|e| has(e, RiskSignal::IdentityUnverified)) {
-        if let Some(j) = later_with(i, &|e| has(e, RiskSignal::CredentialRequest)) {
-            findings.push(SequenceFinding {
-                pattern: SequencePattern::IdentityThenCredential,
-                span_ms: events[j].observed_at_ms - events[i].observed_at_ms,
-                event_ids: vec![events[i].event_id.clone(), events[j].event_id.clone()],
-            });
-        }
+    if let Some((i, j)) = first_pair(&|e| has(e, RiskSignal::IdentityUnverified), &|e| {
+        has(e, RiskSignal::CredentialRequest)
+    }) {
+        findings.push(SequenceFinding {
+            pattern: SequencePattern::IdentityThenCredential,
+            span_ms: events[j].observed_at_ms - events[i].observed_at_ms,
+            event_ids: vec![events[i].event_id.clone(), events[j].event_id.clone()],
+        });
     }
     // >=3 distinct manipulation signals across the window
     let mut manip_ids = Vec::new();
@@ -408,10 +430,9 @@ pub fn detect_sequences(events: &[ObservedEvent]) -> Vec<SequenceFinding> {
             }
         }
         if hit {
-            if first_ms.is_none() {
-                first_ms = Some(e.observed_at_ms);
-            }
-            last_ms = e.observed_at_ms;
+            let t = e.observed_at_ms;
+            first_ms = Some(first_ms.map_or(t, |f: u64| f.min(t)));
+            last_ms = last_ms.max(t);
             manip_ids.push(e.event_id.clone());
         }
     }
@@ -848,6 +869,22 @@ mod tests {
         early_pay.signals = vec![RiskSignal::PaymentRequest];
         let findings = detect_sequences(&normalize_events(vec![early_pay, hook]));
         assert!(findings
+            .iter()
+            .all(|f| f.pattern != SequencePattern::HookThenPayment));
+        // Same-millisecond events carry no provable order: no sequence
+        // claim, deterministically, whichever way storage lists them.
+        let mut h2 = event();
+        h2.event_id = "a-hook".into();
+        h2.observed_at_ms = 100;
+        h2.signals = vec![RiskSignal::UrgentAction];
+        let mut p2 = event();
+        p2.event_id = "z-pay".into();
+        p2.observed_at_ms = 100;
+        p2.signals = vec![RiskSignal::PaymentRequest];
+        let fwd = detect_sequences(&normalize_events(vec![h2.clone(), p2.clone()]));
+        let rev = detect_sequences(&normalize_events(vec![p2, h2]));
+        assert_eq!(fwd, rev);
+        assert!(fwd
             .iter()
             .all(|f| f.pattern != SequencePattern::HookThenPayment));
     }

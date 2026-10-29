@@ -356,7 +356,8 @@ impl EventRepository for PgStore {
             "SELECT event_id, device_id, source_id, consent_grant_id, observed_at_ms,
                     modality, sensitive_data_class, content_digest, signals
              FROM observation_events
-             WHERE tenant_id = $1 AND principal_id = $2 ORDER BY observed_at_ms",
+             WHERE tenant_id = $1 AND principal_id = $2
+             ORDER BY observed_at_ms, event_id",
         )
         .bind(tenant_id)
         .bind(principal_id)

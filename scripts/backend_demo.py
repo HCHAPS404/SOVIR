@@ -107,7 +107,9 @@ assert status==201
 t5=s5['token']
 g5='test-'+uuid4().hex
 assert post('/v1/consents',{'grant_id':g5,'source_id':source,'expires_at_ms':now+3600000},t5)[0]==201
-hook={'event_id':'test-'+uuid4().hex,'source_id':source,'observed_at_ms':now,
+# The hook precedes the payment request by a real gap — sequences are
+# temporal order, and same-millisecond events carry no provable order.
+hook={'event_id':'test-'+uuid4().hex,'source_id':source,'observed_at_ms':now-1000,
  'modality':'NOTIFICATION','content_digest':'sha256:synthetic-digest-only','consent_grant_id':g5,
  'sensitive_data_class':'PUBLIC','signals':['URGENT_ACTION']}
 status,d1=post('/v1/events',hook,t5,idem='demo-'+uuid4().hex)
