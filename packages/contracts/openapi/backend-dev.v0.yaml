@@ -18,11 +18,17 @@ components:
       type: object
       additionalProperties: false
       required: [grant_id, source_id, expires_at_ms]
+      description: >-
+        principal_id, device_id and tenant_id are server-sealed from the
+        session; any client-supplied binding is ignored.
       properties:
         grant_id: {type: string}
         source_id: {type: string}
         expires_at_ms: {type: integer, format: int64}
         revoked: {type: boolean, default: false}
+        principal_id: {type: string, readOnly: true}
+        device_id: {type: string, readOnly: true}
+        tenant_id: {type: string, readOnly: true}
     ObservedEvent:
       $ref: '../schemas/observed-event.schema.json'
     ApiError:
@@ -34,9 +40,14 @@ components:
       type: object
       additionalProperties: false
       required: [principal_id]
+      description: >-
+        Dev-only session issue. tenant_id defaults to 'dev'; it is a
+        caller-declared label so tenant isolation is exercisable — never
+        proof of authorization.
       properties:
         principal_id: {type: string}
         device_id: {type: string}
+        tenant_id: {type: string, default: dev}
     Session:
       type: object
       description: Development session token and its binding. Dev-only, never production auth.
@@ -69,10 +80,11 @@ components:
         label: {type: string}
     Device:
       type: object
-      required: [device_id, principal_id, platform, label, registered_at_ms]
+      required: [device_id, principal_id, tenant_id, platform, label, registered_at_ms]
       properties:
         device_id: {type: string}
         principal_id: {type: string}
+        tenant_id: {type: string}
         platform: {type: string}
         label: {type: string}
         registered_at_ms: {type: integer, format: int64}
@@ -80,12 +92,13 @@ components:
         revoked_at_ms: {type: integer, format: int64, nullable: true}
     Intervention:
       type: object
-      required: [intervention_id, event_id, principal_id, device_id, kind, state, attempts, created_at_ms, next_attempt_at_ms]
+      required: [intervention_id, event_id, principal_id, device_id, tenant_id, kind, state, attempts, created_at_ms, next_attempt_at_ms]
       properties:
         intervention_id: {type: string}
         event_id: {type: string}
         principal_id: {type: string}
         device_id: {type: string}
+        tenant_id: {type: string}
         kind: {type: string, enum: [notify, warn_banner, require_review]}
         state: {type: string, enum: [pending, delivered, failed, expired]}
         attempts: {type: integer}
@@ -113,6 +126,7 @@ components:
       properties:
         receipt_id: {type: string}
         principal_id: {type: string}
+        tenant_id: {type: string}
         purged_at_ms: {type: integer}
         events_deleted: {type: integer}
         grants_deleted: {type: integer}
@@ -142,6 +156,7 @@ components:
       properties:
         endpoint_id: {type: string}
         principal_id: {type: string}
+        tenant_id: {type: string}
         url: {type: string}
         secret: {type: string}
         kinds: {type: array, items: {type: string, enum: [notify, warn_banner, require_review]}}

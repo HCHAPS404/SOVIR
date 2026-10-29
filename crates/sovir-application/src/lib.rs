@@ -112,16 +112,23 @@ impl SovirService {
     }
 
     /// Issues a short-lived development session for a synthetic principal.
-    /// If the device is registered it must belong to the principal and be active.
+    /// `tenant_id` is caller-declared: dev sessions are synthetic and a
+    /// self-declared tenant is never proof of authorization (ADR-0006); it
+    /// exists so tenant isolation (B19) is exercisable end to end. If the
+    /// device is registered it must belong to the principal and be active.
     pub async fn issue_dev_session(
         &self,
         principal_id: &str,
         device_id: &str,
+        tenant_id: &str,
     ) -> Result<Session, AppError> {
-        if !valid_identifier(principal_id) || !valid_identifier(device_id) {
+        if !valid_identifier(principal_id)
+            || !valid_identifier(device_id)
+            || !valid_identifier(tenant_id)
+        {
             return Err(AppError::InvalidRequest);
         }
-        if let Some(d) = self.devices.get(principal_id, device_id).await? {
+        if let Some(d) = self.devices.get(tenant_id, principal_id, device_id).await? {
             if !d.is_active() {
                 return Err(AppError::DeviceRevoked);
             }
@@ -131,9 +138,7 @@ impl SovirService {
             token: self.dev_token("svt", &[principal_id, device_id]),
             session_id: self.dev_token("ses", &[principal_id, device_id]),
             principal_id: principal_id.to_string(),
-            // Dev sessions run in a single synthetic tenant; tenant isolation is
-            // not implemented (see B21_PLATFORM_STATUS).
-            tenant_id: "dev".to_string(),
+            tenant_id: tenant_id.to_string(),
             device_id: device_id.to_string(),
             scopes: vec![
                 Scope::ConsentWrite,
@@ -161,7 +166,11 @@ impl SovirService {
             .ok_or(AppError::Unauthorized)?;
         if let Some(d) = self
             .devices
-            .get(&principal.principal_id, &principal.device_id)
+            .get(
+                &principal.tenant_id,
+                &principal.principal_id,
+                &principal.device_id,
+            )
             .await?
         {
             if !d.is_active() {
@@ -191,6 +200,7 @@ impl SovirService {
                 .map(str::to_string)
                 .unwrap_or_else(|| self.dev_token("dev", &[&principal.principal_id, label])),
             principal_id: principal.principal_id.clone(),
+            tenant_id: principal.tenant_id.clone(),
             platform,
             label: label.to_string(),
             registered_at_ms: now,
@@ -203,7 +213,10 @@ impl SovirService {
     }
 
     pub async fn list_devices(&self, principal: &Principal) -> Result<Vec<Device>, AppError> {
-        Ok(self.devices.list(&principal.principal_id).await?)
+        Ok(self
+            .devices
+            .list(&principal.tenant_id, &principal.principal_id)
+            .await?)
     }
 
     /// Revokes the device, every session bound to it and every consent grant
@@ -220,13 +233,26 @@ impl SovirService {
         let now = self.clock.now_ms();
         let revoked = self
             .devices
-            .revoke(&principal.principal_id, device_id, now)
+            .revoke(
+                &principal.tenant_id,
+                &principal.principal_id,
+                device_id,
+                now,
+            )
             .await?;
         if revoked {
-            self.sessions.revoke_by_device(device_id).await?;
-            self.grants.revoke_by_device(device_id).await?;
+            self.sessions
+                .revoke_by_device(&principal.tenant_id, device_id)
+                .await?;
+            self.grants
+                .revoke_by_device(&principal.tenant_id, device_id)
+                .await?;
             // Fail closed: pending deliveries to a revoked device expire now.
-            for mut i in self.sink.list_by_device(device_id).await? {
+            for mut i in self
+                .sink
+                .list_by_device(&principal.tenant_id, device_id)
+                .await?
+            {
                 i.audit.push(DeliveryAuditEntry {
                     at_ms: now,
                     from: i.state,
@@ -253,6 +279,7 @@ impl SovirService {
         }
         grant.principal_id = principal.principal_id.clone();
         grant.device_id = principal.device_id.clone();
+        grant.tenant_id = principal.tenant_id.clone();
         if !valid_identifier(&grant.grant_id)
             || !valid_identifier(&grant.source_id)
             || grant.expires_at_ms <= self.clock.now_ms()
@@ -267,10 +294,11 @@ impl SovirService {
         if !principal.has_scope(Scope::ConsentWrite) {
             return Err(AppError::Forbidden);
         }
-        // Only the owning principal may revoke: verify binding first.
-        match self.grants.get(grant_id).await? {
+        // Only the owning principal may revoke: verify binding first. The
+        // tenant-scoped get already makes cross-tenant grants invisible.
+        match self.grants.get(&principal.tenant_id, grant_id).await? {
             Some(g) if g.principal_id == principal.principal_id => {
-                Ok(self.grants.revoke(grant_id).await?)
+                Ok(self.grants.revoke(&principal.tenant_id, grant_id).await?)
             }
             Some(_) => Err(AppError::Forbidden),
             None => Ok(false),
@@ -289,16 +317,22 @@ impl SovirService {
         }
         event.principal_id = principal.principal_id.clone();
         event.device_id = principal.device_id.clone();
+        event.tenant_id = principal.tenant_id.clone();
         let now = self.clock.now_ms();
         validate_event(&event, now)?;
         let grant = self
             .grants
-            .get(&event.consent_grant_id)
+            .get(&principal.tenant_id, &event.consent_grant_id)
             .await?
             .ok_or(AppError::ConsentNotFound)?;
         validate_consent(&event, &grant, now)?;
         self.devices
-            .touch_seen(&principal.principal_id, &principal.device_id, now)
+            .touch_seen(
+                &principal.tenant_id,
+                &principal.principal_id,
+                &principal.device_id,
+                now,
+            )
             .await?;
         let assessment = self.risk.analyze(&event);
         let id = event.event_id.clone();
@@ -317,6 +351,7 @@ impl SovirService {
                 event_id: decision.event_id.clone(),
                 principal_id: principal.principal_id.clone(),
                 device_id: principal.device_id.clone(),
+                tenant_id: principal.tenant_id.clone(),
                 kind,
                 state: DeliveryState::Pending,
                 attempts: 0,
@@ -334,7 +369,10 @@ impl SovirService {
         &self,
         principal: &Principal,
     ) -> Result<Vec<Intervention>, AppError> {
-        Ok(self.sink.list(&principal.principal_id).await?)
+        Ok(self
+            .sink
+            .list(&principal.tenant_id, &principal.principal_id)
+            .await?)
     }
 
     /// Registers an outbound webhook endpoint (B20). The URL must pass the
@@ -354,6 +392,7 @@ impl SovirService {
         let ep = WebhookEndpoint {
             endpoint_id: self.dev_token("wh", &[]),
             principal_id: principal.principal_id.clone(),
+            tenant_id: principal.tenant_id.clone(),
             url: url.to_string(),
             secret: uuid::Uuid::new_v4().simple().to_string(),
             kinds,
@@ -367,7 +406,10 @@ impl SovirService {
         &self,
         principal: &Principal,
     ) -> Result<Vec<WebhookEndpoint>, AppError> {
-        Ok(self.webhooks.list(&principal.principal_id).await?)
+        Ok(self
+            .webhooks
+            .list(&principal.tenant_id, &principal.principal_id)
+            .await?)
     }
     pub async fn revoke_webhook(
         &self,
@@ -376,7 +418,12 @@ impl SovirService {
     ) -> Result<bool, AppError> {
         Ok(self
             .webhooks
-            .revoke(&principal.principal_id, endpoint_id, self.clock.now_ms())
+            .revoke(
+                &principal.tenant_id,
+                &principal.principal_id,
+                endpoint_id,
+                self.clock.now_ms(),
+            )
             .await?)
     }
 
@@ -390,17 +437,23 @@ impl SovirService {
             principal_id: principal.principal_id.clone(),
             grants: self
                 .grants
-                .list_by_principal(&principal.principal_id)
+                .list_by_principal(&principal.tenant_id, &principal.principal_id)
                 .await?,
             events: self
                 .events
-                .list_by_principal(&principal.principal_id)
+                .list_by_principal(&principal.tenant_id, &principal.principal_id)
                 .await?,
-            devices: self.devices.list(&principal.principal_id).await?,
-            interventions: self.sink.list(&principal.principal_id).await?,
+            devices: self
+                .devices
+                .list(&principal.tenant_id, &principal.principal_id)
+                .await?,
+            interventions: self
+                .sink
+                .list(&principal.tenant_id, &principal.principal_id)
+                .await?,
             deletion_receipts: self
                 .receipts
-                .list_by_principal(&principal.principal_id)
+                .list_by_principal(&principal.tenant_id, &principal.principal_id)
                 .await?,
         })
     }
@@ -419,11 +472,15 @@ impl SovirService {
             cutoff_ms,
             events_deleted: self
                 .events
-                .delete_older_than(&principal.principal_id, cutoff_ms)
+                .delete_older_than(&principal.tenant_id, &principal.principal_id, cutoff_ms)
                 .await?,
             terminal_interventions_deleted: self
                 .sink
-                .delete_terminal_older_than(&principal.principal_id, cutoff_ms)
+                .delete_terminal_older_than(
+                    &principal.tenant_id,
+                    &principal.principal_id,
+                    cutoff_ms,
+                )
                 .await?,
         })
     }
@@ -439,33 +496,44 @@ impl SovirService {
             receipt_id: uuid::Uuid::new_v4().simple().to_string(),
             events_deleted: self
                 .events
-                .delete_by_principal(&principal.principal_id)
+                .delete_by_principal(&principal.tenant_id, &principal.principal_id)
                 .await?,
             grants_deleted: self
                 .grants
-                .delete_by_principal(&principal.principal_id)
+                .delete_by_principal(&principal.tenant_id, &principal.principal_id)
                 .await?,
             interventions_deleted: self
                 .sink
-                .delete_by_principal(&principal.principal_id)
+                .delete_by_principal(&principal.tenant_id, &principal.principal_id)
                 .await?,
             sessions_revoked: self
                 .sessions
-                .revoke_by_principal(&principal.principal_id)
+                .revoke_by_principal(&principal.tenant_id, &principal.principal_id)
                 .await?,
             devices_revoked: 0,
             labels_scrubbed: 0,
         };
-        for d in self.devices.list(&principal.principal_id).await? {
+        for d in self
+            .devices
+            .list(&principal.tenant_id, &principal.principal_id)
+            .await?
+        {
             report.labels_scrubbed += self
                 .devices
-                .scrub_label(&principal.principal_id, &d.device_id)
+                .scrub_label(&principal.tenant_id, &principal.principal_id, &d.device_id)
                 .await?;
             if d.is_active() {
                 self.devices
-                    .revoke(&principal.principal_id, &d.device_id, now)
+                    .revoke(
+                        &principal.tenant_id,
+                        &principal.principal_id,
+                        &d.device_id,
+                        now,
+                    )
                     .await?;
-                self.sessions.revoke_by_device(&d.device_id).await?;
+                self.sessions
+                    .revoke_by_device(&principal.tenant_id, &d.device_id)
+                    .await?;
                 report.devices_revoked += 1;
             }
         }
@@ -473,6 +541,7 @@ impl SovirService {
             .record(DeletionReceipt {
                 receipt_id: report.receipt_id.clone(),
                 principal_id: principal.principal_id.clone(),
+                tenant_id: principal.tenant_id.clone(),
                 purged_at_ms: now,
                 events_deleted: report.events_deleted,
                 grants_deleted: report.grants_deleted,
@@ -495,7 +564,7 @@ impl SovirService {
         let now = self.clock.now_ms();
         let mut delivered = 0u64;
         for mut i in self.sink.due(now, 50).await? {
-            if i.principal_id != principal.principal_id {
+            if i.tenant_id != principal.tenant_id || i.principal_id != principal.principal_id {
                 continue;
             }
             i.attempts = i.attempts.saturating_add(1);

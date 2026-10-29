@@ -55,6 +55,7 @@ fn grant() -> ConsentGrant {
         revoked: false,
         principal_id: String::new(),
         device_id: String::new(),
+        tenant_id: String::new(),
     }
 }
 fn event() -> ObservedEvent {
@@ -70,6 +71,7 @@ fn event() -> ObservedEvent {
         signals: vec![RiskSignal::PaymentRequest, RiskSignal::IdentityUnverified],
         principal_id: String::new(),
         device_id: String::new(),
+        tenant_id: String::new(),
     }
 }
 #[tokio::test]
@@ -140,7 +142,7 @@ async fn consent_is_bound_to_principal_and_device() {
 async fn dev_session_lifecycle_and_device_revocation_fail_closed() {
     let service = service();
     let session = service
-        .issue_dev_session("p-1", "dev-device")
+        .issue_dev_session("p-1", "dev-device", "dev")
         .await
         .unwrap();
     let p = service.authenticate(&session.token).await.unwrap();
@@ -159,7 +161,7 @@ async fn dev_session_lifecycle_and_device_revocation_fail_closed() {
     ));
     // A fresh session for a revoked device is refused too.
     assert!(matches!(
-        service.issue_dev_session("p-1", "dev-device").await,
+        service.issue_dev_session("p-1", "dev-device", "dev").await,
         Err(AppError::DeviceRevoked)
     ));
 }
@@ -256,6 +258,7 @@ async fn retention_sink_drops_terminal_only() {
         event_id: "e".into(),
         principal_id: "p-1".into(),
         device_id: "d".into(),
+        tenant_id: "dev".into(),
         kind: InterventionKind::WarnBanner,
         state,
         attempts: 1,
@@ -271,10 +274,12 @@ async fn retention_sink_drops_terminal_only() {
         .await
         .unwrap();
     assert_eq!(
-        sink.delete_terminal_older_than("p-1", 9_500).await.unwrap(),
+        sink.delete_terminal_older_than("dev", "p-1", 9_500)
+            .await
+            .unwrap(),
         1
     );
-    let left = sink.list("p-1").await.unwrap();
+    let left = sink.list("dev", "p-1").await.unwrap();
     assert_eq!(left.len(), 1);
     assert_eq!(left[0].intervention_id, "pending");
 }
@@ -369,4 +374,36 @@ async fn webhook_delivery_signs_and_honors_allowlist_and_revocation() {
     service.ingest(&p, e2).await.unwrap();
     service.dispatch_due(&p).await.unwrap();
     assert_eq!(egress.0.lock().unwrap().len(), 1);
+}
+#[tokio::test]
+async fn tenant_isolation_blocks_cross_tenant_access() {
+    let service = service();
+    // Same principal id in two different tenants.
+    let mut pa = principal("shared-id");
+    pa.tenant_id = "tenant-a".into();
+    let mut pb = principal("shared-id");
+    pb.tenant_id = "tenant-b".into();
+    // Register devices in both tenants (same device id is fine — keys are
+    // (tenant, principal, device)).
+    service
+        .register_device(&pa, Some("dev-1"), Platform::Linux, "rig-a")
+        .await
+        .unwrap();
+    service
+        .register_device(&pb, Some("dev-1"), Platform::Linux, "rig-b")
+        .await
+        .unwrap();
+    service.grant(&pa, grant()).await.unwrap();
+    // Tenant B cannot replay tenant A's grant id: the sealed tenant binding
+    // differs, so consent validation fails closed.
+    assert!(matches!(
+        service.ingest(&pb, event()).await,
+        Err(AppError::Domain(DomainError::ConsentRequired)) | Err(AppError::ConsentNotFound)
+    ));
+    // Data listings are tenant-scoped: tenant B sees nothing.
+    assert!(service.export_data(&pb).await.unwrap().grants.is_empty());
+    // Devices are tenant-scoped too.
+    let devs_b = service.list_devices(&pb).await.unwrap();
+    assert_eq!(devs_b.len(), 1);
+    assert_eq!(devs_b[0].label, "rig-b");
 }
