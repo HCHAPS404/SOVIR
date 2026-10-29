@@ -6,12 +6,13 @@
 //! In-memory adapters remain the default when `DATABASE_URL` is unset.
 use async_trait::async_trait;
 use sovir_domain::{
-    ConsentGrant, DeletionReceipt, DeliveryState, Device, Intervention, InterventionKind, Modality,
-    ObservedEvent, Platform, RiskSignal, Scope, SensitiveDataClass, Session, WebhookEndpoint,
+    ConsentGrant, DeletionReceipt, DeliveryState, Device, IdempotentResponse, Intervention,
+    InterventionKind, Modality, ObservedEvent, Platform, RiskSignal, Scope, SensitiveDataClass,
+    Session, WebhookEndpoint,
 };
 use sovir_ports::{
-    ConsentRepository, DeletionReceiptStore, DeviceRegistry, EventRepository, InterventionSink,
-    PortError, SessionStore,
+    ConsentRepository, DeletionReceiptStore, DeviceRegistry, EventRepository, IdempotencyStore,
+    InterventionSink, PortError, SessionStore,
 };
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::time::Duration;
@@ -927,8 +928,8 @@ impl DeletionReceiptStore for PgStore {
                 "INSERT INTO deletion_receipts
                  (receipt_id, tenant_id, principal_id, purged_at_ms, events_deleted,
                   grants_deleted, interventions_deleted, sessions_revoked,
-                  devices_revoked, labels_scrubbed)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+                  devices_revoked, labels_scrubbed, idem_keys_deleted)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
             )
             .bind(&receipt.receipt_id)
             .bind(&receipt.tenant_id)
@@ -940,6 +941,7 @@ impl DeletionReceiptStore for PgStore {
             .bind(receipt.sessions_revoked as i64)
             .bind(receipt.devices_revoked as i64)
             .bind(receipt.labels_scrubbed as i64)
+            .bind(receipt.idem_keys_deleted as i64)
             .execute(&self.pool)
             .await
             .map_err(map_storage)?;
@@ -953,10 +955,10 @@ impl DeletionReceiptStore for PgStore {
         principal_id: &str,
     ) -> Result<Vec<DeletionReceipt>, PortError> {
         (async {
-            let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, i64, i64)>(
+            let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, i64, i64, i64)>(
                 "SELECT receipt_id, purged_at_ms, events_deleted, grants_deleted,
                         interventions_deleted, sessions_revoked, devices_revoked,
-                        labels_scrubbed
+                        labels_scrubbed, idem_keys_deleted
                  FROM deletion_receipts
                  WHERE tenant_id = $1 AND principal_id = $2 ORDER BY purged_at_ms",
             )
@@ -977,6 +979,7 @@ impl DeletionReceiptStore for PgStore {
                         sessions_revoked,
                         devices_revoked,
                         labels_scrubbed,
+                        idem_keys_deleted,
                     )| DeletionReceipt {
                         receipt_id,
                         principal_id: principal_id.to_string(),
@@ -988,6 +991,7 @@ impl DeletionReceiptStore for PgStore {
                         sessions_revoked: sessions_revoked as u64,
                         devices_revoked: devices_revoked as u64,
                         labels_scrubbed: labels_scrubbed as u64,
+                        idem_keys_deleted: idem_keys_deleted as u64,
                     },
                 )
                 .collect())
@@ -1149,5 +1153,70 @@ impl sovir_ports::WebhookRegistry for PgStore {
         .map_err(map_storage)?
         .rows_affected();
         Ok(n > 0)
+    }
+}
+#[async_trait::async_trait]
+impl IdempotencyStore for PgStore {
+    async fn get(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        idem_key: &str,
+    ) -> Result<Option<IdempotentResponse>, PortError> {
+        sqlx::query_as::<_, (i64, serde_json::Value, i64)>(
+            "SELECT body_hash, response_json, created_at_ms FROM idempotency_keys
+             WHERE tenant_id = $1 AND principal_id = $2 AND idem_key = $3",
+        )
+        .bind(tenant_id)
+        .bind(principal_id)
+        .bind(idem_key)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_storage)?
+        .map(
+            |(body_hash, response_json, created_at_ms)| IdempotentResponse {
+                tenant_id: tenant_id.to_string(),
+                principal_id: principal_id.to_string(),
+                idem_key: idem_key.to_string(),
+                body_hash,
+                response_json,
+                created_at_ms: created_at_ms as u64,
+            },
+        )
+        .map_or(Ok(None), |r| Ok(Some(r)))
+    }
+    async fn put(&self, record: IdempotentResponse) -> Result<(), PortError> {
+        // Insert-once: a concurrent replay keeps the first stored response.
+        sqlx::query(
+            "INSERT INTO idempotency_keys
+             (tenant_id, principal_id, idem_key, body_hash, response_json, created_at_ms)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (tenant_id, principal_id, idem_key) DO NOTHING",
+        )
+        .bind(&record.tenant_id)
+        .bind(&record.principal_id)
+        .bind(&record.idem_key)
+        .bind(record.body_hash)
+        .bind(&record.response_json)
+        .bind(record.created_at_ms as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(map_storage)?;
+        Ok(())
+    }
+    async fn delete_by_principal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<u64, PortError> {
+        let n =
+            sqlx::query("DELETE FROM idempotency_keys WHERE tenant_id = $1 AND principal_id = $2")
+                .bind(tenant_id)
+                .bind(principal_id)
+                .execute(&self.pool)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+        Ok(n)
     }
 }

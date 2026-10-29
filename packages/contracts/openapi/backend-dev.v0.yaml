@@ -33,9 +33,18 @@ components:
       $ref: '../schemas/observed-event.schema.json'
     ApiError:
       type: object
-      required: [message]
+      required: [error]
+      description: >-
+        Uniform error envelope (B10). `retry-after` is signalled via the
+        Retry-After response header on 429s, not in the body.
       properties:
-        message: {type: string}
+        error:
+          type: object
+          required: [code, request_id, retryable]
+          properties:
+            code: {type: string}
+            request_id: {type: string}
+            retryable: {type: boolean}
     DevSessionRequest:
       type: object
       additionalProperties: false

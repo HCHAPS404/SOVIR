@@ -7,7 +7,8 @@ use sovir_domain::{
 };
 use sovir_ports::{
     Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
-    EventRepository, InterventionSink, PortError, RiskAnalyzer, SessionStore, WebhookRegistry,
+    EventRepository, IdempotencyStore, InterventionSink, PortError, RiskAnalyzer, SessionStore,
+    WebhookRegistry,
 };
 use std::sync::Arc;
 use thiserror::Error;
@@ -33,6 +34,7 @@ pub struct PurgeReport {
     pub sessions_revoked: u64,
     pub devices_revoked: u64,
     pub labels_scrubbed: u64,
+    pub idem_keys_deleted: u64,
 }
 #[derive(Debug, serde::Serialize)]
 pub struct RetentionReport {
@@ -73,6 +75,7 @@ pub struct ServicePorts {
     pub channel: Arc<dyn DeliveryChannel>,
     pub webhooks: Arc<dyn WebhookRegistry>,
     pub receipts: Arc<dyn DeletionReceiptStore>,
+    pub idem: Arc<dyn IdempotencyStore>,
 }
 
 #[derive(Clone)]
@@ -87,6 +90,7 @@ pub struct SovirService {
     channel: Arc<dyn DeliveryChannel>,
     webhooks: Arc<dyn WebhookRegistry>,
     receipts: Arc<dyn DeletionReceiptStore>,
+    idem: Arc<dyn IdempotencyStore>,
 }
 impl SovirService {
     pub fn new(clock: Arc<dyn Clock>, ports: ServicePorts) -> Self {
@@ -101,6 +105,7 @@ impl SovirService {
             channel: ports.channel,
             webhooks: ports.webhooks,
             receipts: ports.receipts,
+            idem: ports.idem,
         }
     }
 
@@ -531,6 +536,10 @@ impl SovirService {
                 .await?,
             devices_revoked: 0,
             labels_scrubbed: 0,
+            idem_keys_deleted: self
+                .idem
+                .delete_by_principal(&principal.tenant_id, &principal.principal_id)
+                .await?,
         };
         for d in self
             .devices
@@ -568,6 +577,7 @@ impl SovirService {
                 sessions_revoked: report.sessions_revoked,
                 devices_revoked: report.devices_revoked,
                 labels_scrubbed: report.labels_scrubbed,
+                idem_keys_deleted: report.idem_keys_deleted,
             })
             .await?;
         Ok(report)

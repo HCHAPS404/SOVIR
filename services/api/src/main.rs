@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 use sovir_adapters::{
     CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryConsentRepository,
     InMemoryDeletionReceiptStore, InMemoryDeviceRegistry, InMemoryEventRepository,
-    InMemoryInterventionSink, InMemorySessionStore, InMemoryWebhookRegistry,
-    RecordingDeliveryChannel, RecordingHttpEgress, SystemClock, WebhookChannel,
+    InMemoryIdempotencyStore, InMemoryInterventionSink, InMemorySessionStore,
+    InMemoryWebhookRegistry, RecordingDeliveryChannel, RecordingHttpEgress, SystemClock,
+    WebhookChannel,
 };
 use sovir_application::{AppError, PrincipalDataExport, PurgeReport, ServicePorts, SovirService};
 use sovir_domain::{
@@ -44,10 +45,9 @@ struct AppState {
     /// per-process only: a real limiter lives at the edge/infra layer.
     limits: std::sync::Arc<Mutex<HashMap<String, (u64, u64)>>>,
     rate_limit_per_min: u64,
-    /// Dev idempotency store: Idempotency-Key -> (request body hash, stored
-    /// response). In-memory only; durable dedup is the EventRepository's job
-    /// (event_id uniqueness) plus a future idempotency table.
-    idem: std::sync::Arc<Mutex<HashMap<String, (u64, serde_json::Value)>>>,
+    /// Idempotency-Key store (B10). Durable in Postgres when DATABASE_URL is
+    /// set (migration 0008), in-memory otherwise. Scoped by tenant+principal.
+    idem: std::sync::Arc<dyn sovir_ports::IdempotencyStore>,
     /// Webhook egress allowlist (SSRF guard) for endpoint registration.
     webhook_allowlist: Vec<String>,
 }
@@ -215,6 +215,7 @@ async fn compose_service(
                 ])),
                 webhooks: pg_wh,
                 receipts: Arc::new(pg.clone()),
+                idem: Arc::new(pg.clone()),
             },
         );
         return (service, Some(pg));
@@ -259,6 +260,7 @@ fn dev_service_with(
                         as std::sync::Arc<dyn sovir_ports::WebhookRegistry>
                 }),
                 receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
+                idem: Arc::new(InMemoryIdempotencyStore::default()),
             },
         ),
         registry,
@@ -441,44 +443,48 @@ async fn ingest(
     serde_json::to_string(&body)
         .unwrap_or_default()
         .hash(&mut h);
-    let body_hash = h.finish();
+    let body_hash = h.finish() as i64;
+    if let Some(stored) = s
+        .idem
+        .get(&p.tenant_id, &p.principal_id, &key)
+        .await
+        .map_err(|e| map_error(AppError::Port(e), &headers))?
     {
-        let store = s.idem.lock().map_err(|_| ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            code: "internal_error",
-            request_id: request_id(&headers),
-            retryable: true,
-            retry_after: None,
-        })?;
-        if let Some((stored_hash, stored_resp)) = store.get(&key) {
-            if *stored_hash == body_hash {
-                let decision: EventDecision =
-                    serde_json::from_value(stored_resp.clone()).map_err(|_| ApiError {
-                        status: StatusCode::INTERNAL_SERVER_ERROR,
-                        code: "internal_error",
-                        request_id: request_id(&headers),
-                        retryable: true,
-                        retry_after: None,
-                    })?;
-                return Ok((StatusCode::CREATED, Json(decision)));
-            }
-            return Err(api_err(
-                StatusCode::CONFLICT,
-                "idempotency_conflict",
-                &headers,
-                false,
-            ));
+        if stored.body_hash == body_hash {
+            let decision: EventDecision =
+                serde_json::from_value(stored.response_json).map_err(|_| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    code: "internal_error",
+                    request_id: request_id(&headers),
+                    retryable: true,
+                    retry_after: None,
+                })?;
+            return Ok((StatusCode::CREATED, Json(decision)));
         }
+        return Err(api_err(
+            StatusCode::CONFLICT,
+            "idempotency_conflict",
+            &headers,
+            false,
+        ));
     }
     let decision = s
         .service
         .ingest(&p, body)
         .await
         .map_err(|e| map_error(e, &headers))?;
-    if let Ok(mut store) = s.idem.lock() {
-        if let Ok(v) = serde_json::to_value(&decision) {
-            store.insert(key, (body_hash, v));
-        }
+    if let Ok(v) = serde_json::to_value(&decision) {
+        let _ = s
+            .idem
+            .put(sovir_domain::IdempotentResponse {
+                tenant_id: p.tenant_id.clone(),
+                principal_id: p.principal_id.clone(),
+                idem_key: key,
+                body_hash,
+                response_json: v,
+                created_at_ms: now_ms(),
+            })
+            .await;
     }
     Ok((StatusCode::CREATED, Json(decision)))
 }
@@ -710,13 +716,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    let idem_store: std::sync::Arc<dyn sovir_ports::IdempotencyStore> = pg
+        .as_ref()
+        .map(|p| {
+            std::sync::Arc::new(p.clone()) as std::sync::Arc<dyn sovir_ports::IdempotencyStore>
+        })
+        .unwrap_or_else(|| {
+            std::sync::Arc::new(InMemoryIdempotencyStore::default())
+                as std::sync::Arc<dyn sovir_ports::IdempotencyStore>
+        });
     let state = AppState {
         service,
         dev_session_enabled,
         pg,
         limits: std::sync::Arc::new(Mutex::new(HashMap::new())),
         rate_limit_per_min,
-        idem: std::sync::Arc::new(Mutex::new(HashMap::new())),
+        idem: idem_store,
         webhook_allowlist,
     };
     let app = build_router(state);
@@ -744,7 +759,7 @@ mod tests {
             pg: None,
             limits: std::sync::Arc::new(Mutex::new(HashMap::new())),
             rate_limit_per_min: 60,
-            idem: std::sync::Arc::new(Mutex::new(HashMap::new())),
+            idem: std::sync::Arc::new(InMemoryIdempotencyStore::default()),
             webhook_allowlist: vec!["127.0.0.1".to_string(), "localhost".to_string()],
         }
     }
