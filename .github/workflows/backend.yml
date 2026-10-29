@@ -213,12 +213,13 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-cyclonedx
+      # Produces <crate>.cdx.json next to each member's Cargo.toml.
       - name: Generate CycloneDX SBOM
-        run: cargo cyclonedx --format json --output sbom.cdx.json
+        run: cargo cyclonedx --format json
       - uses: actions/upload-artifact@v4
         with:
           name: sbom-cyclonedx
-          path: sbom.cdx.json
+          path: "**/*.cdx.json"
 
   coverage:
     runs-on: ubuntu-latest
