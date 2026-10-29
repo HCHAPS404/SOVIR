@@ -4,11 +4,12 @@ use async_trait::async_trait;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use sovir_domain::{
-    Assessment, ConsentGrant, DeletionReceipt, DeliveryState, Device, IdempotentResponse,
-    Intervention, InterventionKind, ObservedEvent, PolicyPack, Session, WebhookEndpoint,
+    Assessment, AuditEvent, ConsentGrant, DeletionReceipt, DeliveryState, Device,
+    IdempotentResponse, Intervention, InterventionKind, ObservedEvent, PolicyPack, Session,
+    WebhookEndpoint,
 };
 use sovir_ports::{
-    Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
+    AuditLog, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
     EventRepository, HttpEgress, IdempotencyStore, InterventionSink, PortError, RiskAnalyzer,
     SessionStore, WebhookRegistry,
 };
@@ -234,6 +235,12 @@ impl SessionStore for InMemorySessionStore {
         }
         Ok(n)
     }
+    async fn delete_expired(&self, now_ms: u64) -> Result<u64, PortError> {
+        let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
+        let before = guard.len();
+        guard.retain(|_, s| !s.revoked && s.expires_at_ms > now_ms);
+        Ok((before - guard.len()) as u64)
+    }
 }
 type DeviceKey = (String, String, String);
 fn device_key(tenant_id: &str, principal_id: &str, device_id: &str) -> DeviceKey {
@@ -358,6 +365,9 @@ impl InterventionSink for InMemoryInterventionSink {
             })
             .map_err(|_| PortError::Storage)
     }
+    async fn due_any(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError> {
+        self.due(now_ms, limit).await
+    }
     async fn list(
         &self,
         tenant_id: &str,
@@ -460,6 +470,31 @@ impl DeletionReceiptStore for InMemoryDeletionReceiptStore {
             .map(|g| {
                 g.iter()
                     .filter(|r| r.tenant_id == tenant_id && r.principal_id == principal_id)
+                    .cloned()
+                    .collect()
+            })
+            .map_err(|_| PortError::Storage)
+    }
+}
+/// Unified sensitive-action audit trail (in-memory dev adapter).
+#[derive(Default)]
+pub struct InMemoryAuditLog(RwLock<Vec<AuditEvent>>);
+#[async_trait]
+impl AuditLog for InMemoryAuditLog {
+    async fn record(&self, event: AuditEvent) -> Result<(), PortError> {
+        self.0.write().map_err(|_| PortError::Storage)?.push(event);
+        Ok(())
+    }
+    async fn list_by_principal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<Vec<AuditEvent>, PortError> {
+        self.0
+            .read()
+            .map(|g| {
+                g.iter()
+                    .filter(|a| a.tenant_id == tenant_id && a.principal_id == principal_id)
                     .cloned()
                     .collect()
             })

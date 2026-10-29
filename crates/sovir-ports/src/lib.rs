@@ -7,8 +7,8 @@
 //! resolve another tenant's rows. Records carry the sealed tenant binding.
 use async_trait::async_trait;
 use sovir_domain::{
-    Assessment, ConsentGrant, DeletionReceipt, Device, IdempotentResponse, Intervention,
-    InterventionKind, ObservedEvent, Session, WebhookEndpoint,
+    Assessment, AuditEvent, ConsentGrant, DeletionReceipt, Device, IdempotentResponse,
+    Intervention, InterventionKind, ObservedEvent, Session, WebhookEndpoint,
 };
 use thiserror::Error;
 
@@ -98,6 +98,10 @@ pub trait SessionStore: Send + Sync {
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<u64, PortError>;
+    /// Global hygiene: hard-deletes sessions already expired or revoked at
+    /// `now_ms`. Used only by the scheduled retention sweep; expired
+    /// sessions fail resolve anyway, so this is storage hygiene only.
+    async fn delete_expired(&self, now_ms: u64) -> Result<u64, PortError>;
 }
 /// Device inventory scoped by principal within a tenant. A device record is
 /// never self-declared proof of authorization; registration only records
@@ -169,6 +173,9 @@ pub trait InterventionSink: Send + Sync {
         principal_id: &str,
         cutoff_ms: u64,
     ) -> Result<u64, PortError>;
+    /// Global sweep: pending/failed interventions due at `now_ms` across
+    /// all tenants (scheduled dispatcher; infra-only operation).
+    async fn due_any(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError>;
     /// Global retention sweep counterpart of `delete_terminal_older_than`.
     async fn delete_terminal_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError>;
 }
@@ -212,6 +219,19 @@ pub trait HttpEgress: Send + Sync {
         body: &str,
         headers: &[(String, String)],
     ) -> Result<(), PortError>;
+}
+/// Unified sensitive-action audit trail. Entries are metadata tombstones:
+/// they survive erasure (like deletion receipts) so administrative actions
+/// remain provable after the underlying data is gone.
+#[async_trait]
+pub trait AuditLog: Send + Sync {
+    async fn record(&self, event: AuditEvent) -> Result<(), PortError>;
+    /// The principal's own audit history (export / `/v1/me/audit`).
+    async fn list_by_principal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<Vec<AuditEvent>, PortError>;
 }
 /// Idempotency-Key store (B10). Scoped by (tenant, principal) so keys of
 /// one principal never collide with another's. `put` is insert-once: a

@@ -543,6 +543,18 @@ impl SessionStore for PgStore {
         })
         .await
     }
+    async fn delete_expired(&self, now_ms: u64) -> Result<u64, PortError> {
+        (async {
+            let n = sqlx::query("DELETE FROM sessions WHERE revoked OR expires_at_ms <= $1")
+                .bind(now_ms as i64)
+                .execute(&self.pool)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+            Ok(n)
+        })
+        .await
+    }
 }
 
 #[async_trait]
@@ -794,6 +806,9 @@ impl InterventionSink for PgStore {
             Ok(())
         })
         .await
+    }
+    async fn due_any(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError> {
+        self.due(now_ms, limit).await
     }
     async fn due(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError> {
         (async {
@@ -1229,5 +1244,83 @@ impl IdempotencyStore for PgStore {
                 .map_err(map_storage)?
                 .rows_affected();
         Ok(n)
+    }
+}
+#[async_trait::async_trait]
+impl sovir_ports::AuditLog for PgStore {
+    async fn record(&self, event: sovir_domain::AuditEvent) -> Result<(), PortError> {
+        sqlx::query(
+            "INSERT INTO audit_events
+             (audit_id, tenant_id, principal_id, action, detail, at_ms)
+             VALUES ($1,$2,$3,$4,$5,$6)",
+        )
+        .bind(&event.audit_id)
+        .bind(&event.tenant_id)
+        .bind(&event.principal_id)
+        .bind(audit_action_str(event.action))
+        .bind(&event.detail)
+        .bind(event.at_ms as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(map_storage)?;
+        Ok(())
+    }
+    async fn list_by_principal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<Vec<sovir_domain::AuditEvent>, PortError> {
+        let rows = sqlx::query_as::<_, (String, String, String, i64)>(
+            "SELECT audit_id, action, detail, at_ms FROM audit_events
+             WHERE tenant_id = $1 AND principal_id = $2 ORDER BY at_ms",
+        )
+        .bind(tenant_id)
+        .bind(principal_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_storage)?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(audit_id, action, detail, at_ms)| sovir_domain::AuditEvent {
+                    audit_id,
+                    tenant_id: tenant_id.to_string(),
+                    principal_id: principal_id.to_string(),
+                    action: audit_action_from(&action),
+                    detail,
+                    at_ms: at_ms as u64,
+                },
+            )
+            .collect())
+    }
+}
+fn audit_action_str(a: sovir_domain::AuditAction) -> &'static str {
+    use sovir_domain::AuditAction::*;
+    match a {
+        SessionIssued => "session_issued",
+        ConsentGranted => "consent_granted",
+        ConsentRevoked => "consent_revoked",
+        DeviceRegistered => "device_registered",
+        DeviceRevoked => "device_revoked",
+        WebhookRegistered => "webhook_registered",
+        WebhookRevoked => "webhook_revoked",
+        DataPurged => "data_purged",
+        RetentionEnforced => "retention_enforced",
+        DispatchRan => "dispatch_ran",
+    }
+}
+fn audit_action_from(s: &str) -> sovir_domain::AuditAction {
+    use sovir_domain::AuditAction::*;
+    match s {
+        "session_issued" => SessionIssued,
+        "consent_granted" => ConsentGranted,
+        "consent_revoked" => ConsentRevoked,
+        "device_registered" => DeviceRegistered,
+        "device_revoked" => DeviceRevoked,
+        "webhook_registered" => WebhookRegistered,
+        "webhook_revoked" => WebhookRevoked,
+        "data_purged" => DataPurged,
+        "retention_enforced" => RetentionEnforced,
+        _ => DispatchRan,
     }
 }
