@@ -174,18 +174,32 @@ fn map_error(e: AppError, headers: &HeaderMap) -> ApiError {
     };
     api_err(status, code, headers, retryable)
 }
+/// Egress selection (ADR-0010): the real HTTP adapter exists only when
+/// SOVIR_HTTP_EGRESS=real AND an explicit allowlist is set AND the env is
+/// local/test. Everything else records — no network egress by default.
+fn pick_egress(allowlist: &[String], sovir_env: &str) -> Arc<dyn sovir_ports::HttpEgress> {
+    let wants_real = env::var("SOVIR_HTTP_EGRESS").unwrap_or_default() == "real";
+    if wants_real && !allowlist.is_empty() && matches!(sovir_env, "local" | "test") {
+        Arc::new(sovir_adapters::ReqwestHttpEgress::new(allowlist.to_vec()))
+    } else {
+        Arc::new(RecordingHttpEgress::default())
+    }
+}
 /// Durable adapter when `DATABASE_URL` is set (fails closed on connect
 /// error); in-memory otherwise.
-async fn compose_service(database_url: Option<&str>) -> (SovirService, Option<PgStore>) {
+async fn compose_service(
+    database_url: Option<&str>,
+    webhook_allowlist: &[String],
+    sovir_env: &str,
+) -> (SovirService, Option<PgStore>) {
     if let Some(url) = database_url {
         let pg = PgStore::connect(url)
             .await
             .expect("DATABASE_URL is set but Postgres is unreachable; refusing to start");
-        // Durable webhook registry (migration 0007); egress stays the
-        // recording adapter until ADR-0010 real HTTP egress.
+        // Durable webhook registry (migration 0007).
         let pg_wh: std::sync::Arc<dyn sovir_ports::WebhookRegistry> =
             std::sync::Arc::new(pg.clone());
-        let egress = std::sync::Arc::new(RecordingHttpEgress::default());
+        let egress = pick_egress(webhook_allowlist, sovir_env);
         let service = SovirService::new(
             Arc::new(SystemClock),
             ServicePorts {
@@ -205,20 +219,21 @@ async fn compose_service(database_url: Option<&str>) -> (SovirService, Option<Pg
         );
         return (service, Some(pg));
     }
-    let registry = std::sync::Arc::new(InMemoryWebhookRegistry::default());
-    let egress = std::sync::Arc::new(RecordingHttpEgress::default());
+    let registry: std::sync::Arc<dyn sovir_ports::WebhookRegistry> =
+        std::sync::Arc::new(InMemoryWebhookRegistry::default());
+    let egress = pick_egress(webhook_allowlist, sovir_env);
     (dev_service_with(Some((registry, egress))).0, None)
 }
 /// Builds the service; when a registry/egress pair is supplied the delivery
 /// channel fans out to the recording channel AND signed webhook egress.
 fn dev_service_with(
     webhooks: Option<(
-        std::sync::Arc<InMemoryWebhookRegistry>,
-        std::sync::Arc<RecordingHttpEgress>,
+        std::sync::Arc<dyn sovir_ports::WebhookRegistry>,
+        std::sync::Arc<dyn sovir_ports::HttpEgress>,
     )>,
 ) -> (
     SovirService,
-    Option<std::sync::Arc<InMemoryWebhookRegistry>>,
+    Option<std::sync::Arc<dyn sovir_ports::WebhookRegistry>>,
 ) {
     let registry = webhooks.as_ref().map(|(r, _)| r.clone());
     let channel: Arc<dyn sovir_ports::DeliveryChannel> = match webhooks {
@@ -239,9 +254,10 @@ fn dev_service_with(
                 devices: Arc::new(InMemoryDeviceRegistry::default()),
                 sink: Arc::new(InMemoryInterventionSink::default()),
                 channel,
-                webhooks: registry
-                    .clone()
-                    .unwrap_or_else(|| Arc::new(InMemoryWebhookRegistry::default())),
+                webhooks: registry.clone().unwrap_or_else(|| {
+                    Arc::new(InMemoryWebhookRegistry::default())
+                        as std::sync::Arc<dyn sovir_ports::WebhookRegistry>
+                }),
                 receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
             },
         ),
@@ -653,17 +669,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     tracing_subscriber::fmt().with_env_filter("info").init();
     let database_url = env::var("DATABASE_URL").ok();
-    let (service, pg) = compose_service(database_url.as_deref()).await;
-    let rate_limit_per_min = env::var("SOVIR_RATE_LIMIT_PER_MIN")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(60);
     let webhook_allowlist: Vec<String> = env::var("SOVIR_WEBHOOK_ALLOWLIST")
         .unwrap_or_else(|_| "127.0.0.1,localhost".into())
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
+    let (service, pg) =
+        compose_service(database_url.as_deref(), &webhook_allowlist, &sovir_env).await;
+    let rate_limit_per_min = env::var("SOVIR_RATE_LIMIT_PER_MIN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
     // Scheduled global retention sweep (B16 infra path). Runs
     // enforce_retention_global every SOVIR_RETENTION_SWEEP_MS; 0/unset
     // disables it. The per-principal endpoint stays caller-owned.
@@ -717,8 +734,10 @@ mod tests {
     use tower::{Service, ServiceExt};
 
     fn test_state() -> AppState {
-        let registry = std::sync::Arc::new(InMemoryWebhookRegistry::default());
-        let egress = std::sync::Arc::new(RecordingHttpEgress::default());
+        let registry: std::sync::Arc<dyn sovir_ports::WebhookRegistry> =
+            std::sync::Arc::new(InMemoryWebhookRegistry::default());
+        let egress: std::sync::Arc<dyn sovir_ports::HttpEgress> =
+            std::sync::Arc::new(RecordingHttpEgress::default());
         AppState {
             service: dev_service_with(Some((registry, egress))).0,
             dev_session_enabled: true,
