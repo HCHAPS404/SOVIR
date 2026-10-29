@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Principal, PrincipalDataExport } from "../lib/api";
-import { emitSequencePair, mintLabConsent } from "../lib/actions";
+import { emitSequencePair, emitUiTreeObservation, mintLabConsent } from "../lib/actions";
 
 const nextSteps = [
   { href: "/devices", title: "Dispositivos", note: "Fuentes registradas vía API real." },
@@ -92,8 +92,9 @@ export function OverviewBoard({
       <section className="panel">
         <h2>Laboratorio — probar el flujo API</h2>
         <p>
-          Dos acciones reales contra el backend: consentimiento sintético y el par gancho→pago que
-          produce un <code>HookThenPayment</code> con decisión <code>warn</code>.
+          Acciones reales contra el backend: consentimiento sintético, el par gancho→pago que produce
+          un <code>HookThenPayment</code> con decisión <code>warn</code>, y una observación{" "}
+          <code>UI_TREE</code> — el contrato exacto que usará un sensor de pantalla (ADR-0014).
         </p>
         <div className="lab-actions" style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
           <form action={mintLabConsent}>
@@ -104,6 +105,11 @@ export function OverviewBoard({
           <form action={emitSequencePair}>
             <button className="secondary" type="submit">
               Emitir par gancho→pago
+            </button>
+          </form>
+          <form action={emitUiTreeObservation}>
+            <button className="secondary" type="submit">
+              Emitir observación UI_TREE
             </button>
           </form>
         </div>

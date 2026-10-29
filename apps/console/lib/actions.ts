@@ -8,6 +8,8 @@ import { ApiDown, ApiUnauthorized } from "./api";
 
 const LAB_GRANT = "console-lab-grant";
 const LAB_SOURCE = "console-lab";
+const SIM_GRANT = "sim-observer-grant";
+const SIM_SOURCE = "screen-observer:sim";
 
 async function tokenOrRedirect() {
   const jar = await cookies();
@@ -78,6 +80,43 @@ export async function emitSequencePair(): Promise<void> {
   }
   revalidatePath("/");
   revalidatePath("/incidents");
+  revalidatePath("/enterprise/audit");
+}
+
+// Lab action: exercises the screen-observer contract (ADR-0014) — a
+// UI_TREE modality event carrying typed signals, exactly what a real
+// sensor will emit. Consent + class + audit enforced identically.
+export async function emitUiTreeObservation(): Promise<void> {
+  const token = await tokenOrRedirect();
+  try {
+    // Per-source consent is enforced: validate_consent requires
+    // grant.source_id == event.source_id, so the sim observer needs its
+    // own grant (idempotent — duplicate_event means it already exists).
+    await grantConsent(token, SIM_GRANT, SIM_SOURCE, 24 * 60 * 60 * 1000).catch((e) => {
+      if (!(e instanceof Error && e.message === "duplicate_event")) throw e;
+    });
+    await ingestEvent(
+      token,
+      {
+        event_id: rid("uit"),
+        source_id: SIM_SOURCE,
+        observed_at_ms: Date.now(),
+        modality: "UI_TREE",
+        content_digest: "sha256:sim-ui-tree",
+        consent_grant_id: SIM_GRANT,
+        sensitive_data_class: "PUBLIC",
+        signals: ["CONSENT_DARK_PATTERN", "IDENTITY_UNVERIFIED"],
+      },
+      rid("idem-u"),
+    );
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/?error=backend");
+    throw e;
+  }
+  revalidatePath("/");
+  revalidatePath("/incidents");
+  revalidatePath("/permissions");
   revalidatePath("/enterprise/audit");
 }
 
