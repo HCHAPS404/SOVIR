@@ -149,12 +149,13 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 }
 /// Resolves the session bearer token to a Principal. Dev sessions only —
 /// never expose this service publicly.
-fn require_principal(headers: &HeaderMap, state: &AppState) -> Result<Principal, ApiError> {
+async fn require_principal(headers: &HeaderMap, state: &AppState) -> Result<Principal, ApiError> {
     let token = bearer_token(headers)
         .ok_or_else(|| api_err(StatusCode::UNAUTHORIZED, "unauthorized", headers, false))?;
     state
         .service
         .authenticate(token)
+        .await
         .map_err(|e| map_error(e, headers))
 }
 fn map_error(e: AppError, headers: &HeaderMap) -> ApiError {
@@ -287,6 +288,7 @@ async fn dev_session(
     let session = s
         .service
         .issue_dev_session(&body.principal_id, &device_id)
+        .await
         .map_err(|e| map_error(e, &headers))?;
     Ok((StatusCode::CREATED, Json(session)))
 }
@@ -296,6 +298,7 @@ async fn logout(State(s): State<AppState>, headers: HeaderMap) -> Result<StatusC
     match s
         .service
         .logout(token)
+        .await
         .map_err(|e| map_error(e, &headers))?
     {
         true => Ok(StatusCode::NO_CONTENT),
@@ -306,7 +309,7 @@ async fn whoami(
     State(s): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Principal>, ApiError> {
-    Ok(Json(require_principal(&headers, &s)?))
+    Ok(Json(require_principal(&headers, &s).await?))
 }
 
 #[derive(Deserialize)]
@@ -322,10 +325,11 @@ async fn register_device(
     headers: HeaderMap,
     Json(body): Json<RegisterDeviceRequest>,
 ) -> Result<(StatusCode, Json<Device>), ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     let device = s
         .service
         .register_device(&p, body.device_id.as_deref(), body.platform, &body.label)
+        .await
         .map_err(|e| map_error(e, &headers))?;
     Ok((StatusCode::CREATED, Json(device)))
 }
@@ -333,10 +337,11 @@ async fn list_devices(
     State(s): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<Device>>, ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     Ok(Json(
         s.service
             .list_devices(&p)
+            .await
             .map_err(|e| map_error(e, &headers))?,
     ))
 }
@@ -345,10 +350,11 @@ async fn revoke_device(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     match s
         .service
         .revoke_device(&p, &id)
+        .await
         .map_err(|e| map_error(e, &headers))?
     {
         true => Ok(StatusCode::NO_CONTENT),
@@ -361,10 +367,11 @@ async fn grant(
     headers: HeaderMap,
     Json(body): Json<ConsentGrant>,
 ) -> Result<StatusCode, ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     rate_check(&s, &p, &headers)?;
     s.service
         .grant(&p, body)
+        .await
         .map_err(|e| map_error(e, &headers))?;
     Ok(StatusCode::CREATED)
 }
@@ -373,10 +380,11 @@ async fn revoke(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     match s
         .service
         .revoke(&p, &id)
+        .await
         .map_err(|e| map_error(e, &headers))?
     {
         true => Ok(StatusCode::NO_CONTENT),
@@ -388,7 +396,7 @@ async fn ingest(
     headers: HeaderMap,
     Json(body): Json<ObservedEvent>,
 ) -> Result<(StatusCode, Json<EventDecision>), ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     rate_check(&s, &p, &headers)?;
     // Idempotency-Key is mandatory for event ingestion (B10). Replay of the
     // same key+body returns the stored response; same key with a different
@@ -441,6 +449,7 @@ async fn ingest(
     let decision = s
         .service
         .ingest(&p, body)
+        .await
         .map_err(|e| map_error(e, &headers))?;
     if let Ok(mut store) = s.idem.lock() {
         if let Ok(v) = serde_json::to_value(&decision) {
@@ -453,10 +462,11 @@ async fn list_interventions(
     State(s): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<Intervention>>, ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     Ok(Json(
         s.service
             .list_interventions(&p)
+            .await
             .map_err(|e| map_error(e, &headers))?,
     ))
 }
@@ -468,10 +478,11 @@ async fn dispatch(
     State(s): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<DispatchResult>, ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     let delivered = s
         .service
         .dispatch_due(&p)
+        .await
         .map_err(|e| map_error(e, &headers))?;
     Ok(Json(DispatchResult { delivered }))
 }
@@ -486,10 +497,11 @@ async fn register_webhook(
     headers: HeaderMap,
     Json(body): Json<RegisterWebhookRequest>,
 ) -> Result<(StatusCode, Json<WebhookEndpoint>), ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     let ep = s
         .service
         .register_webhook(&p, &body.url, body.kinds, &s.webhook_allowlist)
+        .await
         .map_err(|e| map_error(e, &headers))?;
     Ok((StatusCode::CREATED, Json(ep)))
 }
@@ -497,10 +509,11 @@ async fn list_webhooks(
     State(s): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<WebhookEndpoint>>, ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     Ok(Json(
         s.service
             .list_webhooks(&p)
+            .await
             .map_err(|e| map_error(e, &headers))?,
     ))
 }
@@ -509,10 +522,11 @@ async fn revoke_webhook(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     match s
         .service
         .revoke_webhook(&p, &id)
+        .await
         .map_err(|e| map_error(e, &headers))?
     {
         true => Ok(StatusCode::NO_CONTENT),
@@ -523,10 +537,11 @@ async fn export_data(
     State(s): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<PrincipalDataExport>, ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     Ok(Json(
         s.service
             .export_data(&p)
+            .await
             .map_err(|e| map_error(e, &headers))?,
     ))
 }
@@ -534,10 +549,11 @@ async fn purge_data(
     State(s): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<PurgeReport>, ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     Ok(Json(
         s.service
             .purge_data(&p)
+            .await
             .map_err(|e| map_error(e, &headers))?,
     ))
 }
@@ -549,7 +565,7 @@ async fn enforce_retention(
     State(s): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<sovir_application::RetentionReport>, ApiError> {
-    let p = require_principal(&headers, &s)?;
+    let p = require_principal(&headers, &s).await?;
     let retention_ms = std::env::var("SOVIR_RETENTION_MS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -557,6 +573,7 @@ async fn enforce_retention(
     Ok(Json(
         s.service
             .enforce_retention(&p, retention_ms)
+            .await
             .map_err(|e| map_error(e, &headers))?,
     ))
 }

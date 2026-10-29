@@ -65,45 +65,46 @@ fn grant() -> ConsentGrant {
 }
 
 fn bench_ingest_synthetic_event(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
     let service = service();
     let p = principal();
-    service.grant(&p, grant()).unwrap();
+    rt.block_on(service.grant(&p, grant())).unwrap();
     let mut seq: u64 = 0;
     c.bench_function("ingest_synthetic_event", |b| {
         b.iter(|| {
             seq += 1;
-            service
-                .ingest(
-                    &p,
-                    ObservedEvent {
-                        event_id: format!("bench-event-{seq}"),
-                        source_id: "browser.synthetic".into(),
-                        observed_at_ms: now_ms(),
-                        modality: Modality::Url,
-                        content_digest: "sha256:synthetic-digest-only".into(),
-                        consent_grant_id: "bench-grant".into(),
-                        sensitive_data_class: SensitiveDataClass::Public,
-                        payload_ref: None,
-                        signals: vec![RiskSignal::PaymentRequest, RiskSignal::IdentityUnverified],
-                        principal_id: String::new(),
-                        device_id: String::new(),
-                    },
-                )
-                .unwrap()
+            rt.block_on(service.ingest(
+                &p,
+                ObservedEvent {
+                    event_id: format!("bench-event-{seq}"),
+                    source_id: "browser.synthetic".into(),
+                    observed_at_ms: now_ms(),
+                    modality: Modality::Url,
+                    content_digest: "sha256:synthetic-digest-only".into(),
+                    consent_grant_id: "bench-grant".into(),
+                    sensitive_data_class: SensitiveDataClass::Public,
+                    payload_ref: None,
+                    signals: vec![RiskSignal::PaymentRequest, RiskSignal::IdentityUnverified],
+                    principal_id: String::new(),
+                    device_id: String::new(),
+                },
+            ))
+            .unwrap()
         })
     });
 }
 
 fn bench_ingest_after_revocation(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
     let service = service();
     let p = principal();
-    service.grant(&p, grant()).unwrap();
-    service.revoke(&p, "bench-grant").unwrap();
+    rt.block_on(service.grant(&p, grant())).unwrap();
+    rt.block_on(service.revoke(&p, "bench-grant")).unwrap();
     let mut seq: u64 = 0;
     c.bench_function("ingest_after_revocation", |b| {
         b.iter(|| {
             seq += 1;
-            let _ = service.ingest(
+            let _ = rt.block_on(service.ingest(
                 &p,
                 ObservedEvent {
                     event_id: format!("bench-revoked-{seq}"),
@@ -118,7 +119,7 @@ fn bench_ingest_after_revocation(c: &mut Criterion) {
                     principal_id: String::new(),
                     device_id: String::new(),
                 },
-            );
+            ));
         })
     });
 }

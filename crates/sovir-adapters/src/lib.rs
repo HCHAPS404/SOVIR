@@ -1,4 +1,5 @@
 //! In-memory development adapters. NOT durable, tenant-safe or production-ready.
+use async_trait::async_trait;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use sovir_domain::{
@@ -29,14 +30,15 @@ impl Clock for SystemClock {
 }
 #[derive(Default)]
 pub struct InMemoryConsentRepository(RwLock<HashMap<String, ConsentGrant>>);
+#[async_trait]
 impl ConsentRepository for InMemoryConsentRepository {
-    fn get(&self, id: &str) -> Result<Option<ConsentGrant>, PortError> {
+    async fn get(&self, id: &str) -> Result<Option<ConsentGrant>, PortError> {
         self.0
             .read()
             .map(|g| g.get(id).cloned())
             .map_err(|_| PortError::Storage)
     }
-    fn put(&self, grant: ConsentGrant) -> Result<(), PortError> {
+    async fn put(&self, grant: ConsentGrant) -> Result<(), PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         if guard.contains_key(&grant.grant_id) {
             return Err(PortError::Duplicate);
@@ -44,7 +46,7 @@ impl ConsentRepository for InMemoryConsentRepository {
         guard.insert(grant.grant_id.clone(), grant);
         Ok(())
     }
-    fn revoke(&self, id: &str) -> Result<bool, PortError> {
+    async fn revoke(&self, id: &str) -> Result<bool, PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         if let Some(grant) = guard.get_mut(id) {
             grant.revoked = true;
@@ -53,7 +55,7 @@ impl ConsentRepository for InMemoryConsentRepository {
             Ok(false)
         }
     }
-    fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError> {
+    async fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         let mut n = 0u64;
         for g in guard.values_mut() {
@@ -65,7 +67,7 @@ impl ConsentRepository for InMemoryConsentRepository {
         Ok(n)
     }
 
-    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ConsentGrant>, PortError> {
+    async fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ConsentGrant>, PortError> {
         self.0
             .read()
             .map(|g| {
@@ -76,7 +78,7 @@ impl ConsentRepository for InMemoryConsentRepository {
             })
             .map_err(|_| PortError::Storage)
     }
-    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+    async fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         let before = guard.len();
         guard.retain(|_, g| g.principal_id != principal_id);
@@ -85,8 +87,9 @@ impl ConsentRepository for InMemoryConsentRepository {
 }
 #[derive(Default)]
 pub struct InMemoryEventRepository(Mutex<HashMap<String, ObservedEvent>>);
+#[async_trait]
 impl EventRepository for InMemoryEventRepository {
-    fn insert_once(&self, event: ObservedEvent) -> Result<(), PortError> {
+    async fn insert_once(&self, event: ObservedEvent) -> Result<(), PortError> {
         let mut events = self.0.lock().map_err(|_| PortError::Storage)?;
         if events.contains_key(&event.event_id) {
             return Err(PortError::Duplicate);
@@ -94,7 +97,7 @@ impl EventRepository for InMemoryEventRepository {
         events.insert(event.event_id.clone(), event);
         Ok(())
     }
-    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ObservedEvent>, PortError> {
+    async fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ObservedEvent>, PortError> {
         self.0
             .lock()
             .map(|e| {
@@ -105,23 +108,34 @@ impl EventRepository for InMemoryEventRepository {
             })
             .map_err(|_| PortError::Storage)
     }
-    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+    async fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
         let mut events = self.0.lock().map_err(|_| PortError::Storage)?;
         let before = events.len();
         events.retain(|_, e| e.principal_id != principal_id);
         Ok((before - events.len()) as u64)
     }
-    fn delete_older_than(&self, principal_id: &str, cutoff_ms: u64) -> Result<u64, PortError> {
+    async fn delete_older_than(
+        &self,
+        principal_id: &str,
+        cutoff_ms: u64,
+    ) -> Result<u64, PortError> {
         let mut events = self.0.lock().map_err(|_| PortError::Storage)?;
         let before = events.len();
         events.retain(|_, e| e.principal_id != principal_id || e.observed_at_ms >= cutoff_ms);
         Ok((before - events.len()) as u64)
     }
+    async fn delete_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError> {
+        let mut events = self.0.lock().map_err(|_| PortError::Storage)?;
+        let before = events.len();
+        events.retain(|_, e| e.observed_at_ms >= cutoff_ms);
+        Ok((before - events.len()) as u64)
+    }
 }
 #[derive(Default)]
 pub struct InMemorySessionStore(RwLock<HashMap<String, Session>>);
+#[async_trait]
 impl SessionStore for InMemorySessionStore {
-    fn issue(&self, session: Session) -> Result<(), PortError> {
+    async fn issue(&self, session: Session) -> Result<(), PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         if guard.contains_key(&session.token) {
             return Err(PortError::Duplicate);
@@ -129,13 +143,13 @@ impl SessionStore for InMemorySessionStore {
         guard.insert(session.token.clone(), session);
         Ok(())
     }
-    fn resolve(&self, token: &str) -> Result<Option<Session>, PortError> {
+    async fn resolve(&self, token: &str) -> Result<Option<Session>, PortError> {
         self.0
             .read()
             .map(|g| g.get(token).cloned())
             .map_err(|_| PortError::Storage)
     }
-    fn revoke(&self, token: &str) -> Result<bool, PortError> {
+    async fn revoke(&self, token: &str) -> Result<bool, PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         if let Some(s) = guard.get_mut(token) {
             s.revoked = true;
@@ -144,7 +158,7 @@ impl SessionStore for InMemorySessionStore {
             Ok(false)
         }
     }
-    fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError> {
+    async fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         let mut n = 0u64;
         for s in guard.values_mut() {
@@ -156,7 +170,7 @@ impl SessionStore for InMemorySessionStore {
         Ok(n)
     }
 
-    fn revoke_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+    async fn revoke_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         let mut n = 0u64;
         for s in guard.values_mut() {
@@ -170,8 +184,9 @@ impl SessionStore for InMemorySessionStore {
 }
 #[derive(Default)]
 pub struct InMemoryDeviceRegistry(RwLock<HashMap<(String, String), Device>>);
+#[async_trait]
 impl DeviceRegistry for InMemoryDeviceRegistry {
-    fn register(&self, device: Device) -> Result<(), PortError> {
+    async fn register(&self, device: Device) -> Result<(), PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         let key = (device.principal_id.clone(), device.device_id.clone());
         if guard.contains_key(&key) {
@@ -180,7 +195,7 @@ impl DeviceRegistry for InMemoryDeviceRegistry {
         guard.insert(key, device);
         Ok(())
     }
-    fn get(&self, principal_id: &str, device_id: &str) -> Result<Option<Device>, PortError> {
+    async fn get(&self, principal_id: &str, device_id: &str) -> Result<Option<Device>, PortError> {
         self.0
             .read()
             .map(|g| {
@@ -189,7 +204,7 @@ impl DeviceRegistry for InMemoryDeviceRegistry {
             })
             .map_err(|_| PortError::Storage)
     }
-    fn list(&self, principal_id: &str) -> Result<Vec<Device>, PortError> {
+    async fn list(&self, principal_id: &str) -> Result<Vec<Device>, PortError> {
         self.0
             .read()
             .map(|g| {
@@ -203,7 +218,7 @@ impl DeviceRegistry for InMemoryDeviceRegistry {
             })
             .map_err(|_| PortError::Storage)
     }
-    fn touch_seen(
+    async fn touch_seen(
         &self,
         principal_id: &str,
         device_id: &str,
@@ -215,7 +230,12 @@ impl DeviceRegistry for InMemoryDeviceRegistry {
         }
         Ok(())
     }
-    fn revoke(&self, principal_id: &str, device_id: &str, now_ms: u64) -> Result<bool, PortError> {
+    async fn revoke(
+        &self,
+        principal_id: &str,
+        device_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         if let Some(d) = guard.get_mut(&(principal_id.to_string(), device_id.to_string())) {
             d.revoked_at_ms = Some(now_ms);
@@ -224,7 +244,7 @@ impl DeviceRegistry for InMemoryDeviceRegistry {
             Ok(false)
         }
     }
-    fn scrub_label(&self, principal_id: &str, device_id: &str) -> Result<u64, PortError> {
+    async fn scrub_label(&self, principal_id: &str, device_id: &str) -> Result<u64, PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         if let Some(d) = guard.get_mut(&(principal_id.to_string(), device_id.to_string())) {
             if d.label != "[redacted]" {
@@ -237,8 +257,9 @@ impl DeviceRegistry for InMemoryDeviceRegistry {
 }
 #[derive(Default)]
 pub struct InMemoryInterventionSink(RwLock<HashMap<String, Intervention>>);
+#[async_trait]
 impl InterventionSink for InMemoryInterventionSink {
-    fn enqueue(&self, intervention: Intervention) -> Result<(), PortError> {
+    async fn enqueue(&self, intervention: Intervention) -> Result<(), PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         if guard.contains_key(&intervention.intervention_id) {
             return Err(PortError::Duplicate);
@@ -246,7 +267,7 @@ impl InterventionSink for InMemoryInterventionSink {
         guard.insert(intervention.intervention_id.clone(), intervention);
         Ok(())
     }
-    fn due(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError> {
+    async fn due(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError> {
         self.0
             .read()
             .map(|g| {
@@ -264,7 +285,7 @@ impl InterventionSink for InMemoryInterventionSink {
             })
             .map_err(|_| PortError::Storage)
     }
-    fn list(&self, principal_id: &str) -> Result<Vec<Intervention>, PortError> {
+    async fn list(&self, principal_id: &str) -> Result<Vec<Intervention>, PortError> {
         self.0
             .read()
             .map(|g| {
@@ -278,18 +299,18 @@ impl InterventionSink for InMemoryInterventionSink {
             })
             .map_err(|_| PortError::Storage)
     }
-    fn update(&self, intervention: Intervention) -> Result<(), PortError> {
+    async fn update(&self, intervention: Intervention) -> Result<(), PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         guard.insert(intervention.intervention_id.clone(), intervention);
         Ok(())
     }
-    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+    async fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         let before = guard.len();
         guard.retain(|_, i| i.principal_id != principal_id);
         Ok((before - guard.len()) as u64)
     }
-    fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError> {
+    async fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError> {
         self.0
             .read()
             .map(|g| {
@@ -306,7 +327,7 @@ impl InterventionSink for InMemoryInterventionSink {
             })
             .map_err(|_| PortError::Storage)
     }
-    fn delete_terminal_older_than(
+    async fn delete_terminal_older_than(
         &self,
         principal_id: &str,
         cutoff_ms: u64,
@@ -320,19 +341,32 @@ impl InterventionSink for InMemoryInterventionSink {
         });
         Ok((before - guard.len()) as u64)
     }
+    async fn delete_terminal_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError> {
+        let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
+        let before = guard.len();
+        guard.retain(|_, i| {
+            i.created_at_ms >= cutoff_ms
+                || matches!(i.state, DeliveryState::Pending | DeliveryState::Failed)
+        });
+        Ok((before - guard.len()) as u64)
+    }
 }
 /// Audit tombstones from erasure (B16).
 #[derive(Default)]
 pub struct InMemoryDeletionReceiptStore(RwLock<Vec<DeletionReceipt>>);
+#[async_trait]
 impl DeletionReceiptStore for InMemoryDeletionReceiptStore {
-    fn record(&self, receipt: DeletionReceipt) -> Result<(), PortError> {
+    async fn record(&self, receipt: DeletionReceipt) -> Result<(), PortError> {
         self.0
             .write()
             .map_err(|_| PortError::Storage)?
             .push(receipt);
         Ok(())
     }
-    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<DeletionReceipt>, PortError> {
+    async fn list_by_principal(
+        &self,
+        principal_id: &str,
+    ) -> Result<Vec<DeletionReceipt>, PortError> {
         self.0
             .read()
             .map(|g| {
@@ -348,8 +382,9 @@ impl DeletionReceiptStore for InMemoryDeletionReceiptStore {
 /// Real delivery surfaces (OS notification, inbox) are platform adapters.
 #[derive(Default)]
 pub struct RecordingDeliveryChannel(pub Mutex<Vec<String>>);
+#[async_trait]
 impl DeliveryChannel for RecordingDeliveryChannel {
-    fn send(&self, intervention: &Intervention) -> Result<(), PortError> {
+    async fn send(&self, intervention: &Intervention) -> Result<(), PortError> {
         self.0
             .lock()
             .map_err(|_| PortError::Storage)?
@@ -360,18 +395,20 @@ impl DeliveryChannel for RecordingDeliveryChannel {
 /// Fans a delivery out to several channels; the first failure aborts with
 /// error so the retry policy reschedules.
 pub struct CompositeDeliveryChannel(pub Vec<std::sync::Arc<dyn DeliveryChannel>>);
+#[async_trait]
 impl DeliveryChannel for CompositeDeliveryChannel {
-    fn send(&self, intervention: &Intervention) -> Result<(), PortError> {
+    async fn send(&self, intervention: &Intervention) -> Result<(), PortError> {
         for c in &self.0 {
-            c.send(intervention)?;
+            c.send(intervention).await?;
         }
         Ok(())
     }
 }
 #[derive(Default)]
 pub struct InMemoryWebhookRegistry(RwLock<HashMap<String, WebhookEndpoint>>);
+#[async_trait]
 impl WebhookRegistry for InMemoryWebhookRegistry {
-    fn register(&self, endpoint: WebhookEndpoint) -> Result<(), PortError> {
+    async fn register(&self, endpoint: WebhookEndpoint) -> Result<(), PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         if guard.contains_key(&endpoint.endpoint_id) {
             return Err(PortError::Duplicate);
@@ -379,7 +416,7 @@ impl WebhookRegistry for InMemoryWebhookRegistry {
         guard.insert(endpoint.endpoint_id.clone(), endpoint);
         Ok(())
     }
-    fn list(&self, principal_id: &str) -> Result<Vec<WebhookEndpoint>, PortError> {
+    async fn list(&self, principal_id: &str) -> Result<Vec<WebhookEndpoint>, PortError> {
         self.0
             .read()
             .map(|g| {
@@ -393,7 +430,7 @@ impl WebhookRegistry for InMemoryWebhookRegistry {
             })
             .map_err(|_| PortError::Storage)
     }
-    fn matching(
+    async fn matching(
         &self,
         principal_id: &str,
         kind: InterventionKind,
@@ -410,7 +447,7 @@ impl WebhookRegistry for InMemoryWebhookRegistry {
             })
             .map_err(|_| PortError::Storage)
     }
-    fn revoke(
+    async fn revoke(
         &self,
         principal_id: &str,
         endpoint_id: &str,
@@ -437,8 +474,14 @@ pub struct RecordedRequest {
 }
 #[derive(Default)]
 pub struct RecordingHttpEgress(pub Mutex<Vec<RecordedRequest>>);
+#[async_trait]
 impl HttpEgress for RecordingHttpEgress {
-    fn post(&self, url: &str, body: &str, headers: &[(String, String)]) -> Result<(), PortError> {
+    async fn post(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(String, String)],
+    ) -> Result<(), PortError> {
         self.0
             .lock()
             .map_err(|_| PortError::Storage)?
@@ -472,11 +515,13 @@ impl WebhookChannel {
         hex::encode(mac.finalize().into_bytes())
     }
 }
+#[async_trait]
 impl DeliveryChannel for WebhookChannel {
-    fn send(&self, intervention: &Intervention) -> Result<(), PortError> {
+    async fn send(&self, intervention: &Intervention) -> Result<(), PortError> {
         let endpoints = self
             .registry
-            .matching(&intervention.principal_id, intervention.kind)?;
+            .matching(&intervention.principal_id, intervention.kind)
+            .await?;
         if endpoints.is_empty() {
             return Ok(());
         }
@@ -491,14 +536,16 @@ impl DeliveryChannel for WebhookChannel {
         .to_string();
         for ep in endpoints {
             let sig = Self::sign(&ep.secret, &body);
-            self.egress.post(
-                &ep.url,
-                &body,
-                &[
-                    ("content-type".to_string(), "application/json".to_string()),
-                    ("x-sovir-signature".to_string(), format!("sha256={sig}")),
-                ],
-            )?;
+            self.egress
+                .post(
+                    &ep.url,
+                    &body,
+                    &[
+                        ("content-type".to_string(), "application/json".to_string()),
+                        ("x-sovir-signature".to_string(), format!("sha256={sig}")),
+                    ],
+                )
+                .await?;
         }
         Ok(())
     }
