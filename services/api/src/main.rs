@@ -270,6 +270,13 @@ struct DevSessionRequest {
     principal_id: String,
     #[serde(default)]
     device_id: Option<String>,
+    /// Dev-only tenant label (B19). Self-declared; never proof of
+    /// authorization — it exists so tenant isolation is exercisable.
+    #[serde(default = "default_tenant")]
+    tenant_id: String,
+}
+fn default_tenant() -> String {
+    "dev".to_string()
 }
 async fn dev_session(
     State(s): State<AppState>,
@@ -287,7 +294,7 @@ async fn dev_session(
     let device_id = body.device_id.unwrap_or_else(|| "dev-device".to_string());
     let session = s
         .service
-        .issue_dev_session(&body.principal_id, &device_id)
+        .issue_dev_session(&body.principal_id, &device_id, &body.tenant_id)
         .await
         .map_err(|e| map_error(e, &headers))?;
     Ok((StatusCode::CREATED, Json(session)))

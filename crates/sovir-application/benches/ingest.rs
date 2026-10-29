@@ -61,6 +61,7 @@ fn grant() -> ConsentGrant {
         revoked: false,
         principal_id: String::new(),
         device_id: String::new(),
+        tenant_id: String::new(),
     }
 }
 
@@ -87,6 +88,7 @@ fn bench_ingest_synthetic_event(c: &mut Criterion) {
                     signals: vec![RiskSignal::PaymentRequest, RiskSignal::IdentityUnverified],
                     principal_id: String::new(),
                     device_id: String::new(),
+                    tenant_id: String::new(),
                 },
             ))
             .unwrap()
@@ -118,6 +120,7 @@ fn bench_ingest_after_revocation(c: &mut Criterion) {
                     signals: vec![],
                     principal_id: String::new(),
                     device_id: String::new(),
+                    tenant_id: String::new(),
                 },
             ));
         })

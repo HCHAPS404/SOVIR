@@ -56,6 +56,9 @@ pub struct ObservedEvent {
     /// Server-sealed binding to the session device.
     #[serde(default, skip_deserializing)]
     pub device_id: String,
+    /// Server-sealed tenant binding (B19). Filled from the session.
+    #[serde(default, skip_deserializing)]
+    pub tenant_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +75,9 @@ pub struct ConsentGrant {
     /// Server-sealed binding to the session device.
     #[serde(default, skip_deserializing)]
     pub device_id: String,
+    /// Server-sealed tenant binding (B19). Filled from the session.
+    #[serde(default, skip_deserializing)]
+    pub tenant_id: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,6 +149,9 @@ impl Session {
 pub struct Device {
     pub device_id: String,
     pub principal_id: String,
+    /// Tenant binding sealed by the application layer at registration (B19).
+    #[serde(default, skip_deserializing)]
+    pub tenant_id: String,
     pub platform: Platform,
     pub label: String,
     pub registered_at_ms: u64,
@@ -164,6 +173,8 @@ impl Device {
 pub struct DeletionReceipt {
     pub receipt_id: String,
     pub principal_id: String,
+    #[serde(default)]
+    pub tenant_id: String,
     pub purged_at_ms: u64,
     pub events_deleted: u64,
     pub grants_deleted: u64,
@@ -181,6 +192,7 @@ pub fn valid_identifier(s: &str) -> bool {
 pub fn validate_device(d: &Device) -> Result<(), DomainError> {
     if !valid_identifier(&d.device_id)
         || !valid_identifier(&d.principal_id)
+        || !valid_identifier(&d.tenant_id)
         || d.label.len() > 128
         || d.label.chars().any(char::is_control)
     {
@@ -259,6 +271,9 @@ pub struct Intervention {
     pub event_id: String,
     pub principal_id: String,
     pub device_id: String,
+    /// Tenant binding sealed at enqueue time (B19).
+    #[serde(default)]
+    pub tenant_id: String,
     pub kind: InterventionKind,
     pub state: DeliveryState,
     pub attempts: u32,
@@ -294,6 +309,9 @@ pub const MAX_DELIVERY_ATTEMPTS: u32 = 4;
 pub struct WebhookEndpoint {
     pub endpoint_id: String,
     pub principal_id: String,
+    /// Tenant binding sealed at registration (B19).
+    #[serde(default)]
+    pub tenant_id: String,
     pub url: String,
     /// Dev-only plaintext secret used to sign deliveries. NOT for production:
     /// store a KMS reference instead.
@@ -360,6 +378,9 @@ pub fn validate_consent(
         // so equality still holds for unbound pairs.
         || grant.principal_id != event.principal_id
         || grant.device_id != event.device_id
+        // Tenant isolation (B19): a grant sealed to one tenant can never
+        // authorize an event sealed to another.
+        || grant.tenant_id != event.tenant_id
     {
         return Err(DomainError::ConsentRequired);
     }
@@ -449,6 +470,7 @@ mod tests {
             signals: vec![],
             principal_id: String::new(),
             device_id: String::new(),
+            tenant_id: String::new(),
         }
     }
     #[test]
@@ -460,6 +482,7 @@ mod tests {
             revoked: true,
             principal_id: String::new(),
             device_id: String::new(),
+            tenant_id: String::new(),
         };
         assert_eq!(
             validate_consent(&event(), &grant, 1000),
