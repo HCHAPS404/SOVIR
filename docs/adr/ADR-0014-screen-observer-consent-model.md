@@ -50,12 +50,13 @@ must be specified before any sensor ships.
 
    | Platform | Mechanism | Consent UX | Status |
    |---|---|---|---|
-   | Android | AccessibilityService → `UI_TREE`; MediaProjection → `IMAGE_REGION` | OS dialog + per-app toggle | NOT_IMPLEMENTED (SDK deferred) |
-   | iOS | ScreenCaptureKit (limited); no acc-tree API | System picker per session | NOT_IMPLEMENTED (macOS/Xcode deferred) |
-   | Windows | Windows.Graphics.Capture → `IMAGE_REGION` | System consent + per-window | NOT_IMPLEMENTED |
+   | Browser ext. | Content script → DOM signal extractor → `TEXT`/`URL` | Per-site opt-in (`optional_host_permissions`) | **IMPLEMENTED (dev)** — `apps/extension`, loopback-bound |
+   | Windows | Foreground window metadata (process+title) → `TEXT`; `windows` crate daemon | Runs as the signed-in user; consent grant gates upload | **IMPLEMENTED (dev)** — `services/observer` |
+   | Android | AccessibilityService → `UI_TREE`; MediaProjection → `IMAGE_REGION` | OS dialog + per-app toggle | SOURCE WRITTEN, NOT_COMPILED (SDK deferred) — `apps/android/observer/` |
+   | iOS | **No third-party screen-observation API exists** — ScreenCaptureKit is macOS-only; ReplayKit is self-broadcast, not observation. Realistic surface: Safari Web Extension port of `apps/extension` | Extension permissions model | NOT_IMPLEMENTED (needs macOS/Xcode to build) |
+   | Windows pixels | Windows.Graphics.Capture → `IMAGE_REGION` | System consent + per-window | NOT_IMPLEMENTED (needs on-device extraction before pixels may emit) |
    | macOS | ScreenCaptureKit → `IMAGE_REGION` | TCC screen-recording permission | NOT_IMPLEMENTED |
    | Linux | PipeWire/XDG portal ScreenCast | Portal dialog, compositor-dependent | NOT_IMPLEMENTED |
-   | Browser ext. | Tab DOM/activeTab → `TEXT`/`URL` | Extension permissions | NOT_IMPLEMENTED |
 
    Observation without the OS-level grant is impossible by construction —
    the API-side grant gates *upload*, never *capture*.
