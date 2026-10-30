@@ -1,11 +1,18 @@
 const apiEl = document.querySelector("#api");
 const siteEl = document.querySelector("#site");
 const observeBtn = document.querySelector("#observe");
+const pauseBtn = document.querySelector("#pause");
 const listEl = document.querySelector("#granted");
+const lastEl = document.querySelector("#last");
+const errorEl = document.querySelector("#error");
 
 let currentTab = null;
 
 const API_ORIGIN = "http://127.0.0.1:8787";
+
+function fmtTime(ms) {
+  return new Date(ms).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+}
 
 async function grantedOrigins() {
   const { origins } = await chrome.permissions.getAll();
@@ -17,6 +24,12 @@ async function paintApi() {
   apiEl.textContent = state?.ready
     ? `API conectada · ${state.principal}`
     : "API: sin conexión — arranca cargo run -p sovir-api";
+  pauseBtn.textContent = state?.paused ? "Reanudar" : "Pausar todo";
+  pauseBtn.dataset.paused = state?.paused ? "true" : "false";
+  errorEl.textContent = state?.lastError ? `Último error: ${state.lastError}` : "";
+  lastEl.textContent = state?.lastObservation
+    ? `Última emisión ${fmtTime(state.lastObservation.at_ms)}: ${state.lastObservation.signals.join(", ")}`
+    : "";
   return state;
 }
 
@@ -66,9 +79,18 @@ observeBtn.addEventListener("click", async () => {
   if (!granted) return;
   // Immediate inject for this tab; the registered content script covers
   // future loads on this origin (background.js sync).
-  await chrome.scripting.executeScript({ target: { tabId: currentTab.id }, files: ["content.js"] });
+  await chrome.scripting.executeScript({
+    target: { tabId: currentTab.id },
+    files: ["extractor.js", "content.js"],
+  });
   await paintSite();
   await paintList();
+});
+
+pauseBtn.addEventListener("click", async () => {
+  const paused = pauseBtn.dataset.paused !== "true";
+  await chrome.runtime.sendMessage({ type: "set-paused", paused });
+  await paintApi();
 });
 
 paintApi().then((s) => {
