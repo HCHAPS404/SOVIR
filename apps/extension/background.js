@@ -6,7 +6,8 @@
 // ADR-0014 invariant: nothing raw ever leaves the page. The event body
 // carries a sha256 digest and the signal enum set — no DOM, no text.
 
-const API = "http://127.0.0.1:8787";
+const DEFAULT_API = "http://127.0.0.1:8787";
+const API_URL_KEY = "sovir-api-url"; // storage.local — user setting
 const SOURCE = "screen-observer:ext";
 const DEVICE = "ext-web";
 const GRANT = "ext-observer-grant";
@@ -14,8 +15,14 @@ const STATE_KEY = "sovir-ext-state";
 const SEEN_KEY = "sovir-ext-seen";
 const SEEN_TTL_MS = 60_000;
 
+async function apiBase() {
+  const s = await chrome.storage.local.get(API_URL_KEY);
+  return s[API_URL_KEY] ?? DEFAULT_API;
+}
+
 async function api(path, { token, method = "GET", body, idem } = {}) {
-  const res = await fetch(`${API}${path}`, {
+  const base = await apiBase();
+  const res = await fetch(`${base}${path}`, {
     method,
     headers: {
       "content-type": "application/json",
@@ -38,7 +45,16 @@ async function api(path, { token, method = "GET", body, idem } = {}) {
 
 async function getState() {
   const s = await chrome.storage.session.get(STATE_KEY);
-  return s[STATE_KEY] ?? { token: null, principal: null, ready: false };
+  return (
+    s[STATE_KEY] ?? {
+      token: null,
+      principal: null,
+      ready: false,
+      paused: false,
+      lastError: null,
+      lastObservation: null,
+    }
+  );
 }
 
 async function setState(patch) {
@@ -74,7 +90,13 @@ async function connect() {
   }).catch((e) => {
     if (e.code !== "duplicate_event" && e.status !== 409) throw e;
   });
-  return setState({ token, principal: session.principal_id, ready: true });
+  return setState({ token, principal: session.principal_id, ready: true, lastError: null });
+}
+
+async function ensureConnected() {
+  const st = await getState();
+  if (st.ready) return st;
+  return connect();
 }
 
 // Dedupe identical observations per tab for SEEN_TTL_MS — the extractor
@@ -90,12 +112,55 @@ async function dedupe(tabId, key) {
   return false;
 }
 
+async function emitEvent(tabId, { signals, digest, observed_at_ms }) {
+  if (await dedupe(tabId, digest)) return { ok: true, deduped: true };
+  const eventId = `ext-${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+  const body = {
+    event_id: eventId,
+    source_id: SOURCE,
+    observed_at_ms,
+    modality: "TEXT",
+    content_digest: digest,
+    consent_grant_id: GRANT,
+    sensitive_data_class: "PUBLIC",
+    signals,
+  };
+  let st = await ensureConnected();
+  try {
+    await api("/v1/events", {
+      token: st.token,
+      method: "POST",
+      idem: `extidem-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`,
+      body,
+    });
+  } catch (e) {
+    if (e.status === 401) {
+      // Session died (restart/expiry): mint once and retry exactly once.
+      st = await connect();
+      await api("/v1/events", {
+        token: st.token,
+        method: "POST",
+        idem: `extidem-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`,
+        body,
+      });
+    } else {
+      throw e;
+    }
+  }
+  await setState({
+    lastError: null,
+    lastObservation: { event_id: eventId, signals, at_ms: Date.now() },
+  });
+  return { ok: true, event_id: eventId };
+}
+
 // Content-script registration: sites granted via chrome.permissions get
 // the extractor auto-injected on every load (persistAcrossSessions) —
 // observation survives reloads/navigation until the origin is revoked.
 async function syncScripts() {
   const { origins } = await chrome.permissions.getAll();
-  const sites = (origins ?? []).filter((o) => !o.startsWith(API));
+  const base = await apiBase();
+  const sites = (origins ?? []).filter((o) => !o.startsWith(base));
   try {
     await chrome.scripting.unregisterContentScripts({ ids: ["sovir-observer"] });
   } catch {}
@@ -104,7 +169,7 @@ async function syncScripts() {
     {
       id: "sovir-observer",
       matches: sites,
-      js: ["content.js"],
+      js: ["extractor.js", "content.js"],
       persistAcrossSessions: true,
       runAt: "document_idle",
     },
@@ -117,9 +182,24 @@ chrome.permissions.onRemoved.addListener(syncScripts);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "get-state") {
-    getState()
-      .then((s) => sendResponse({ ready: s.ready, principal: s.principal, api: API }))
+    Promise.all([getState(), apiBase()])
+      .then(([s, base]) =>
+        sendResponse({
+          ready: s.ready,
+          principal: s.principal,
+          paused: s.paused,
+          lastError: s.lastError,
+          lastObservation: s.lastObservation,
+          api: base,
+        }),
+      )
       .catch(() => sendResponse({ ready: false }));
+    return true;
+  }
+  if (message?.type === "set-paused") {
+    setState({ paused: Boolean(message.paused) })
+      .then((s) => sendResponse({ paused: s.paused }))
+      .catch(() => sendResponse({ paused: false }));
     return true;
   }
   if (message?.type === "connect") {
@@ -129,33 +209,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === "observation") {
-    (async () => {
-      let st = await getState();
-      if (!st.ready) st = await connect();
-      const { signals, digest, url, observed_at_ms } = message;
-      if (await dedupe(sender.tab?.id ?? 0, digest)) {
-        return { ok: true, deduped: true };
-      }
-      const eventId = `ext-${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
-      await api("/v1/events", {
-        token: st.token,
-        method: "POST",
-        idem: `extidem-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`,
-        body: {
-          event_id: eventId,
-          source_id: SOURCE,
-          observed_at_ms,
-          modality: "TEXT",
-          content_digest: digest,
-          consent_grant_id: GRANT,
-          sensitive_data_class: "PUBLIC",
-          signals,
-        },
-      });
-      return { ok: true, event_id: eventId };
-    })()
+    getState()
+      .then((st) => {
+        if (st.paused) return { ok: true, paused: true };
+        return emitEvent(sender.tab?.id ?? 0, message);
+      })
       .then(sendResponse)
-      .catch((e) => sendResponse({ ok: false, error: e.code ?? e.message }));
+      .catch((e) =>
+        setState({ lastError: e.code ?? e.message }).then(() =>
+          sendResponse({ ok: false, error: e.code ?? e.message }),
+        ),
+      );
     return true;
   }
   return false;

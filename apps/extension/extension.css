@@ -26,3 +26,6 @@ button { font: inherit; background: var(--text); color: var(--bg); border: 0; bo
 .granted-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
 .granted-list .muted { color: var(--muted); }
 button.revoke { background: transparent; color: var(--text); border: 1px solid var(--border); padding: 2px 8px; font-size: 12px; }
+button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); margin-left: 6px; }
+.note.error { color: #a33; }
+.popup input[type="url"], .popup input { font: inherit; padding: 4px 6px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text); }
