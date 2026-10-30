@@ -979,63 +979,85 @@ impl InferenceGateway for LocalOnlyInferenceGateway {
 /// every hypothesis maps to a documented rule, `model_id` says so, and
 /// `provenance` discloses the heuristic origin. A real local model or a
 /// vetted provider replaces this adapter without touching the boundary.
+/// One row of the weighted evidence table: emit `label` when the summed
+/// weights of present signals reach `threshold`.
+struct WeightedHypothesis {
+    label: &'static str,
+    threshold: u16,
+    weights: &'static [(sovir_domain::RiskSignal, u16)],
+}
 #[derive(Default)]
 pub struct HeuristicLocalInferenceGateway;
 impl HeuristicLocalInferenceGateway {
-    /// (required signals, hypothesis, confidence bp). First match wins per
-    /// row; verdict confidence is the max matched bp.
-    const RULES: &'static [(&'static [sovir_domain::RiskSignal], &'static str, u16)] = &[
-        (
-            &[
-                sovir_domain::RiskSignal::CredentialRequest,
-                sovir_domain::RiskSignal::IdentityUnverified,
+    /// Weighted evidence model v0.2 (was first-match rules v0.1).
+    /// Each row: (hypothesis, emission threshold, [(signal, weight)]).
+    /// A hypothesis is emitted when the summed weights of the PRESENT
+    /// signals reach the threshold — partial evidence below threshold
+    /// stays silent, corroborating signals graduate the score.
+    ///
+    /// Calibration method (documented in the model card): anchor signals
+    /// carry most of a hypothesis's weight so the *required combination*
+    /// crosses the threshold while any strict subset cannot; helper
+    /// signals add margin. The eval corpus fixes every threshold — the
+    /// ambiguous cases (`cred_plus_urgency_no_identity`,
+    /// `payment_plus_identity_no_urgency`, `exposure_limit_user_set`)
+    /// exist precisely to pin that no strict subset fires.
+    /// `USER_DEFINED_EXPOSURE_LIMIT` carries no weight anywhere: it is a
+    /// governance signal, never threat evidence.
+    const HYPOTHESES: &'static [WeightedHypothesis] = &[
+        WeightedHypothesis {
+            label: "credential_phishing",
+            threshold: 7000,
+            weights: &[
+                (sovir_domain::RiskSignal::CredentialRequest, 5500),
+                (sovir_domain::RiskSignal::IdentityUnverified, 3500),
+                (sovir_domain::RiskSignal::UrgentAction, 1000),
             ],
-            "credential_phishing",
-            8500,
-        ),
-        (
-            &[
-                sovir_domain::RiskSignal::PaymentRequest,
-                sovir_domain::RiskSignal::UrgentAction,
+        },
+        WeightedHypothesis {
+            label: "payment_fraud_attempt",
+            threshold: 7000,
+            weights: &[
+                (sovir_domain::RiskSignal::PaymentRequest, 5000),
+                (sovir_domain::RiskSignal::UrgentAction, 3500),
+                (sovir_domain::RiskSignal::HiddenFeePattern, 1500),
+                (sovir_domain::RiskSignal::IdentityUnverified, 1000),
             ],
-            "payment_fraud_attempt",
-            8000,
-        ),
-        (
-            &[sovir_domain::RiskSignal::ConsentDarkPattern],
-            "manipulative_pattern",
-            6500,
-        ),
-        (
-            &[sovir_domain::RiskSignal::HiddenFeePattern],
-            "manipulative_pattern",
-            6500,
-        ),
-        (
-            &[sovir_domain::RiskSignal::CredentialRequest],
-            "credential_request_unverified",
-            6000,
-        ),
-        (
-            &[sovir_domain::RiskSignal::PaymentRequest],
-            "payment_request_unverified",
-            6000,
-        ),
-        (
-            &[sovir_domain::RiskSignal::TrackingObserved],
-            "privacy_tracking_exposure",
-            5500,
-        ),
-        (
-            &[sovir_domain::RiskSignal::IdentityUnverified],
-            "identity_unverified",
-            4000,
-        ),
-        (
-            &[sovir_domain::RiskSignal::UrgentAction],
-            "urgency_pressure",
-            4000,
-        ),
+        },
+        WeightedHypothesis {
+            label: "manipulative_pattern",
+            threshold: 6000,
+            weights: &[
+                (sovir_domain::RiskSignal::ConsentDarkPattern, 6500),
+                (sovir_domain::RiskSignal::HiddenFeePattern, 6500),
+                (sovir_domain::RiskSignal::UrgentAction, 1000),
+            ],
+        },
+        WeightedHypothesis {
+            label: "credential_request_unverified",
+            threshold: 5000,
+            weights: &[(sovir_domain::RiskSignal::CredentialRequest, 6000)],
+        },
+        WeightedHypothesis {
+            label: "payment_request_unverified",
+            threshold: 5000,
+            weights: &[(sovir_domain::RiskSignal::PaymentRequest, 6000)],
+        },
+        WeightedHypothesis {
+            label: "privacy_tracking_exposure",
+            threshold: 5000,
+            weights: &[(sovir_domain::RiskSignal::TrackingObserved, 5500)],
+        },
+        WeightedHypothesis {
+            label: "identity_unverified",
+            threshold: 3500,
+            weights: &[(sovir_domain::RiskSignal::IdentityUnverified, 4000)],
+        },
+        WeightedHypothesis {
+            label: "urgency_pressure",
+            threshold: 3500,
+            weights: &[(sovir_domain::RiskSignal::UrgentAction, 4000)],
+        },
     ];
 }
 #[async_trait]
@@ -1047,12 +1069,24 @@ impl InferenceGateway for HeuristicLocalInferenceGateway {
         if !self.serves(req.privacy) {
             return Err(PortError::Unavailable); // standard must never hit local
         }
+        // Dedup signals first — a repeated enum must not double-count
+        // evidence (adversarial corpus case).
+        let present: std::collections::HashSet<sovir_domain::RiskSignal> =
+            req.signals.iter().copied().collect();
         let mut hypotheses: Vec<&'static str> = Vec::new();
         let mut confidence_bp: u16 = 0;
-        for (required, label, bp) in Self::RULES {
-            if required.iter().all(|s| req.signals.contains(s)) && !hypotheses.contains(label) {
-                hypotheses.push(label);
-                confidence_bp = confidence_bp.max(*bp);
+        for rule in Self::HYPOTHESES {
+            let score: u64 = rule
+                .weights
+                .iter()
+                .filter(|(s, _)| present.contains(s))
+                .map(|(_, w)| u64::from(*w))
+                .sum();
+            if score >= u64::from(rule.threshold) {
+                hypotheses.push(rule.label);
+                // Verdict confidence = the strongest hypothesis's raw
+                // evidence score, capped — graduated, not fixed.
+                confidence_bp = confidence_bp.max(score.min(10_000) as u16);
             }
         }
         if hypotheses.is_empty() {
@@ -1061,10 +1095,10 @@ impl InferenceGateway for HeuristicLocalInferenceGateway {
         }
         Ok(sovir_domain::InferenceVerdict {
             request_id: req.request_id.clone(),
-            model_id: "sovir-heuristic-local-0.1".into(),
+            model_id: "sovir-heuristic-local-0.2".into(),
             hypotheses: hypotheses.into_iter().map(str::to_string).collect(),
             confidence_bp,
-            provenance: "local_heuristic_rules; no model, no egress; deterministic".into(),
+            provenance: "local_heuristic_weighted_rules; no model, no egress; deterministic".into(),
         })
     }
     fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
@@ -1863,7 +1897,9 @@ mod tests {
             .await
             .unwrap();
         assert!(v.hypotheses.contains(&"credential_phishing".to_string()));
-        assert_eq!(v.confidence_bp, 8500);
+        // v0.2 weighted evidence: credential 5500 + identity 3500 = 9000
+        // (graduated score, not a fixed rule constant).
+        assert_eq!(v.confidence_bp, 9000);
         assert_eq!(v.request_id, "req-t");
         assert!(v.model_id.contains("heuristic"));
         assert!(v.provenance.contains("local_heuristic"));
