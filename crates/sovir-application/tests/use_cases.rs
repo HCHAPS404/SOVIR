@@ -33,8 +33,10 @@ fn ports() -> ServicePorts {
         audit: Arc::new(InMemoryAuditLog::default()),
         inference: None,
         budget: Arc::new(InMemoryBudgetLedger::default()),
+        reservations: Arc::new(sovir_adapters::InMemoryBudgetReservations::default()),
         intel: Arc::new(InMemoryThreatIntel::default()),
         identity: None,
+        attester: None,
     }
 }
 fn service() -> SovirService {
@@ -332,8 +334,10 @@ async fn webhook_delivery_signs_and_honors_allowlist_and_revocation() {
             audit: Arc::new(InMemoryAuditLog::default()),
             inference: None,
             budget: Arc::new(InMemoryBudgetLedger::default()),
+            reservations: Arc::new(sovir_adapters::InMemoryBudgetReservations::default()),
             intel: Arc::new(InMemoryThreatIntel::default()),
             identity: None,
+            attester: None,
         },
     );
     let p = principal("p-1");
@@ -482,8 +486,12 @@ impl InferenceGateway for StubGateway {
 }
 
 fn infer_req(cost: u64) -> InferenceRequest {
+    // Each logical request carries a fresh id — the idempotency key.
+    // Replaying the same id reuses its reservation instead of charging
+    // twice (B21), which is what makes billing idempotent.
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     InferenceRequest {
-        request_id: "req-1".into(),
+        request_id: format!("req-{}", N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
         signals: vec![RiskSignal::UrgentAction],
         privacy: PrivacyMode::Private,
         est_cost_micro_usd: cost,
@@ -506,7 +514,7 @@ async fn inference_budget_cap_blocks_spend() {
     p.inference = Some(Arc::new(StubGateway {
         serve_standard: true,
     }));
-    p.budget = Arc::new(InMemoryBudgetLedger::with_cap(100));
+    p.reservations = Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(100));
     let s = SovirService::new(Arc::new(FixedClock), p);
     let pr = principal("p");
     // request of 60 fits under cap 100
@@ -541,7 +549,7 @@ async fn inference_unserved_privacy_mode_refused() {
     p.inference = Some(Arc::new(StubGateway {
         serve_standard: false,
     })); // private only
-    p.budget = Arc::new(InMemoryBudgetLedger::with_cap(1_000));
+    p.reservations = Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(1_000));
     let s = SovirService::new(Arc::new(FixedClock), p);
     let mut req = infer_req(1);
     req.privacy = PrivacyMode::Standard;
@@ -558,7 +566,7 @@ async fn inference_spend_scoped_per_tenant() {
     p.inference = Some(Arc::new(StubGateway {
         serve_standard: true,
     }));
-    p.budget = Arc::new(InMemoryBudgetLedger::with_cap(100));
+    p.reservations = Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(100));
     let s = SovirService::new(Arc::new(FixedClock), p);
     let mut other_tenant = principal("p2");
     other_tenant.tenant_id = "tenant-b".into();
@@ -569,6 +577,58 @@ async fn inference_spend_scoped_per_tenant() {
     s.assess_with_inference(&principal("p"), infer_req(90))
         .await
         .unwrap();
+}
+
+/// B21 race test: two simultaneous assess calls, distinct request_ids,
+/// cap only fits one — the atomic reserve must admit exactly one. The
+/// in-memory adapter takes the whole check+insert under one write-lock,
+/// so this exercises the same serialization contract as the PG FOR UPDATE.
+#[tokio::test]
+async fn inference_concurrent_reserves_do_not_exceed_cap() {
+    let mut p = ports();
+    p.inference = Some(Arc::new(StubGateway {
+        serve_standard: true,
+    }));
+    p.reservations = Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(100));
+    let s = std::sync::Arc::new(SovirService::new(Arc::new(FixedClock), p));
+    let pr = principal("p");
+    let (s1, s2, pr1, pr2) = (s.clone(), s.clone(), pr.clone(), pr.clone());
+    let (r1, r2) = tokio::join!(
+        s1.assess_with_inference(&pr1, infer_req(60)),
+        s2.assess_with_inference(&pr2, infer_req(60)),
+    );
+    let ok_count = [&r1, &r2].iter().filter(|r| r.is_ok()).count();
+    let exceeded = [&r1, &r2]
+        .iter()
+        .filter(|r| matches!(r, Err(AppError::BudgetExceeded)))
+        .count();
+    assert_eq!(ok_count, 1, "exactly one request fits the cap");
+    assert_eq!(exceeded, 1, "the other must fail closed as BudgetExceeded");
+}
+
+/// Idempotent billing: replaying the same request_id reuses the settled
+/// reservation instead of charging twice.
+#[tokio::test]
+async fn inference_same_request_id_does_not_double_charge() {
+    let mut p = ports();
+    p.inference = Some(Arc::new(StubGateway {
+        serve_standard: true,
+    }));
+    p.reservations = Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(100));
+    let s = SovirService::new(Arc::new(FixedClock), p);
+    let pr = principal("p");
+    let mut req = infer_req(60);
+    req.request_id = "req-fixed".into();
+    s.assess_with_inference(&pr, req.clone()).await.unwrap();
+    // Same request_id again: served (verdict regenerated), not re-charged.
+    s.assess_with_inference(&pr, req).await.unwrap();
+    // A genuinely new 60μ request now exceeds the 100 cap — proving the
+    // replay above did not consume budget.
+    let err = s
+        .assess_with_inference(&pr, infer_req(60))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::BudgetExceeded));
 }
 
 // ---- B5: threat-intel provenance ---------------------------------------
