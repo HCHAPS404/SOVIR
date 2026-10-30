@@ -230,6 +230,49 @@ pub struct InferenceVerdict {
     pub provenance: String,
 }
 
+/// Usage accounting for one inference call (B21). Populated at settle
+/// time — without provider metering the honest values are the estimate
+/// and the fields the gateway itself reports (model, provenance).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceUsage {
+    /// Gateway/provider label from verdict provenance ("" when unknown).
+    pub provider: String,
+    pub model: String,
+    #[serde(default)]
+    pub tokens_est: u32,
+    #[serde(default)]
+    pub tokens_actual: Option<u32>,
+    #[serde(default)]
+    pub cache_hit: bool,
+    /// Redaction tier applied before egress ("private"|"standard").
+    #[serde(default)]
+    pub redaction_tier: String,
+}
+/// Durable budget reservation state machine: pending → settled|refunded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReservationState {
+    Pending,
+    Settled,
+    Refunded,
+}
+/// A durable reservation row: the atomic unit of inference spend. The
+/// reservation holds the cap under lock at write time; settle commits the
+/// actual cost, refund releases it (B21).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceReservation {
+    pub reservation_id: String,
+    pub tenant_id: String,
+    /// One reservation per logical request (idempotent on re-ingress).
+    pub request_id: String,
+    pub state: ReservationState,
+    pub est_micro_usd: u64,
+    pub actual_micro_usd: Option<u64>,
+    #[serde(default)]
+    pub usage: Option<InferenceUsage>,
+    pub created_at_ms: u64,
+    pub settled_at_ms: Option<u64>,
+}
 /// A verified threat-intel indicator (B5). `provenance` is mandatory —
 /// indicators without a verifiable source are dropped at ingest.
 #[derive(Debug, Clone, Serialize, Deserialize)]

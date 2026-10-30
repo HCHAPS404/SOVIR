@@ -130,6 +130,19 @@ jobs:
           test "$(psql "$APP_URL" -Atqc "SELECT count(*) FROM audit_events")" = "0"
           test "$(psql "$APP_URL" -Atqc "SELECT count(*) FROM intel_indicators")" = "0"
           test "$(psql "$APP_URL" -Atqc "SELECT count(*) FROM inference_budget")" = "0"
+          # sovir_app WITHOUT app.tenant_id must see zero rows in EVERY
+          # tenant-scoped table — the RLS fail-closed invariant across the
+          # whole schema, not just the tables above (B21).
+          for t in consent_grants sessions devices observation_events \
+                   interventions webhook_endpoints idempotency_keys \
+                   deletion_receipts audit_events inference_budget \
+                   intel_indicators inference_reservations; do
+            if psql "$DATABASE_URL" -Atqc \
+               "SELECT 1 FROM pg_tables WHERE tablename='$t'" | grep -q 1; then
+              n="$(psql "$APP_URL" -Atqc "SELECT count(*) FROM $t")"
+              test "$n" = "0" || { echo "RLS leak: $t exposes $n rows without tenant"; exit 1; }
+            fi
+          done
           echo "PASS: tenant RLS verified for sovir_app"
       - name: Durable-adapter smoke (Postgres-backed API)
         env:

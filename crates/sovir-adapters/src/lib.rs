@@ -5,8 +5,8 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use sovir_domain::{
     Assessment, AuditEvent, ConsentGrant, DeletionReceipt, DeliveryState, Device,
-    IdempotentResponse, Intervention, InterventionKind, ObservedEvent, PolicyPack, Session,
-    VerifiedIdentity, WebhookEndpoint,
+    IdempotentResponse, InferenceReservation, InferenceUsage, Intervention, InterventionKind,
+    ObservedEvent, PolicyPack, ReservationState, Session, VerifiedIdentity, WebhookEndpoint,
 };
 use sovir_ports::{
     AuditLog, BudgetLedger, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel,
@@ -898,6 +898,22 @@ impl JwksIdentityVerifier {
         self.keys.read().ok()?.get(kid).cloned()
     }
 }
+/// Device attestation seam default: no platform provider configured, so it
+/// honestly reports `level: none`. Real providers (Play Integrity,
+/// DeviceCheck, Windows attestation) land behind this port per platform.
+pub struct NoopAttester;
+#[async_trait]
+impl sovir_ports::DeviceAttester for NoopAttester {
+    async fn attest(
+        &self,
+        _device: &Device,
+    ) -> Result<sovir_ports::Attestation, PortError> {
+        Ok(sovir_ports::Attestation {
+            level: "none".to_string(),
+            provider: "noop".to_string(),
+        })
+    }
+}
 #[async_trait]
 impl sovir_ports::IdentityVerifier for JwksIdentityVerifier {
     async fn verify(&self, token: &str) -> Result<VerifiedIdentity, PortError> {
@@ -1134,6 +1150,104 @@ impl BudgetLedger for InMemoryBudgetLedger {
             .map_err(|_| PortError::Storage)?
             .entry(tenant_id.to_string())
             .or_insert(0) += micro_usd;
+        Ok(())
+    }
+}
+/// In-memory durable-reservation adapter (B21). The whole check+insert
+/// happens under one write-lock — same atomicity contract as the PG
+/// transaction version, so the concurrency test is meaningful here too.
+pub struct InMemoryBudgetReservations {
+    inner: RwLock<InMemoryReservationState>,
+    cap_micro_usd: u64,
+}
+#[derive(Default)]
+struct InMemoryReservationState {
+    spent: std::collections::HashMap<String, u64>,
+    rows: std::collections::HashMap<(String, String), InferenceReservation>,
+}
+impl InMemoryBudgetReservations {
+    pub fn with_cap(cap_micro_usd: u64) -> Self {
+        Self {
+            inner: RwLock::new(InMemoryReservationState::default()),
+            cap_micro_usd,
+        }
+    }
+}
+impl Default for InMemoryBudgetReservations {
+    fn default() -> Self {
+        Self::with_cap(0)
+    }
+}
+#[async_trait]
+impl sovir_ports::BudgetReservations for InMemoryBudgetReservations {
+    async fn reserve(
+        &self,
+        tenant_id: &str,
+        request_id: &str,
+        est_micro_usd: u64,
+    ) -> Result<sovir_ports::ReserveOutcome, PortError> {
+        let mut g = self.inner.write().map_err(|_| PortError::Storage)?;
+        let key = (tenant_id.to_string(), request_id.to_string());
+        if let Some(existing) = g.rows.get(&key) {
+            return Ok(sovir_ports::ReserveOutcome::Reserved(existing.clone()));
+        }
+        let spent = g.spent.get(tenant_id).copied().unwrap_or(0);
+        let pending: u64 = g
+            .rows
+            .values()
+            .filter(|r| {
+                r.tenant_id == tenant_id && r.state == ReservationState::Pending
+            })
+            .map(|r| r.est_micro_usd)
+            .sum();
+        if spent.saturating_add(pending).saturating_add(est_micro_usd)
+            > self.cap_micro_usd
+        {
+            return Ok(sovir_ports::ReserveOutcome::BudgetExceeded);
+        }
+        let r = InferenceReservation {
+            reservation_id: format!("rsv-{}", uuid::Uuid::new_v4().simple()),
+            tenant_id: tenant_id.to_string(),
+            request_id: request_id.to_string(),
+            state: ReservationState::Pending,
+            est_micro_usd,
+            actual_micro_usd: None,
+            usage: None,
+            created_at_ms: 0,
+            settled_at_ms: None,
+        };
+        g.rows.insert(key, r.clone());
+        Ok(sovir_ports::ReserveOutcome::Reserved(r))
+    }
+    async fn settle(
+        &self,
+        tenant_id: &str,
+        request_id: &str,
+        actual_micro_usd: u64,
+        usage: InferenceUsage,
+    ) -> Result<(), PortError> {
+        let mut g = self.inner.write().map_err(|_| PortError::Storage)?;
+        let key = (tenant_id.to_string(), request_id.to_string());
+        let Some(r) = g.rows.get_mut(&key) else {
+            return Err(PortError::Storage);
+        };
+        if r.state != ReservationState::Pending {
+            return Ok(()); // already terminal — idempotent settle
+        }
+        r.state = ReservationState::Settled;
+        r.actual_micro_usd = Some(actual_micro_usd);
+        r.usage = Some(usage);
+        *g.spent.entry(tenant_id.to_string()).or_insert(0) += actual_micro_usd;
+        Ok(())
+    }
+    async fn refund(&self, tenant_id: &str, request_id: &str) -> Result<(), PortError> {
+        let mut g = self.inner.write().map_err(|_| PortError::Storage)?;
+        let key = (tenant_id.to_string(), request_id.to_string());
+        if let Some(r) = g.rows.get_mut(&key) {
+            if r.state == ReservationState::Pending {
+                r.state = ReservationState::Refunded;
+            }
+        }
         Ok(())
     }
 }

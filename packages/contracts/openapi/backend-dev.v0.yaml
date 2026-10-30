@@ -465,3 +465,8 @@ paths:
       responses:
         '200': {description: Version info, content: {application/json: {schema: {type: object}}}}
         '409': {description: Duplicate event ID}
+  /v1/metrics:
+    get:
+      summary: Internal counters (Prometheus text format, local only)
+      responses:
+        '200': {description: Counters, content: {text/plain: {schema: {type: string}}}}

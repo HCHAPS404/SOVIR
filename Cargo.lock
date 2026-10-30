@@ -1949,6 +1949,7 @@ dependencies = [
  "sovir-ports",
  "sqlx",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

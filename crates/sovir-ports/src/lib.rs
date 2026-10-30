@@ -19,6 +19,8 @@ pub enum PortError {
     Storage,
     #[error("event already processed")]
     Duplicate,
+    #[error("consent grant missing, revoked or expired at write time")]
+    Consent,
     #[error("provider or capability not configured")]
     Unavailable,
     #[error("credential verification failed")]
@@ -254,6 +256,22 @@ pub trait IdentityVerifier: Send + Sync {
     /// Verifies a bearer credential; returns typed claims or refuses.
     async fn verify(&self, token: &str) -> Result<VerifiedIdentity, PortError>;
 }
+/// Device attestation outcome (seam — no real provider wired yet).
+/// `level` honestly reports what the provider actually proved.
+#[derive(Debug, Clone)]
+pub struct Attestation {
+    /// "none" | "os" | "hardware" — anything stronger than none requires a
+    /// real platform provider (Play Integrity, DeviceCheck, Windows attestation).
+    pub level: String,
+    pub provider: String,
+}
+/// Device attestation port. Implementations prove device integrity claims
+/// via platform mechanisms; the Noop adapter always reports `none` so the
+/// audit trail records honesty rather than an implied guarantee.
+#[async_trait]
+pub trait DeviceAttester: Send + Sync {
+    async fn attest(&self, device: &Device) -> Result<Attestation, PortError>;
+}
 /// Unified sensitive-action audit trail. Entries are metadata tombstones:
 /// they survive erasure (like deletion receipts) so administrative actions
 /// remain provable after the underlying data is gone.
@@ -283,6 +301,38 @@ pub trait BudgetLedger: Send + Sync {
     async fn spent_micro_usd(&self, tenant_id: &str) -> Result<u64, PortError>;
     async fn cap_micro_usd(&self, tenant_id: &str) -> Result<u64, PortError>;
     async fn record_spend(&self, tenant_id: &str, micro_usd: u64) -> Result<(), PortError>;
+}
+/// Outcome of an atomic reservation attempt (B21).
+#[derive(Debug)]
+pub enum ReserveOutcome {
+    /// Reservation created (or the identical request_id already held one).
+    Reserved(sovir_domain::InferenceReservation),
+    /// spent + pending + estimate would exceed the tenant cap — refused
+    /// inside the same transaction that counted, so concurrent callers
+    /// cannot both pass.
+    BudgetExceeded,
+}
+/// Durable inference budget reservations. `reserve` is the atomic gate:
+/// it checks the cap AND writes the pending row in one transaction,
+/// so two simultaneous assess calls cannot both slip under the cap.
+/// `settle` commits actual spend + usage accounting; `refund` releases
+/// the hold when the gateway fails before producing a verdict.
+#[async_trait]
+pub trait BudgetReservations: Send + Sync {
+    async fn reserve(
+        &self,
+        tenant_id: &str,
+        request_id: &str,
+        est_micro_usd: u64,
+    ) -> Result<ReserveOutcome, PortError>;
+    async fn settle(
+        &self,
+        tenant_id: &str,
+        request_id: &str,
+        actual_micro_usd: u64,
+        usage: sovir_domain::InferenceUsage,
+    ) -> Result<(), PortError>;
+    async fn refund(&self, tenant_id: &str, request_id: &str) -> Result<(), PortError>;
 }
 /// Threat-intel feed boundary (B5). `pull` returns candidate indicators
 /// from a configured source; `record`/`list` persist the ones that pass

@@ -6,13 +6,13 @@
 //! In-memory adapters remain the default when `DATABASE_URL` is unset.
 use async_trait::async_trait;
 use sovir_domain::{
-    ConsentGrant, DeletionReceipt, DeliveryState, Device, IdempotentResponse, Intervention,
-    InterventionKind, Modality, ObservedEvent, Platform, RiskSignal, Scope, SensitiveDataClass,
-    Session, WebhookEndpoint,
+    ConsentGrant, DeletionReceipt, DeliveryState, Device, IdempotentResponse, InferenceReservation,
+    InferenceUsage, Intervention, InterventionKind, Modality, ObservedEvent, Platform,
+    ReservationState, RiskSignal, Scope, SensitiveDataClass, Session, WebhookEndpoint,
 };
 use sovir_ports::{
-    ConsentRepository, DeletionReceiptStore, DeviceRegistry, EventRepository, IdempotencyStore,
-    InterventionSink, PortError, SessionStore,
+    BudgetReservations, ConsentRepository, DeletionReceiptStore, DeviceRegistry, EventRepository,
+    IdempotencyStore, InterventionSink, PortError, ReserveOutcome, SessionStore,
 };
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::time::Duration;
@@ -26,22 +26,57 @@ fn map_storage(e: sqlx::Error) -> PortError {
 
 #[derive(Clone)]
 pub struct PgStore {
+    /// Runtime pool — expected to connect as `sovir_app` (non-owner):
+    /// tenant-scoped work goes through `tenant_tx` where RLS bites.
     pool: PgPool,
+    /// Privileged pool for cross-tenant operations: token-only session
+    /// resolution (no tenant context exists yet), `*_any` retention
+    /// sweeps, dispatch `due`. When no admin URL is configured this is a
+    /// clone of `pool` — owner-mode dev compat, documented posture, not
+    /// the production split.
+    global_pool: PgPool,
     /// Default per-tenant inference cap (micro-USD) stamped on first
     /// spend row. 0 = fail closed (ADR-0012).
     budget_cap_micro_usd: i64,
 }
 impl PgStore {
     pub async fn connect(database_url: &str) -> Result<Self, sqlx::Error> {
+        Self::connect_split(database_url, None).await
+    }
+    /// Split-role connect (B21): `database_url` should carry `sovir_app`
+    /// credentials (RLS-bound runtime role). `admin_url` is the optional
+    /// privileged role for cross-tenant sweeps and token resolution —
+    /// without it both pools share the runtime role and only an owner
+    /// database_url makes global ops work (previous behaviour).
+    pub async fn connect_split(
+        database_url: &str,
+        admin_url: Option<&str>,
+    ) -> Result<Self, sqlx::Error> {
         let pool = PgPoolOptions::new()
             .max_connections(4)
             .acquire_timeout(Duration::from_secs(5))
             .connect(database_url)
             .await?;
+        let global_pool = match admin_url {
+            Some(u) => {
+                PgPoolOptions::new()
+                    .max_connections(2)
+                    .acquire_timeout(Duration::from_secs(5))
+                    .connect(u)
+                    .await?
+            }
+            None => pool.clone(),
+        };
         Ok(Self {
             pool,
+            global_pool,
             budget_cap_micro_usd: 0,
         })
+    }
+    /// Privileged pool for global ops. Kept as a named accessor so every
+    /// cross-tenant path is greppable.
+    fn global(&self) -> &PgPool {
+        &self.global_pool
     }
     /// Provisioning hook: default budget cap for tenants' first row.
     pub fn with_budget_cap(mut self, micro_usd: u64) -> Self {
@@ -51,12 +86,10 @@ impl PgStore {
     /// Tenant-pinned transaction (ADR-0009 defense in depth). Every
     /// tenant-scoped repo method runs inside `set_config('app.tenant_id',
     /// …, true)` so RLS policies bite for a `sovir_app` connection even
-    /// if a query forgets its own WHERE clause. The migration owner
-    /// bypasses RLS anyway, so dev paths are unaffected. Global sweeps
-    /// and token-only lookups (`resolve`, `due_any`, `*_any`,
-    /// `delete_expired`, `pull`) deliberately keep the plain pool: under
-    /// a non-owner role they need a privileged connection — wiring that
-    /// is a deployment decision, not a code path here.
+    /// if a query forgets its own WHERE clause. Global sweeps and
+    /// token-only lookups (`resolve`, `due_any`, `*_any`,
+    /// `delete_expired`, `pull`) run on `global()` — the privileged pool
+    /// wired by `connect_split`, or the runtime pool in owner-mode dev.
     async fn tenant_tx(
         &self,
         tenant_id: &str,
@@ -378,6 +411,27 @@ impl EventRepository for PgStore {
     async fn insert_once(&self, event: ObservedEvent) -> Result<(), PortError> {
         let mut tx = self.tenant_tx(&event.tenant_id).await?;
         let res = (async {
+            // Race-safety: re-verify the consent grant inside the same
+            // transaction as the insert (FOR UPDATE serializes with any
+            // concurrent revoke). App-layer validate_consent stays as the
+            // first gate; this is the atomic one.
+            // Expiry uses the DB clock so the check is atomic with the lock.
+            let grant: Option<(bool, i64)> = sqlx::query_as(
+                "SELECT revoked, expires_at_ms FROM consent_grants
+                 WHERE grant_id = $1 FOR UPDATE",
+            )
+            .bind(&event.consent_grant_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            let now: i64 = sqlx::query_scalar("SELECT (EXTRACT(EPOCH FROM NOW())*1000)::bigint")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(map_storage)?;
+            match grant {
+                Some((false, exp)) if exp > now => {}
+                _ => return Err(PortError::Consent),
+            }
             let signals: Vec<&str> = event.signals.iter().map(|s| signal_str(*s)).collect();
             let res = sqlx::query(
                 "INSERT INTO observation_events
@@ -536,7 +590,7 @@ impl EventRepository for PgStore {
     async fn delete_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError> {
         let n = sqlx::query("DELETE FROM observation_events WHERE observed_at_ms < $1")
             .bind(cutoff_ms as i64)
-            .execute(&self.pool)
+            .execute(self.global())
             .await
             .map_err(map_storage)?
             .rows_affected();
@@ -597,7 +651,7 @@ impl SessionStore for PgStore {
                  FROM sessions WHERE token = $1",
             )
             .bind(token)
-            .fetch_optional(&self.pool)
+            .fetch_optional(self.global())
             .await
             .map_err(map_storage)?
             .map(
@@ -621,7 +675,7 @@ impl SessionStore for PgStore {
         (async {
             let n = sqlx::query("UPDATE sessions SET revoked = TRUE WHERE token = $1")
                 .bind(token)
-                .execute(&self.pool)
+                .execute(self.global())
                 .await
                 .map_err(map_storage)?
                 .rows_affected();
@@ -687,7 +741,7 @@ impl SessionStore for PgStore {
             // tombstones until their natural expiry also passes the cutoff.
             let n = sqlx::query("DELETE FROM sessions WHERE expires_at_ms <= $1")
                 .bind(now_ms as i64)
-                .execute(&self.pool)
+                .execute(self.global())
                 .await
                 .map_err(map_storage)?
                 .rows_affected();
@@ -1016,7 +1070,7 @@ impl InterventionSink for PgStore {
             let rows = sqlx::query_as::<_, InterventionRow>(&q)
                 .bind(now_ms as i64)
                 .bind(limit as i64)
-                .fetch_all(&self.pool)
+                .fetch_all(self.global())
                 .await
                 .map_err(map_storage)?;
             rows.into_iter().map(row_to_intervention).collect()
@@ -1173,7 +1227,7 @@ impl InterventionSink for PgStore {
                  WHERE created_at_ms < $1 AND state IN ('delivered','expired')",
             )
             .bind(cutoff_ms as i64)
-            .execute(&self.pool)
+            .execute(self.global())
             .await
             .map_err(map_storage)?
             .rows_affected();
@@ -1560,7 +1614,7 @@ impl IdempotencyStore for PgStore {
         (async {
             let n = sqlx::query("DELETE FROM idempotency_keys WHERE created_at_ms <= $1")
                 .bind(cutoff_ms as i64)
-                .execute(&self.pool)
+                .execute(self.global())
                 .await
                 .map_err(map_storage)?
                 .rows_affected();
@@ -1797,5 +1851,205 @@ impl sovir_ports::ThreatIntelFeed for PgStore {
             tx.commit().await.map_err(map_storage)?;
         }
         res
+    }
+}
+
+#[async_trait::async_trait]
+impl BudgetReservations for PgStore {
+    /// Atomic reserve (B21): the cap check and the pending-row insert live
+    /// in the same tenant transaction, serialized by `FOR UPDATE` on the
+    /// budget row — two concurrent calls cannot both pass under the cap.
+    async fn reserve(
+        &self,
+        tenant_id: &str,
+        request_id: &str,
+        est_micro_usd: u64,
+    ) -> Result<ReserveOutcome, PortError> {
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            // Idempotent ingress: same (tenant, request_id) returns its row.
+            let existing: Option<(String, String, i64)> = sqlx::query_as(
+                "SELECT reservation_id, state, est_micro_usd
+                 FROM inference_reservations
+                 WHERE tenant_id = $1 AND request_id = $2",
+            )
+            .bind(tenant_id)
+            .bind(request_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            if let Some((rid, state, est)) = existing {
+                return Ok(ReserveOutcome::Reserved(InferenceReservation {
+                    reservation_id: rid,
+                    tenant_id: tenant_id.to_string(),
+                    request_id: request_id.to_string(),
+                    state: reservation_state(&state),
+                    est_micro_usd: est.max(0) as u64,
+                    actual_micro_usd: None,
+                    usage: None,
+                    created_at_ms: 0,
+                    settled_at_ms: None,
+                }));
+            }
+            // Lock the tenant's budget row. No row yet ⇒ provision with the
+            // store default cap (0 = fail closed, ADR-0012).
+            sqlx::query(
+                "INSERT INTO inference_budget (tenant_id, spent_micro_usd, cap_micro_usd)
+                 VALUES ($1, 0, $2) ON CONFLICT (tenant_id) DO NOTHING",
+            )
+            .bind(tenant_id)
+            .bind(self.budget_cap_micro_usd)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            let (spent, cap): (i64, i64) = sqlx::query_as(
+                "SELECT spent_micro_usd, cap_micro_usd FROM inference_budget
+                 WHERE tenant_id = $1 FOR UPDATE",
+            )
+            .bind(tenant_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            let pending: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(SUM(est_micro_usd),0)::bigint
+                 FROM inference_reservations
+                 WHERE tenant_id = $1 AND state = 'pending'",
+            )
+            .bind(tenant_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            let est_i = est_micro_usd.min(i64::MAX as u64) as i64;
+            if spent
+                .saturating_add(pending)
+                .saturating_add(est_i)
+                > cap
+            {
+                return Ok(ReserveOutcome::BudgetExceeded);
+            }
+            let rid = format!("rsv-{}", uuid::Uuid::new_v4().simple());
+            let now: i64 = sqlx::query_scalar("SELECT (EXTRACT(EPOCH FROM NOW())*1000)::bigint")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(map_storage)?;
+            sqlx::query(
+                "INSERT INTO inference_reservations
+                 (reservation_id, tenant_id, request_id, state, est_micro_usd, created_at_ms)
+                 VALUES ($1,$2,$3,'pending',$4,$5)",
+            )
+            .bind(&rid)
+            .bind(tenant_id)
+            .bind(request_id)
+            .bind(est_i)
+            .bind(now)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(ReserveOutcome::Reserved(InferenceReservation {
+                reservation_id: rid,
+                tenant_id: tenant_id.to_string(),
+                request_id: request_id.to_string(),
+                state: ReservationState::Pending,
+                est_micro_usd,
+                actual_micro_usd: None,
+                usage: None,
+                created_at_ms: now as u64,
+                settled_at_ms: None,
+            }))
+        })
+        .await;
+        match res {
+            Ok(outcome) => {
+                tx.commit().await.map_err(map_storage)?;
+                Ok(outcome)
+            }
+            Err(e) => Err(e),
+        }
+    }
+    /// Settle: mark the pending row settled with actual spend + usage and
+    /// credit `inference_budget.spent` — same transaction, idempotent.
+    async fn settle(
+        &self,
+        tenant_id: &str,
+        request_id: &str,
+        actual_micro_usd: u64,
+        usage: InferenceUsage,
+    ) -> Result<(), PortError> {
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let now: i64 = sqlx::query_scalar("SELECT (EXTRACT(EPOCH FROM NOW())*1000)::bigint")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(map_storage)?;
+            let n = sqlx::query(
+                "UPDATE inference_reservations SET
+                   state = 'settled', actual_micro_usd = $3,
+                   provider = $4, model = $5, tokens_est = $6,
+                   tokens_actual = $7, cache_hit = $8, redaction_tier = $9,
+                   settled_at_ms = $10
+                 WHERE tenant_id = $1 AND request_id = $2 AND state = 'pending'",
+            )
+            .bind(tenant_id)
+            .bind(request_id)
+            .bind(actual_micro_usd.min(i64::MAX as u64) as i64)
+            .bind(&usage.provider)
+            .bind(&usage.model)
+            .bind(usage.tokens_est as i32)
+            .bind(usage.tokens_actual.map(|t| t as i32))
+            .bind(usage.cache_hit)
+            .bind(&usage.redaction_tier)
+            .bind(now)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            if n == 1 {
+                sqlx::query(
+                    "UPDATE inference_budget
+                     SET spent_micro_usd = spent_micro_usd + $2
+                     WHERE tenant_id = $1",
+                )
+                .bind(tenant_id)
+                .bind(actual_micro_usd.min(i64::MAX as u64) as i64)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_storage)?;
+            }
+            Ok(())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
+    }
+    /// Refund: release a pending reservation without charging. Terminal —
+    /// pending only; settles elsewhere are untouched.
+    async fn refund(&self, tenant_id: &str, request_id: &str) -> Result<(), PortError> {
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            sqlx::query(
+                "UPDATE inference_reservations SET state = 'refunded'
+                 WHERE tenant_id = $1 AND request_id = $2 AND state = 'pending'",
+            )
+            .bind(tenant_id)
+            .bind(request_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
+    }
+}
+fn reservation_state(s: &str) -> ReservationState {
+    match s {
+        "settled" => ReservationState::Settled,
+        "refunded" => ReservationState::Refunded,
+        _ => ReservationState::Pending,
     }
 }

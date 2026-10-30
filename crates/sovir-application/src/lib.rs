@@ -97,9 +97,16 @@ pub struct ServicePorts {
     /// refuse with ProviderUnavailable, never fake a verdict.
     pub inference: Option<Arc<dyn InferenceGateway>>,
     pub budget: Arc<dyn BudgetLedger>,
+    /// Durable spend reservations (B21). The atomic gate for inference
+    /// spend — reserve→settle/refund replaces the racy read-then-record
+    /// path; concurrent assess calls cannot both pass under the cap.
+    pub reservations: Arc<dyn sovir_ports::BudgetReservations>,
     pub intel: Arc<dyn ThreatIntelFeed>,
     /// Verified-identity seam (B6/ADR-0013). `None` = dev sessions only.
     pub identity: Option<Arc<dyn sovir_ports::IdentityVerifier>>,
+    /// Device attestation seam. `None` = attestation not attempted; the
+    /// audit entry then omits the verdict rather than implying one.
+    pub attester: Option<Arc<dyn sovir_ports::DeviceAttester>>,
 }
 
 #[derive(Clone)]
@@ -117,9 +124,10 @@ pub struct SovirService {
     idem: Arc<dyn IdempotencyStore>,
     audit: Arc<dyn AuditLog>,
     inference: Option<Arc<dyn InferenceGateway>>,
-    budget: Arc<dyn BudgetLedger>,
+    reservations: Arc<dyn sovir_ports::BudgetReservations>,
     intel: Arc<dyn ThreatIntelFeed>,
     identity: Option<Arc<dyn sovir_ports::IdentityVerifier>>,
+    attester: Option<Arc<dyn sovir_ports::DeviceAttester>>,
 }
 impl SovirService {
     pub fn new(clock: Arc<dyn Clock>, ports: ServicePorts) -> Self {
@@ -137,9 +145,10 @@ impl SovirService {
             idem: ports.idem,
             audit: ports.audit,
             inference: ports.inference,
-            budget: ports.budget,
+            reservations: ports.reservations,
             intel: ports.intel,
             identity: ports.identity,
+            attester: ports.attester,
         }
     }
 
@@ -289,11 +298,20 @@ impl SovirService {
         };
         validate_device(&device)?;
         self.devices.register(device.clone()).await?;
+        // Attestation seam: when a provider is wired its verdict rides in
+        // the audit detail; `attest:none` honestly means no proof was made.
+        let attest = match &self.attester {
+            Some(a) => match a.attest(&device).await {
+                Ok(att) => format!("|attest:{}:{}", att.provider, att.level),
+                Err(_) => "|attest:error".to_string(),
+            },
+            None => String::new(),
+        };
         self.audit(
             &principal.tenant_id,
             &principal.principal_id,
             AuditAction::DeviceRegistered,
-            &format!("dev:{}", device.device_id),
+            &format!("dev:{}{}", device.device_id, attest),
         )
         .await?;
         Ok(device)
@@ -917,22 +935,62 @@ impl SovirService {
             .await?;
             return Err(AppError::ProviderUnavailable);
         };
-        let spent = self.budget.spent_micro_usd(&principal.tenant_id).await?;
-        let cap = self.budget.cap_micro_usd(&principal.tenant_id).await?;
-        if spent.saturating_add(req.est_cost_micro_usd) > cap {
-            return Err(AppError::BudgetExceeded);
+        // Durable reservation gate (B21): atomic cap check + pending row
+        // in one transaction — no check-then-act window. Same request_id
+        // is idempotent, so replayed ingress reuses its reservation.
+        match self
+            .reservations
+            .reserve(
+                &principal.tenant_id,
+                &req.request_id,
+                req.est_cost_micro_usd,
+            )
+            .await?
+        {
+            sovir_ports::ReserveOutcome::BudgetExceeded => {
+                return Err(AppError::BudgetExceeded)
+            }
+            sovir_ports::ReserveOutcome::Reserved(_) => {}
         }
-        let verdict = gw.assess(&req).await?;
-        self.budget
-            .record_spend(&principal.tenant_id, req.est_cost_micro_usd)
+        let verdict = match gw.assess(&req).await {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = self
+                    .reservations
+                    .refund(&principal.tenant_id, &req.request_id)
+                    .await;
+                return Err(e.into());
+            }
+        };
+        // Without provider metering, actuals equal the estimate. Usage
+        // still records what the gateway itself reported (model,
+        // provenance, redaction tier) so accounting is honest, not fake.
+        let usage = sovir_domain::InferenceUsage {
+            provider: verdict.provenance.clone(),
+            model: verdict.model_id.clone(),
+            tokens_est: 0,
+            tokens_actual: None,
+            cache_hit: false,
+            redaction_tier: match req.privacy {
+                sovir_domain::PrivacyMode::Private => "private".to_string(),
+                _ => "standard".to_string(),
+            },
+        };
+        self.reservations
+            .settle(
+                &principal.tenant_id,
+                &req.request_id,
+                req.est_cost_micro_usd,
+                usage,
+            )
             .await?;
         self.audit(
             &principal.tenant_id,
             &principal.principal_id,
             AuditAction::InferenceCalled,
             &format!(
-                "ok req:{} micros:{}",
-                req.request_id, req.est_cost_micro_usd
+                "ok req:{} micros:{} model:{}",
+                req.request_id, req.est_cost_micro_usd, verdict.model_id
             ),
         )
         .await?;

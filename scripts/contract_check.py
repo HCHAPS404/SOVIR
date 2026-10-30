@@ -221,6 +221,38 @@ def console_client_checks(doc: dict) -> None:
         check(not bad, f"console: {field} literals within contract enum {sorted(literals) or '[]'}")
 
 
+def client_sdk_checks(doc: dict) -> None:
+    """Conformance: the generated client must expose exactly the contract
+    operation set — no missing method, no path the contract doesn't have."""
+    sdk = (ROOT / "packages" / "client-sdk" / "src" / "index.ts")
+    check(sdk.is_file(), "client-sdk: generated index.ts present")
+    if not sdk.is_file():
+        return
+    src = sdk.read_text(encoding="utf-8")
+
+    def norm_contract(p: str) -> str:
+        return re.sub(r"\{\w+\}", "{}", p)
+
+    def norm_sdk(p: str) -> str:
+        return re.sub(r"\$\{encodeURIComponent\(\w+\)\}", "{}", p)
+
+    sdk_ops = {
+        (m.group(1), norm_sdk(m.group(2)))
+        for m in re.finditer(r'this\.request\("(\w+)",\s*`([^`]+)`', src)
+    }
+    contract_ops = {
+        (method.upper(), norm_contract(path))
+        for path, item in doc.get("paths", {}).items()
+        for method in ("get", "post", "put", "delete")
+        if method in item
+    }
+    check(sdk_ops == contract_ops,
+          f"client-sdk: op set matches contract "
+          f"(missing={sorted(contract_ops - sdk_ops)} extra={sorted(sdk_ops - contract_ops)})")
+    check("idempotency-key" in src,
+          "client-sdk: ingestEvent forwards mandatory idempotency-key header")
+
+
 def self_test(validator: Draft202012Validator) -> None:
     valid = json.loads((FIXTURE_DIR / "observation.synthetic.json").read_text(encoding="utf-8"))
     variants = {
@@ -246,6 +278,7 @@ def main() -> int:
     synthetic_cases_checks()
     migration_checks()
     console_client_checks(openapi_doc)
+    client_sdk_checks(openapi_doc)
     if args.self_test:
         self_test(validator)
 
