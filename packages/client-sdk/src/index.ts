@@ -146,6 +146,16 @@ export class SovirClient {
     return (await (await this.request("GET", `/v1/intel` + (limit ? `?limit=${limit}` : ""), undefined, options)).json()) as T.IntelIndicator[];
   }
 
+  /** Caller's investigation history (newest first) */
+  async getInvestigations(limit?: number, options?: RequestOptions): Promise<T.Investigation[]> {
+    return (await (await this.request("GET", `/v1/investigations` + (limit ? `?limit=${limit}` : ""), undefined, options)).json()) as T.Investigation[];
+  }
+
+  /** Run a bounded deterministic investigation over stored evidence (B5) */
+  async postInvestigations(body: T.RunInvestigationRequest, options?: RequestOptions): Promise<T.Investigation> {
+    return (await (await this.request("POST", `/v1/investigations`, body, options)).json()) as T.Investigation;
+  }
+
   /** List the caller's webhook endpoints */
   async listWebhooks(limit?: number, options?: RequestOptions): Promise<T.WebhookEndpoint[]> {
     return (await (await this.request("GET", `/v1/webhooks` + (limit ? `?limit=${limit}` : ""), undefined, options)).json()) as T.WebhookEndpoint[];

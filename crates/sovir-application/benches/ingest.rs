@@ -32,8 +32,11 @@ fn service() -> SovirService {
             audit: Arc::new(InMemoryAuditLog::default()),
             inference: None,
             budget: Arc::new(InMemoryBudgetLedger::default()),
+            reservations: Arc::new(sovir_adapters::InMemoryBudgetReservations::default()),
             intel: Arc::new(InMemoryThreatIntel::default()),
+            investigations: Arc::new(sovir_adapters::InMemoryInvestigationStore::default()),
             identity: None,
+            attester: None,
         },
     )
 }

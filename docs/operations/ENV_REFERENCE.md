@@ -28,6 +28,10 @@ dev sessions on loopback only.
 | `SOVIR_RETENTION_MS` | 30 days | Cutoff age for events/terminal interventions/session tombstones/idem keys |
 | `SOVIR_RETENTION_SWEEP_MS` | `0` (off) | Periodic global sweep interval; only infra path that may cross tenants |
 | `SOVIR_DISPATCH_SWEEP_MS` | `0` (off) | Periodic global dispatch of due interventions |
+| `SOVIR_INTEL_SWEEP_MS` | `0` (off) | Periodic validated pull of the intel feed (global sweep) |
+| `SOVIR_INTEL_TENANT` | `dev` | Fallback tenant for intel indicators without `tenant_id` |
+| `SOVIR_RESERVATION_SWEEP_MS` | `0` (off) | Periodic refund of orphaned `pending` inference reservations |
+| `SOVIR_RESERVATION_TTL_MS` | `600000` | Age after which a `pending` reservation is treated as orphaned |
 
 ## Egress & webhooks (ADR-0010/B20)
 

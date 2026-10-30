@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use sovir_domain::{
     Assessment, AuditEvent, ConsentGrant, DeletionReceipt, Device, IdempotentResponse,
     InferenceRequest, InferenceVerdict, IntelIndicator, Intervention, InterventionKind,
-    ObservedEvent, PrivacyMode, Session, VerifiedIdentity, WebhookEndpoint,
+    Investigation, ObservedEvent, PrivacyMode, Session, VerifiedIdentity, WebhookEndpoint,
 };
 use thiserror::Error;
 
@@ -306,7 +306,8 @@ pub trait BudgetLedger: Send + Sync {
 #[derive(Debug)]
 pub enum ReserveOutcome {
     /// Reservation created (or the identical request_id already held one).
-    Reserved(sovir_domain::InferenceReservation),
+    /// Boxed: the row is much larger than `BudgetExceeded`.
+    Reserved(Box<sovir_domain::InferenceReservation>),
     /// spent + pending + estimate would exceed the tenant cap — refused
     /// inside the same transaction that counted, so concurrent callers
     /// cannot both pass.
@@ -333,6 +334,11 @@ pub trait BudgetReservations: Send + Sync {
         usage: sovir_domain::InferenceUsage,
     ) -> Result<(), PortError>;
     async fn refund(&self, tenant_id: &str, request_id: &str) -> Result<(), PortError>;
+    /// Global hygiene: refunds `pending` reservations created at or before
+    /// `cutoff_ms` — a crash between reserve and settle must not hold the
+    /// tenant's cap forever. Cross-tenant by design; only the scheduled
+    /// sweep calls it (privileged path, like other `*_any` ops).
+    async fn refund_expired(&self, cutoff_ms: u64) -> Result<u64, PortError>;
 }
 /// Threat-intel feed boundary (B5). `pull` returns candidate indicators
 /// from a configured source; `record`/`list` persist the ones that pass
@@ -342,6 +348,18 @@ pub trait ThreatIntelFeed: Send + Sync {
     async fn pull(&self, since_ms: u64) -> Result<Vec<IntelIndicator>, PortError>;
     async fn record(&self, indicator: IntelIndicator) -> Result<(), PortError>;
     async fn list(&self, tenant_id: &str) -> Result<Vec<IntelIndicator>, PortError>;
+}
+/// Durable store for completed investigations (B5). Rows are metadata
+/// reports (counts + typed hypotheses) — never event payloads.
+#[async_trait]
+pub trait InvestigationStore: Send + Sync {
+    async fn insert(&self, inv: Investigation) -> Result<(), PortError>;
+    /// Newest-first history for the calling principal only.
+    async fn list_by_principal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<Vec<Investigation>, PortError>;
 }
 /// Idempotency-Key store (B10). Scoped by (tenant, principal) so keys of
 /// one principal never collide with another's. `put` is insert-once: a

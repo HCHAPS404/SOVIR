@@ -119,7 +119,7 @@ export interface AuditEvent {
   audit_id?: string;
   tenant_id?: string;
   principal_id?: string;
-  action?: "session_issued" | "consent_granted" | "consent_revoked" | "event_ingested" | "device_registered" | "device_revoked" | "webhook_registered" | "webhook_revoked" | "data_purged" | "retention_enforced" | "dispatch_ran" | "inference_called" | "intel_pulled";
+  action?: "session_issued" | "consent_granted" | "consent_revoked" | "event_ingested" | "device_registered" | "device_revoked" | "webhook_registered" | "webhook_revoked" | "data_purged" | "retention_enforced" | "dispatch_ran" | "inference_called" | "intel_pulled" | "reservations_swept";
   detail?: string;
   at_ms?: number;
 }
@@ -151,6 +151,21 @@ export interface IntelIndicator {
   confidence_bp?: number;
   provenance?: string;
   at_ms?: number;
+}
+
+export interface RunInvestigationRequest {
+  window_ms?: number;
+}
+
+export interface Investigation {
+  investigation_id?: string;
+  tenant_id?: string;
+  principal_id?: string;
+  window_ms?: number;
+  events_examined?: number;
+  facts?: Record<string, unknown>[];
+  hypotheses?: Record<string, unknown>[];
+  created_at_ms?: number;
 }
 
 export interface PurgeReport {

