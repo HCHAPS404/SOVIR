@@ -2061,13 +2061,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sovir-inference"
-version = "0.1.0"
-dependencies = [
- "thiserror",
-]
-
-[[package]]
 name = "sovir-migrations"
 version = "0.1.0"
 dependencies = [

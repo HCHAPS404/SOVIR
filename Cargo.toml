@@ -4,7 +4,6 @@ members = [
   "crates/sovir-domain",
   "crates/sovir-ports",
   "crates/sovir-application",
-  "crates/sovir-inference",
   "crates/sovir-adapters",
   "crates/sovir-persistence",
   "services/api",
