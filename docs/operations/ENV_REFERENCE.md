@@ -13,7 +13,9 @@ dev sessions on loopback only.
 | `SOVIR_API_URL` | `http://127.0.0.1:8787` | **Console-side** (`apps/console` server code): base URL the BFF calls; the browser never reaches the API directly |
 | `DATABASE_URL` | unset | Postgres `PgStore` when set (migrations + durable adapters); in-memory otherwise |
 | `SOVIR_POSTGRES_DEV_PASSWORD` | unset | Local docker-compose password only — never prod |
+| `SOVIR_PG_ADMIN_URL` | unset | Privileged Postgres pool used ONLY to run migrations at startup when `DATABASE_URL` is set; the app role connects via `DATABASE_URL` without DDL rights |
 | `SOVIR_RATE_LIMIT_PER_MIN` | `60` | Per-principal+device fixed-window limiter (in-memory, per-process) |
+| `SOVIR_BUILD_SHA` | `dev` | **Build-time** (`option_env!`): commit stamped into `/v1/version`; not read at runtime |
 
 ## Policy & risk (B3)
 
@@ -64,6 +66,17 @@ dev sessions on loopback only.
 | `SOVIR_OIDC_JWKS_URL` + `SOVIR_OIDC_ISSUER` + `SOVIR_OIDC_AUDIENCE` | unset | ALL THREE required (partial = refuse startup); unset = dev sessions only. JWKS host must be allowlisted + `SOVIR_HTTP_EGRESS=real` |
 | `SOVIR_OIDC_TENANT_CLAIM` | `tenant_id` | Claim carrying tenant binding |
 | `SOVIR_OIDC_PRINCIPAL_CLAIM` | `sub` | Claim carrying subject |
+
+## Observer (`sovir-observer` — separate binary, ADR-0014)
+
+| Var | Default | Behavior |
+|---|---|---|
+| `SOVIR_API_URL` | `http://127.0.0.1:8787` | API base URL the observer posts to (dev-session mint + events) |
+| `SOVIR_OBSERVER_POLL_MS` | `2000` | Foreground-window poll interval |
+| `SOVIR_OBSERVER_QUEUE_MAX` | `64` | In-memory queue bound; oldest dropped on overflow |
+| `SOVIR_OBSERVER_EXCLUDE` | unset | Comma-separated process names never observed (exact, case-insensitive) |
+| `SOVIR_OBSERVER_DISABLE` | unset | Set = daemon idles (pause kill-switch) |
+| `SOVIR_OBSERVER_STORE_PATH` + `SOVIR_OBSERVER_STORE_KEY` | unset | BOTH set = durable encrypted outbox (`sovir-edge-store`, ChaCha20-Poly1305, key ≥32 bytes); unset = in-memory queue only |
 
 ## Non-variables (explicitly not configurable)
 
