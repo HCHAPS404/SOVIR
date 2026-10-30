@@ -6,7 +6,8 @@ use sha2::Sha256;
 use sovir_domain::{
     Assessment, AuditEvent, ConsentGrant, DeletionReceipt, DeliveryState, Device,
     IdempotentResponse, InferenceReservation, InferenceUsage, Intervention, InterventionKind,
-    ObservedEvent, PolicyPack, ReservationState, Session, VerifiedIdentity, WebhookEndpoint,
+    Investigation, ObservedEvent, PolicyPack, ReservationState, Session, VerifiedIdentity,
+    WebhookEndpoint,
 };
 use sovir_ports::{
     AuditLog, BudgetLedger, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel,
@@ -904,10 +905,7 @@ impl JwksIdentityVerifier {
 pub struct NoopAttester;
 #[async_trait]
 impl sovir_ports::DeviceAttester for NoopAttester {
-    async fn attest(
-        &self,
-        _device: &Device,
-    ) -> Result<sovir_ports::Attestation, PortError> {
+    async fn attest(&self, _device: &Device) -> Result<sovir_ports::Attestation, PortError> {
         Ok(sovir_ports::Attestation {
             level: "none".to_string(),
             provider: "noop".to_string(),
@@ -1189,20 +1187,18 @@ impl sovir_ports::BudgetReservations for InMemoryBudgetReservations {
         let mut g = self.inner.write().map_err(|_| PortError::Storage)?;
         let key = (tenant_id.to_string(), request_id.to_string());
         if let Some(existing) = g.rows.get(&key) {
-            return Ok(sovir_ports::ReserveOutcome::Reserved(existing.clone()));
+            return Ok(sovir_ports::ReserveOutcome::Reserved(Box::new(
+                existing.clone(),
+            )));
         }
         let spent = g.spent.get(tenant_id).copied().unwrap_or(0);
         let pending: u64 = g
             .rows
             .values()
-            .filter(|r| {
-                r.tenant_id == tenant_id && r.state == ReservationState::Pending
-            })
+            .filter(|r| r.tenant_id == tenant_id && r.state == ReservationState::Pending)
             .map(|r| r.est_micro_usd)
             .sum();
-        if spent.saturating_add(pending).saturating_add(est_micro_usd)
-            > self.cap_micro_usd
-        {
+        if spent.saturating_add(pending).saturating_add(est_micro_usd) > self.cap_micro_usd {
             return Ok(sovir_ports::ReserveOutcome::BudgetExceeded);
         }
         let r = InferenceReservation {
@@ -1213,11 +1209,14 @@ impl sovir_ports::BudgetReservations for InMemoryBudgetReservations {
             est_micro_usd,
             actual_micro_usd: None,
             usage: None,
-            created_at_ms: 0,
+            created_at_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
             settled_at_ms: None,
         };
         g.rows.insert(key, r.clone());
-        Ok(sovir_ports::ReserveOutcome::Reserved(r))
+        Ok(sovir_ports::ReserveOutcome::Reserved(Box::new(r)))
     }
     async fn settle(
         &self,
@@ -1250,6 +1249,17 @@ impl sovir_ports::BudgetReservations for InMemoryBudgetReservations {
         }
         Ok(())
     }
+    async fn refund_expired(&self, cutoff_ms: u64) -> Result<u64, PortError> {
+        let mut g = self.inner.write().map_err(|_| PortError::Storage)?;
+        let mut n = 0u64;
+        for r in g.rows.values_mut() {
+            if r.state == ReservationState::Pending && r.created_at_ms <= cutoff_ms {
+                r.state = ReservationState::Refunded;
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
 }
 /// In-memory threat-intel adapter (B5). `pending` is the candidate feed
 /// (seeded in tests); `stored` holds what the application validated and
@@ -1276,10 +1286,12 @@ impl ThreatIntelFeed for InMemoryThreatIntel {
             .map_err(|_| PortError::Storage)
     }
     async fn record(&self, indicator: sovir_domain::IntelIndicator) -> Result<(), PortError> {
-        self.stored
-            .write()
-            .map_err(|_| PortError::Storage)?
-            .push(indicator);
+        let mut g = self.stored.write().map_err(|_| PortError::Storage)?;
+        // PG parity: insert-once on indicator_id (ON CONFLICT DO NOTHING) so
+        // repeated sweeps over the same source do not duplicate rows.
+        if !g.iter().any(|i| i.indicator_id == indicator.indicator_id) {
+            g.push(indicator);
+        }
         Ok(())
     }
     async fn list(&self, tenant_id: &str) -> Result<Vec<sovir_domain::IntelIndicator>, PortError> {
@@ -1294,6 +1306,37 @@ impl ThreatIntelFeed for InMemoryThreatIntel {
             .map_err(|_| PortError::Storage)
     }
 }
+/// In-memory investigation store (B5). Insert-once rows; listing returns
+/// the calling principal's reports newest-first. One lock per call —
+/// insert and list cannot interleave mid-operation.
+#[derive(Default)]
+pub struct InMemoryInvestigationStore(RwLock<Vec<Investigation>>);
+#[async_trait]
+impl sovir_ports::InvestigationStore for InMemoryInvestigationStore {
+    async fn insert(&self, inv: Investigation) -> Result<(), PortError> {
+        self.0.write().map_err(|_| PortError::Storage)?.push(inv);
+        Ok(())
+    }
+    async fn list_by_principal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<Vec<Investigation>, PortError> {
+        self.0
+            .read()
+            .map(|g| {
+                let mut v: Vec<Investigation> = g
+                    .iter()
+                    .filter(|i| i.tenant_id == tenant_id && i.principal_id == principal_id)
+                    .cloned()
+                    .collect();
+                v.sort_by_key(|i| std::cmp::Reverse(i.created_at_ms));
+                v
+            })
+            .map_err(|_| PortError::Storage)
+    }
+}
+
 /// Generic remote inference adapter (B4/ADR-0012). Provider-agnostic:
 /// any endpoint that accepts the versioned request shape and returns the
 /// versioned verdict shape works. Serves ONLY `Standard` mode —
@@ -1337,6 +1380,13 @@ impl InferenceGateway for RemoteInferenceGateway {
         &self,
         req: &sovir_domain::InferenceRequest,
     ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+        // Injection guard before egress (B21): app-layer validation is the
+        // first gate, but the gateway re-checks so a malicious request_id
+        // can never reach the wire even if a future caller skips the
+        // application layer.
+        if !sovir_domain::egress_safe_identifier(&req.request_id) {
+            return Err(PortError::Unauthorized);
+        }
         let body = serde_json::json!({
             "request_id": req.request_id,
             "model": self.model_id,
@@ -1868,5 +1918,397 @@ mod tests {
             .await
             .unwrap();
         assert!(v2.provenance.contains("local_heuristic"));
+    }
+    // ---- B21: RemoteInferenceGateway smoke against a real local stub ----
+
+    /// Minimal HTTP/1.1 stub on loopback for the smoke suite. Serves a
+    /// programmed response and counts accepted requests so tests can
+    /// assert zero retries. std-only — no test dependencies.
+    struct StubHttp {
+        addr: std::net::SocketAddr,
+        hits: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        last_body: std::sync::Arc<std::sync::Mutex<String>>,
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+    impl StubHttp {
+        /// `respond` maps an incoming request body to (status, body).
+        /// `hold_ms` makes the handler sleep before answering (timeout test).
+        fn spawn(respond: impl Fn(&str) -> (u16, String) + Send + 'static, hold_ms: u64) -> Self {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let last_body = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let (h2, b2, s2) = (hits.clone(), last_body.clone(), stop.clone());
+            std::thread::spawn(move || {
+                use std::io::{Read, Write};
+                while !s2.load(std::sync::atomic::Ordering::Relaxed) {
+                    let Ok((mut sock, _)) = listener.accept() else {
+                        break;
+                    };
+                    h2.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    sock.set_read_timeout(Some(std::time::Duration::from_secs(8)))
+                        .ok();
+                    // Read headers (body may already share the segment).
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    let mut header_end = None;
+                    loop {
+                        let n = sock.read(&mut chunk).unwrap_or(0);
+                        if n == 0 {
+                            break;
+                        }
+                        buf.extend_from_slice(&chunk[..n]);
+                        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                            header_end = Some(pos + 4);
+                            break;
+                        }
+                    }
+                    let Some(split) = header_end else { continue };
+                    let text = String::from_utf8_lossy(&buf[..split]);
+                    let len = text
+                        .split("\r\n")
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length: ")
+                                .and_then(|v| v.trim().parse::<usize>().ok())
+                        })
+                        .unwrap_or(0);
+                    let mut body_bytes = buf[split..].to_vec();
+                    while body_bytes.len() < len {
+                        let n = sock.read(&mut chunk).unwrap_or(0);
+                        if n == 0 {
+                            break;
+                        }
+                        body_bytes.extend_from_slice(&chunk[..n]);
+                    }
+                    let req_body = String::from_utf8_lossy(&body_bytes).to_string();
+                    *b2.lock().unwrap() = req_body.clone();
+                    let (status, payload) = respond(&req_body);
+                    let reason = match status {
+                        200 => "OK",
+                        400 => "Bad Request",
+                        500 => "Internal Server Error",
+                        _ => "X",
+                    };
+                    if hold_ms > 0 {
+                        std::thread::sleep(std::time::Duration::from_millis(hold_ms));
+                    }
+                    let res = format!(
+                        "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{payload}",
+                        payload.len()
+                    );
+                    let _ = sock.write_all(res.as_bytes());
+                }
+            });
+            Self {
+                addr,
+                hits,
+                last_body,
+                stop,
+            }
+        }
+        fn url(&self) -> String {
+            format!("http://{}/assess", self.addr)
+        }
+        fn hits(&self) -> usize {
+            self.hits.load(std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+    impl Drop for StubHttp {
+        fn drop(&mut self) {
+            self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            // Nudge the listener out of accept().
+            let _ = std::net::TcpStream::connect(self.addr);
+        }
+    }
+
+    fn remote_gw(url: &str) -> RemoteInferenceGateway {
+        RemoteInferenceGateway::new(
+            Arc::new(ReqwestHttpEgress::new(vec!["127.0.0.1".to_string()])),
+            url.to_string(),
+            "test-key".to_string(),
+            "model-x".to_string(),
+        )
+    }
+    fn inf_req_id(id: &str) -> InferenceRequest {
+        InferenceRequest {
+            request_id: id.to_string(),
+            signals: vec![RiskSignal::UrgentAction],
+            privacy: PrivacyMode::Standard,
+            est_cost_micro_usd: 10,
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_gw_real_http_roundtrip() {
+        let stub = StubHttp::spawn(
+            |body| {
+                let v: serde_json::Value = serde_json::from_str(body).unwrap();
+                let rid = v["request_id"].as_str().unwrap_or("?").to_string();
+                (
+                    200,
+                    serde_json::json!({
+                        "request_id": rid, "model_id": "model-x",
+                        "hypotheses": ["h1"], "confidence_bp": 9000
+                    })
+                    .to_string(),
+                )
+            },
+            0,
+        );
+        let gw = remote_gw(&stub.url());
+        let v = gw.assess(&inf_req_id("req-abc")).await.unwrap();
+        assert_eq!(v.request_id, "req-abc");
+        assert_eq!(v.model_id, "model-x");
+        assert!(v.provenance.starts_with("remote:"));
+        assert_eq!(stub.hits(), 1, "exactly one HTTP call — zero retries");
+        // Real serialization reached the wire: signals + model present.
+        let sent = stub.last_body.lock().unwrap().clone();
+        assert!(
+            sent.contains("request_id") && sent.contains("signals") && sent.contains("model-x")
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_gw_5xx_and_4xx_map_to_port_errors() {
+        let stub = StubHttp::spawn(|_| (500, "{}".into()), 0);
+        let gw = remote_gw(&stub.url());
+        let err = gw.assess(&inf_req_id("req-1")).await.unwrap_err();
+        assert!(matches!(err, PortError::Unavailable));
+        assert_eq!(stub.hits(), 1);
+        let stub4 = StubHttp::spawn(|_| (400, "{}".into()), 0);
+        let gw4 = remote_gw(&stub4.url());
+        let err4 = gw4.assess(&inf_req_id("req-2")).await.unwrap_err();
+        assert!(matches!(err4, PortError::Unavailable));
+    }
+
+    #[tokio::test]
+    async fn remote_gw_malformed_body_maps_to_storage() {
+        let stub = StubHttp::spawn(|_| (200, "not-json{".into()), 0);
+        let gw = remote_gw(&stub.url());
+        let err = gw.assess(&inf_req_id("req-3")).await.unwrap_err();
+        assert!(matches!(err, PortError::Storage));
+    }
+
+    #[tokio::test]
+    async fn remote_gw_verdict_bound_to_request_id() {
+        let stub = StubHttp::spawn(
+            |_| {
+                (
+                    200,
+                    serde_json::json!({
+                        "request_id": "OTHER", "model_id": "model-x"
+                    })
+                    .to_string(),
+                )
+            },
+            0,
+        );
+        let gw = remote_gw(&stub.url());
+        let err = gw.assess(&inf_req_id("req-4")).await.unwrap_err();
+        assert!(matches!(err, PortError::Storage));
+    }
+
+    #[tokio::test]
+    async fn remote_gw_injected_request_id_never_egresses() {
+        let stub = StubHttp::spawn(|_| (200, "{}".into()), 0);
+        let gw = remote_gw(&stub.url());
+        // Quote + whitespace injection attempt in request_id.
+        let err = gw
+            .assess(&inf_req_id("req\"; DROP TABLE sessions; --"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, PortError::Unauthorized));
+        assert_eq!(stub.hits(), 0, "rejected before any egress");
+    }
+
+    #[tokio::test]
+    async fn remote_gw_timeout_maps_to_error_no_retry() {
+        // Stub holds the response past the 5s client timeout.
+        let stub = StubHttp::spawn(|_| (200, "{}".into()), 6_000);
+        let gw = remote_gw(&stub.url());
+        let err = gw.assess(&inf_req_id("req-5")).await.unwrap_err();
+        assert!(matches!(err, PortError::Storage | PortError::Unavailable));
+        // reqwest may deliver the aborted request once; never a retry.
+        assert!(stub.hits() <= 1);
+    }
+
+    // ---- Heuristic gateway eval: labeled corpus + honest metrics ----
+
+    /// B-eval: replay the labeled inference corpus through the heuristic
+    /// gateway in Private mode. GATES: 100% hypothesis recall (every
+    /// expected hypothesis is produced) and per-verdict provenance.
+    /// REPORTED ONLY: precision, per-hypothesis FN, p50/p95 latency and
+    /// per-class accuracy — synthetic labels, no production claim.
+    #[tokio::test]
+    async fn heuristic_eval_corpus_reports_metrics() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../packages/contracts/policy/eval-inference-heuristic.v1.json"
+        );
+        let corpus: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(path).expect("read inference eval corpus"),
+        )
+        .expect("parse corpus");
+        let g = HeuristicLocalInferenceGateway;
+        let mut lat_us: Vec<u128> = Vec::new();
+        let (mut exact, mut total) = (0u32, 0u32);
+        let mut misses: Vec<String> = Vec::new();
+        let mut extras: Vec<String> = Vec::new();
+        let mut per_class: std::collections::BTreeMap<String, (u32, u32)> =
+            std::collections::BTreeMap::new();
+        for case in corpus["cases"].as_array().expect("cases array") {
+            total += 1;
+            let class = case["class"].as_str().unwrap_or("unlabeled").to_string();
+            let signals: Vec<RiskSignal> = case["signals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| serde_json::from_value(s.clone()).unwrap())
+                .collect();
+            let expected: std::collections::BTreeSet<String> = case["expect_hypotheses"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|h| h.as_str().unwrap().to_string())
+                .collect();
+            let start = std::time::Instant::now();
+            let v = g
+                .assess(&InferenceRequest {
+                    request_id: format!("eval-{total}"),
+                    signals,
+                    privacy: PrivacyMode::Private,
+                    est_cost_micro_usd: 0,
+                })
+                .await
+                .unwrap();
+            lat_us.push(start.elapsed().as_micros());
+            let predicted: std::collections::BTreeSet<String> =
+                v.hypotheses.iter().cloned().collect();
+            let missing: Vec<String> = expected.difference(&predicted).cloned().collect();
+            let extra: Vec<String> = predicted.difference(&expected).cloned().collect();
+            let hit = missing.is_empty();
+            let entry = per_class.entry(class.clone()).or_default();
+            entry.1 += 1;
+            if hit {
+                entry.0 += 1;
+            }
+            if missing.is_empty() && extra.is_empty() {
+                exact += 1;
+            }
+            for m in missing {
+                misses.push(format!("{}:{}", case["name"], m));
+            }
+            for e in extra {
+                extras.push(format!("{}:{}", case["name"], e));
+            }
+            // Provenance must always disclose heuristic origin.
+            assert!(v.provenance.contains("local_heuristic"));
+            assert!(v.model_id.contains("heuristic"));
+        }
+        lat_us.sort_unstable();
+        let pct = |p: usize| lat_us[(lat_us.len() * p / 100).min(lat_us.len() - 1)];
+        eprintln!(
+            "inference-eval(private): {exact}/{total} exact-set; recall-misses={misses:?}; extra={extras:?}"
+        );
+        eprintln!(
+            "inference-eval(private): latency p50={}us p95={}us n={}",
+            pct(50),
+            pct(95),
+            lat_us.len()
+        );
+        for (class, (ok, n)) in &per_class {
+            eprintln!("inference-eval(private): class {class} recall {ok}/{n}");
+        }
+        // Gates: recall — every expected hypothesis must appear (a miss is
+        // a false negative, the worst failure for a protector).
+        assert!(
+            misses.is_empty(),
+            "hypothesis recall <100% — misses: {misses:?}"
+        );
+        // Standard mode: the local gateway must serve 0% of requests.
+        assert!(!g.serves(PrivacyMode::Standard));
+    }
+
+    /// B6 race parity: `insert_once` check+insert runs under one lock —
+    /// the in-memory equivalent of the PG PRIMARY KEY. N parallel inserts
+    /// of the same event_id must admit exactly one; the rest get
+    /// Duplicate, never a silent overwrite.
+    #[tokio::test]
+    async fn insert_once_is_atomic_under_concurrency() {
+        let repo = Arc::new(InMemoryEventRepository::default());
+        let mk = || ObservedEvent {
+            event_id: "ev-dup".into(),
+            source_id: "test".into(),
+            observed_at_ms: 1,
+            modality: sovir_domain::Modality::Url,
+            content_digest: "sha256:x".into(),
+            consent_grant_id: "g".into(),
+            sensitive_data_class: sovir_domain::SensitiveDataClass::Public,
+            payload_ref: None,
+            signals: vec![],
+            principal_id: "p".into(),
+            device_id: "d".into(),
+            tenant_id: "t".into(),
+        };
+        let mut joins = Vec::new();
+        for _ in 0..16 {
+            let r = repo.clone();
+            joins.push(tokio::spawn(async move { r.insert_once(mk()).await }));
+        }
+        let mut ok = 0;
+        let mut dup = 0;
+        for j in joins {
+            match j.await.unwrap() {
+                Ok(()) => ok += 1,
+                Err(PortError::Duplicate) => dup += 1,
+                Err(e) => panic!("unexpected error: {e}"),
+            }
+        }
+        assert_eq!(ok, 1, "exactly one insert may win");
+        assert_eq!(dup, 15, "the rest must fail as Duplicate");
+        let stored = repo.list_by_principal("t", "p").await.unwrap();
+        assert_eq!(stored.len(), 1);
+    }
+
+    /// B6 race parity (grant side): `put` is insert-once keyed on
+    /// (tenant, grant_id) — the in-memory equivalent of the PG PK unique
+    /// violation mapped to Duplicate. Concurrent puts of the same key
+    /// admit exactly one; revoke then stays a single coherent row update.
+    #[tokio::test]
+    async fn grant_put_and_revoke_are_atomic_per_call() {
+        let repo = Arc::new(InMemoryConsentRepository::default());
+        let mk = || ConsentGrant {
+            grant_id: "g-1".into(),
+            source_id: "browser".into(),
+            expires_at_ms: u64::MAX,
+            revoked: false,
+            principal_id: "p".into(),
+            device_id: "d".into(),
+            tenant_id: "t".into(),
+        };
+        let (r1, r2) = (repo.clone(), repo.clone());
+        let (a, b) = tokio::join!(async move { r1.put(mk()).await }, async move {
+            r2.put(mk()).await
+        },);
+        let results = [a, b];
+        assert_eq!(
+            results.iter().filter(|r| r.is_ok()).count(),
+            1,
+            "exactly one put may win — PG PK parity"
+        );
+        assert_eq!(
+            results
+                .iter()
+                .filter(|r| matches!(r, Err(PortError::Duplicate)))
+                .count(),
+            1
+        );
+        // Revoke is a coherent single-row update, not a torn write.
+        assert!(repo.revoke("t", "g-1").await.unwrap());
+        assert!(repo.get("t", "g-1").await.unwrap().unwrap().revoked);
+        // Re-put after revoke still dedupes — the row exists.
+        assert!(matches!(repo.put(mk()).await, Err(PortError::Duplicate)));
     }
 }

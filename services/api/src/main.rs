@@ -8,11 +8,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sovir_adapters::{
     CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryAuditLog, InMemoryBudgetLedger,
-    InMemoryConsentRepository, InMemoryDeletionReceiptStore, InMemoryDeviceRegistry,
-    InMemoryBudgetReservations, InMemoryEventRepository, InMemoryIdempotencyStore,
-    InMemoryInterventionSink,
-    InMemorySessionStore, InMemoryThreatIntel, InMemoryWebhookRegistry, RecordingDeliveryChannel,
-    RecordingHttpEgress, SystemClock, WebhookChannel,
+    InMemoryBudgetReservations, InMemoryConsentRepository, InMemoryDeletionReceiptStore,
+    InMemoryDeviceRegistry, InMemoryEventRepository, InMemoryIdempotencyStore,
+    InMemoryInterventionSink, InMemorySessionStore, InMemoryThreatIntel, InMemoryWebhookRegistry,
+    RecordingDeliveryChannel, RecordingHttpEgress, SystemClock, WebhookChannel,
 };
 use sovir_application::{AppError, PrincipalDataExport, PurgeReport, ServicePorts, SovirService};
 use sovir_domain::{
@@ -392,6 +391,7 @@ async fn compose_service(
                 budget: Arc::new(pg.clone()),
                 reservations: Arc::new(pg.clone()),
                 intel: intel_feed(Arc::new(pg.clone())),
+                investigations: Arc::new(pg.clone()),
                 identity: identity_verifier(&egress),
                 attester: Some(Arc::new(sovir_adapters::NoopAttester)),
             },
@@ -460,6 +460,7 @@ fn dev_service_with(
                         .saturating_mul(1_000_000),
                 )),
                 intel: intel_feed(Arc::new(InMemoryThreatIntel::default())),
+                investigations: Arc::new(sovir_adapters::InMemoryInvestigationStore::default()),
                 identity: webhooks.as_ref().and_then(|(_, e)| identity_verifier(e)),
                 attester: Some(Arc::new(sovir_adapters::NoopAttester)),
             },
@@ -861,6 +862,42 @@ async fn list_interventions(
     items.truncate(list_limit(&q));
     Ok(Json(items))
 }
+#[derive(Deserialize)]
+struct RunInvestigationRequest {
+    /// Evidence window in ms; clamped server-side to the domain bound.
+    #[serde(default = "default_investigation_window_ms")]
+    window_ms: u64,
+}
+fn default_investigation_window_ms() -> u64 {
+    60 * 60 * 1000
+}
+async fn run_investigation(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RunInvestigationRequest>,
+) -> Result<(StatusCode, Json<sovir_domain::Investigation>), ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    let inv = s
+        .service
+        .run_investigation(&p, body.window_ms)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    Ok((StatusCode::CREATED, Json(inv)))
+}
+async fn list_investigations(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Vec<sovir_domain::Investigation>>, ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    let mut items = s
+        .service
+        .list_investigations(&p)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    items.truncate(list_limit(&q));
+    Ok(Json(items))
+}
 #[derive(Serialize)]
 struct DispatchResult {
     delivered: u64,
@@ -991,6 +1028,10 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/inference/assess", post(assess_inference))
         .route("/v1/intel/pull", post(pull_intel))
         .route("/v1/intel", get(list_intel))
+        .route(
+            "/v1/investigations",
+            post(run_investigation).get(list_investigations),
+        )
         .route("/v1/me/retention", post(enforce_retention))
         .route("/v1/webhooks", post(register_webhook).get(list_webhooks))
         .route("/v1/webhooks/{id}/revoke", post(revoke_webhook))
@@ -1131,6 +1172,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(n) if n > 0 => tracing::info!(delivered = n, "dispatch sweep"),
                     Ok(_) => {}
                     Err(e) => tracing::warn!(error = %e, "dispatch sweep failed"),
+                }
+            }
+        });
+    }
+    // Scheduled threat-intel sweep (B5 infra path): pulls validated
+    // indicators every SOVIR_INTEL_SWEEP_MS; 0/unset disables it.
+    // SOVIR_INTEL_TENANT sets the fallback tenant for indicators that do
+    // not declare one (default "dev", the dev tenant).
+    let intel_sweep_ms: u64 = env::var("SOVIR_INTEL_SWEEP_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    if intel_sweep_ms > 0 {
+        let intel_tenant = env::var("SOVIR_INTEL_TENANT").unwrap_or_else(|_| "dev".into());
+        let svc = service.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_millis(intel_sweep_ms));
+            loop {
+                tick.tick().await;
+                match svc.pull_intel_global(&intel_tenant).await {
+                    Ok((kept, dropped)) if kept > 0 || dropped > 0 => {
+                        tracing::info!(kept, dropped, "intel sweep")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "intel sweep failed"),
+                }
+            }
+        });
+    }
+    // Scheduled orphan-reservation sweep (B21 infra path): a crash between
+    // reserve and settle leaves a `pending` row that would hold the tenant
+    // cap forever. Runs refund_expired_reservations every
+    // SOVIR_RESERVATION_SWEEP_MS; 0/unset disables it.
+    let reservation_sweep_ms: u64 = env::var("SOVIR_RESERVATION_SWEEP_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    if reservation_sweep_ms > 0 {
+        let ttl_ms: u64 = env::var("SOVIR_RESERVATION_TTL_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(600_000); // 10 min default
+        let svc = service.clone();
+        tokio::spawn(async move {
+            let mut tick =
+                tokio::time::interval(std::time::Duration::from_millis(reservation_sweep_ms));
+            loop {
+                tick.tick().await;
+                match svc.refund_expired_reservations(ttl_ms).await {
+                    Ok(n) if n > 0 => tracing::info!(refunded = n, "reservation sweep"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "reservation sweep failed"),
                 }
             }
         });

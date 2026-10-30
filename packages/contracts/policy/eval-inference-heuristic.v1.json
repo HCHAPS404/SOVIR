@@ -1,0 +1,24 @@
+{
+  "corpus_version": "inference-heuristic-dev-1",
+  "description": "Labeled synthetic cases for HeuristicLocalInferenceGateway (Private mode). expect_hypotheses is the FULL hypothesis set the rules should produce — recall is gated at 100%, precision is reported per case. Includes ambiguous and adversarial combinations. Labels are eval expectations, not ground truth.",
+  "cases": [
+    {"name": "classic_credential_phish", "signals": ["CREDENTIAL_REQUEST", "IDENTITY_UNVERIFIED"], "expect_hypotheses": ["credential_phishing", "credential_request_unverified", "identity_unverified"], "class": "clear_positive"},
+    {"name": "payment_fraud_pressure", "signals": ["PAYMENT_REQUEST", "URGENT_ACTION"], "expect_hypotheses": ["payment_fraud_attempt", "payment_request_unverified", "urgency_pressure"], "class": "clear_positive"},
+    {"name": "full_scam_stack", "signals": ["CREDENTIAL_REQUEST", "PAYMENT_REQUEST", "URGENT_ACTION", "IDENTITY_UNVERIFIED"], "expect_hypotheses": ["credential_phishing", "payment_fraud_attempt", "credential_request_unverified", "payment_request_unverified", "identity_unverified", "urgency_pressure"], "class": "clear_positive"},
+    {"name": "dark_pattern_consent", "signals": ["CONSENT_DARK_PATTERN"], "expect_hypotheses": ["manipulative_pattern"], "class": "clear_positive"},
+    {"name": "hidden_fee", "signals": ["HIDDEN_FEE_PATTERN"], "expect_hypotheses": ["manipulative_pattern"], "class": "clear_positive"},
+    {"name": "lone_credential_prompt", "signals": ["CREDENTIAL_REQUEST"], "expect_hypotheses": ["credential_request_unverified"], "class": "ambiguous"},
+    {"name": "lone_payment_prompt", "signals": ["PAYMENT_REQUEST"], "expect_hypotheses": ["payment_request_unverified"], "class": "ambiguous"},
+    {"name": "tracking_only", "signals": ["TRACKING_OBSERVED"], "expect_hypotheses": ["privacy_tracking_exposure"], "class": "clear_positive"},
+    {"name": "lone_urgency", "signals": ["URGENT_ACTION"], "expect_hypotheses": ["urgency_pressure"], "class": "ambiguous"},
+    {"name": "lone_unverified", "signals": ["IDENTITY_UNVERIFIED"], "expect_hypotheses": ["identity_unverified"], "class": "ambiguous"},
+    {"name": "empty_benign", "signals": [], "expect_hypotheses": ["no_pattern_detected"], "class": "benign"},
+    {"name": "benign_tracking_with_urgency", "signals": ["TRACKING_OBSERVED", "URGENT_ACTION"], "expect_hypotheses": ["privacy_tracking_exposure", "urgency_pressure"], "class": "ambiguous"},
+    {"name": "exposure_limit_user_set", "signals": ["USER_DEFINED_EXPOSURE_LIMIT"], "expect_hypotheses": ["no_pattern_detected"], "class": "benign", "note": "user-imposed limit is governance, not a threat pattern"},
+    {"name": "adversarial_everything", "signals": ["CREDENTIAL_REQUEST", "PAYMENT_REQUEST", "URGENT_ACTION", "IDENTITY_UNVERIFIED", "TRACKING_OBSERVED", "HIDDEN_FEE_PATTERN", "CONSENT_DARK_PATTERN", "USER_DEFINED_EXPOSURE_LIMIT"], "expect_hypotheses": ["credential_phishing", "payment_fraud_attempt", "manipulative_pattern", "credential_request_unverified", "payment_request_unverified", "privacy_tracking_exposure", "identity_unverified", "urgency_pressure"], "class": "adversarial"},
+    {"name": "cred_plus_urgency_no_identity", "signals": ["CREDENTIAL_REQUEST", "URGENT_ACTION"], "expect_hypotheses": ["credential_request_unverified", "urgency_pressure"], "class": "ambiguous", "note": "phishing rule needs IDENTITY_UNVERIFIED; without it the weaker hypotheses apply"},
+    {"name": "payment_plus_identity_no_urgency", "signals": ["PAYMENT_REQUEST", "IDENTITY_UNVERIFIED"], "expect_hypotheses": ["payment_request_unverified", "identity_unverified"], "class": "ambiguous"},
+    {"name": "dup_style_signal_set", "signals": ["URGENT_ACTION", "URGENT_ACTION"], "expect_hypotheses": ["urgency_pressure"], "class": "adversarial", "note": "repeated enum — dedup behavior under malformed-ish input"},
+    {"name": "consent_plus_tracking", "signals": ["CONSENT_DARK_PATTERN", "TRACKING_OBSERVED"], "expect_hypotheses": ["manipulative_pattern", "privacy_tracking_exposure"], "class": "clear_positive"}
+  ]
+}

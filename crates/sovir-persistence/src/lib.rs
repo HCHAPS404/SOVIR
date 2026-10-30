@@ -7,12 +7,14 @@
 use async_trait::async_trait;
 use sovir_domain::{
     ConsentGrant, DeletionReceipt, DeliveryState, Device, IdempotentResponse, InferenceReservation,
-    InferenceUsage, Intervention, InterventionKind, Modality, ObservedEvent, Platform,
-    ReservationState, RiskSignal, Scope, SensitiveDataClass, Session, WebhookEndpoint,
+    InferenceUsage, Intervention, InterventionKind, Investigation, InvestigationFact, Modality,
+    ObservedEvent, Platform, ReservationState, RiskSignal, Scope, SensitiveDataClass,
+    SequenceFinding, Session, WebhookEndpoint,
 };
 use sovir_ports::{
     BudgetReservations, ConsentRepository, DeletionReceiptStore, DeviceRegistry, EventRepository,
-    IdempotencyStore, InterventionSink, PortError, ReserveOutcome, SessionStore,
+    IdempotencyStore, InterventionSink, InvestigationStore, PortError, ReserveOutcome,
+    SessionStore,
 };
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::time::Duration;
@@ -1703,6 +1705,8 @@ fn audit_action_str(a: sovir_domain::AuditAction) -> &'static str {
         DispatchRan => "dispatch_ran",
         InferenceCalled => "inference_called",
         IntelPulled => "intel_pulled",
+        ReservationsSwept => "reservations_swept",
+        InvestigationRan => "investigation_ran",
     }
 }
 fn audit_action_from(s: &str) -> sovir_domain::AuditAction {
@@ -1720,6 +1724,8 @@ fn audit_action_from(s: &str) -> sovir_domain::AuditAction {
         "retention_enforced" => RetentionEnforced,
         "inference_called" => InferenceCalled,
         "intel_pulled" => IntelPulled,
+        "reservations_swept" => ReservationsSwept,
+        "investigation_ran" => InvestigationRan,
         _ => DispatchRan,
     }
 }
@@ -1879,7 +1885,7 @@ impl BudgetReservations for PgStore {
             .await
             .map_err(map_storage)?;
             if let Some((rid, state, est)) = existing {
-                return Ok(ReserveOutcome::Reserved(InferenceReservation {
+                return Ok(ReserveOutcome::Reserved(Box::new(InferenceReservation {
                     reservation_id: rid,
                     tenant_id: tenant_id.to_string(),
                     request_id: request_id.to_string(),
@@ -1889,7 +1895,7 @@ impl BudgetReservations for PgStore {
                     usage: None,
                     created_at_ms: 0,
                     settled_at_ms: None,
-                }));
+                })));
             }
             // Lock the tenant's budget row. No row yet ⇒ provision with the
             // store default cap (0 = fail closed, ADR-0012).
@@ -1920,11 +1926,7 @@ impl BudgetReservations for PgStore {
             .await
             .map_err(map_storage)?;
             let est_i = est_micro_usd.min(i64::MAX as u64) as i64;
-            if spent
-                .saturating_add(pending)
-                .saturating_add(est_i)
-                > cap
-            {
+            if spent.saturating_add(pending).saturating_add(est_i) > cap {
                 return Ok(ReserveOutcome::BudgetExceeded);
             }
             let rid = format!("rsv-{}", uuid::Uuid::new_v4().simple());
@@ -1945,7 +1947,7 @@ impl BudgetReservations for PgStore {
             .execute(&mut *tx)
             .await
             .map_err(map_storage)?;
-            Ok(ReserveOutcome::Reserved(InferenceReservation {
+            Ok(ReserveOutcome::Reserved(Box::new(InferenceReservation {
                 reservation_id: rid,
                 tenant_id: tenant_id.to_string(),
                 request_id: request_id.to_string(),
@@ -1955,7 +1957,7 @@ impl BudgetReservations for PgStore {
                 usage: None,
                 created_at_ms: now as u64,
                 settled_at_ms: None,
-            }))
+            })))
         })
         .await;
         match res {
@@ -2045,11 +2047,112 @@ impl BudgetReservations for PgStore {
         }
         res
     }
+    /// Global refund sweep (privileged path — deliberately unscoped, like
+    /// `delete_expired`/`pull`): orphans hold no tenant lock.
+    async fn refund_expired(&self, cutoff_ms: u64) -> Result<u64, PortError> {
+        let n = sqlx::query(
+            "UPDATE inference_reservations SET state = 'refunded'
+             WHERE state = 'pending' AND created_at_ms <= $1",
+        )
+        .bind(cutoff_ms as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(map_storage)?
+        .rows_affected();
+        Ok(n)
+    }
 }
 fn reservation_state(s: &str) -> ReservationState {
     match s {
         "settled" => ReservationState::Settled,
         "refunded" => ReservationState::Refunded,
         _ => ReservationState::Pending,
+    }
+}
+
+#[async_trait::async_trait]
+impl InvestigationStore for PgStore {
+    async fn insert(&self, inv: Investigation) -> Result<(), PortError> {
+        let mut tx = self.tenant_tx(&inv.tenant_id).await?;
+        let facts = serde_json::to_value(&inv.facts).map_err(|_| PortError::Storage)?;
+        let hypotheses = serde_json::to_value(&inv.hypotheses).map_err(|_| PortError::Storage)?;
+        let res = (async {
+            sqlx::query(
+                "INSERT INTO investigations
+                 (investigation_id, tenant_id, principal_id, window_ms,
+                  events_examined, facts, hypotheses, created_at_ms)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+            )
+            .bind(&inv.investigation_id)
+            .bind(&inv.tenant_id)
+            .bind(&inv.principal_id)
+            .bind(inv.window_ms as i64)
+            .bind(inv.events_examined as i64)
+            .bind(facts)
+            .bind(hypotheses)
+            .bind(inv.created_at_ms as i64)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
+    }
+    async fn list_by_principal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<Vec<Investigation>, PortError> {
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let rows = sqlx::query_as::<
+                _,
+                (
+                    String,
+                    String,
+                    i64,
+                    i64,
+                    serde_json::Value,
+                    serde_json::Value,
+                    i64,
+                ),
+            >(
+                "SELECT investigation_id, principal_id, window_ms, events_examined,
+                        facts, hypotheses, created_at_ms
+                 FROM investigations
+                 WHERE tenant_id = $1 AND principal_id = $2
+                 ORDER BY created_at_ms DESC",
+            )
+            .bind(tenant_id)
+            .bind(principal_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            let mut out = Vec::with_capacity(rows.len());
+            for (id, pid, window_ms, events_examined, facts, hypotheses, created_at_ms) in rows {
+                out.push(Investigation {
+                    investigation_id: id,
+                    tenant_id: tenant_id.to_string(),
+                    principal_id: pid,
+                    window_ms: window_ms.max(0) as u64,
+                    events_examined: events_examined.max(0) as u64,
+                    facts: serde_json::from_value::<Vec<InvestigationFact>>(facts)
+                        .map_err(|_| PortError::Storage)?,
+                    hypotheses: serde_json::from_value::<Vec<SequenceFinding>>(hypotheses)
+                        .map_err(|_| PortError::Storage)?,
+                    created_at_ms: created_at_ms.max(0) as u64,
+                });
+            }
+            Ok(out)
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
     }
 }

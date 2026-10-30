@@ -35,6 +35,7 @@ fn ports() -> ServicePorts {
         budget: Arc::new(InMemoryBudgetLedger::default()),
         reservations: Arc::new(sovir_adapters::InMemoryBudgetReservations::default()),
         intel: Arc::new(InMemoryThreatIntel::default()),
+        investigations: Arc::new(sovir_adapters::InMemoryInvestigationStore::default()),
         identity: None,
         attester: None,
     }
@@ -336,6 +337,7 @@ async fn webhook_delivery_signs_and_honors_allowlist_and_revocation() {
             budget: Arc::new(InMemoryBudgetLedger::default()),
             reservations: Arc::new(sovir_adapters::InMemoryBudgetReservations::default()),
             intel: Arc::new(InMemoryThreatIntel::default()),
+            investigations: Arc::new(sovir_adapters::InMemoryInvestigationStore::default()),
             identity: None,
             attester: None,
         },
@@ -491,7 +493,10 @@ fn infer_req(cost: u64) -> InferenceRequest {
     // twice (B21), which is what makes billing idempotent.
     static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     InferenceRequest {
-        request_id: format!("req-{}", N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
+        request_id: format!(
+            "req-{}",
+            N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ),
         signals: vec![RiskSignal::UrgentAction],
         privacy: PrivacyMode::Private,
         est_cost_micro_usd: cost,
@@ -606,6 +611,72 @@ async fn inference_concurrent_reserves_do_not_exceed_cap() {
     assert_eq!(exceeded, 1, "the other must fail closed as BudgetExceeded");
 }
 
+/// Orphan-reservation sweep: a pending row past its TTL is refunded so a
+/// crashed process cannot hold the tenant cap forever; settled rows are
+/// untouched.
+#[tokio::test]
+async fn reservation_sweep_refunds_orphans_releases_cap() {
+    struct NowClock;
+    impl Clock for NowClock {
+        fn now_ms(&self) -> u64 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
+        }
+    }
+    let mut p = ports();
+    p.inference = Some(Arc::new(StubGateway {
+        serve_standard: true,
+    }));
+    let reservations: Arc<dyn sovir_ports::BudgetReservations> =
+        Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(100));
+    p.reservations = reservations.clone();
+    let s = SovirService::new(Arc::new(NowClock), p);
+    // An orphan = what a crash between reserve and settle leaves behind.
+    match reservations.reserve("dev", "orphan-1", 90).await.unwrap() {
+        sovir_ports::ReserveOutcome::Reserved(_) => {}
+        _ => panic!("reserve should succeed"),
+    }
+    // Second reserve under cap: 90 pending + 90 est > 100 → refused, the
+    // orphan is holding cap.
+    assert!(matches!(
+        reservations.reserve("dev", "other-1", 90).await.unwrap(),
+        sovir_ports::ReserveOutcome::BudgetExceeded
+    ));
+    // ttl 0 ⇒ everything pending is "expired" and gets refunded.
+    assert_eq!(s.refund_expired_reservations(0).await.unwrap(), 1);
+    // Cap released: a fresh reserve now fits.
+    assert!(matches!(
+        reservations.reserve("dev", "other-2", 90).await.unwrap(),
+        sovir_ports::ReserveOutcome::Reserved(_)
+    ));
+    // That fresh pending row is itself swept if left orphan (ttl 0).
+    assert_eq!(s.refund_expired_reservations(0).await.unwrap(), 1);
+    // A settled reservation is terminal and never swept.
+    match reservations.reserve("dev", "other-3", 90).await.unwrap() {
+        sovir_ports::ReserveOutcome::Reserved(_) => {}
+        _ => panic!("cap must be free again"),
+    }
+    reservations
+        .settle(
+            "dev",
+            "other-3",
+            90,
+            sovir_domain::InferenceUsage {
+                provider: "test".into(),
+                model: "m".into(),
+                tokens_est: 0,
+                tokens_actual: None,
+                cache_hit: false,
+                redaction_tier: "standard".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(s.refund_expired_reservations(0).await.unwrap(), 0);
+}
+
 /// Idempotent billing: replaying the same request_id reuses the settled
 /// reservation instead of charging twice.
 #[tokio::test]
@@ -677,4 +748,126 @@ async fn intel_list_is_tenant_scoped() {
     // empty for both tenants with no feed
     assert_eq!(s.pull_intel(&pb).await.unwrap(), 0);
     assert!(s.list_intel(&pb).await.unwrap().is_empty());
+}
+
+/// Scheduled sweep path (no principal): indicators keep their declared
+/// tenant or fall back to the configured default; unverified items are
+/// still dropped; repeated pulls over the same ids are idempotent.
+#[tokio::test]
+async fn intel_sweep_global_keeps_declared_tenant_and_is_idempotent() {
+    let intel = Arc::new(InMemoryThreatIntel::default());
+    intel.seed(vec![
+        IntelIndicator {
+            indicator_id: "i-tenant-b".into(),
+            tenant_id: "tenant-b".into(),
+            kind: "domain".into(),
+            value: "b-specific.example.com".into(),
+            confidence_bp: 8_000,
+            provenance: "fixture:v1".into(),
+            at_ms: 0,
+        },
+        IntelIndicator {
+            indicator_id: "i-default".into(),
+            tenant_id: String::new(),
+            kind: "domain".into(),
+            value: "global-threat.example.com".into(),
+            confidence_bp: 9_000,
+            provenance: "fixture:v1".into(),
+            at_ms: 0,
+        },
+        IntelIndicator {
+            indicator_id: "i-bad".into(),
+            tenant_id: String::new(),
+            kind: "domain".into(),
+            value: "no-provenance.example.com".into(),
+            confidence_bp: 1,
+            provenance: String::new(),
+            at_ms: 0,
+        },
+    ]);
+    let mut p = ports();
+    p.intel = intel;
+    let s = SovirService::new(Arc::new(FixedClock), p);
+    let (kept, dropped) = s.pull_intel_global("dev").await.unwrap();
+    assert_eq!((kept, dropped), (2, 1));
+    // i-tenant-b lands under its declared tenant, not the sweep default.
+    let mut pb = principal("pb");
+    pb.tenant_id = "tenant-b".into();
+    let b_items = s.list_intel(&pb).await.unwrap();
+    assert_eq!(b_items.len(), 1);
+    assert_eq!(b_items[0].indicator_id, "i-tenant-b");
+    // i-default lands under the sweep default tenant.
+    let dev_items = s.list_intel(&principal("p")).await.unwrap();
+    assert_eq!(dev_items.len(), 1);
+    assert_eq!(dev_items[0].indicator_id, "i-default");
+    assert_eq!(dev_items[0].at_ms, 10_000);
+}
+
+// ---- B5: deterministic local investigations -----------------------------
+
+#[tokio::test]
+async fn investigation_reports_facts_and_hypotheses_separately() {
+    let s = service();
+    let p = principal("p");
+    s.grant(&p, grant()).await.unwrap();
+    // Identity-unverified at 9_000, credential request at 10_000 →
+    // IdentityThenCredential hypothesis inside the window.
+    let mut e1 = event();
+    e1.event_id = "ev-identity".into();
+    e1.observed_at_ms = 9_000;
+    e1.signals = vec![RiskSignal::IdentityUnverified];
+    let mut e2 = event();
+    e2.event_id = "ev-credential".into();
+    e2.observed_at_ms = 10_000;
+    e2.signals = vec![RiskSignal::CredentialRequest];
+    e2.sensitive_data_class = SensitiveDataClass::Sensitive;
+    s.ingest(&p, e1).await.unwrap();
+    s.ingest(&p, e2).await.unwrap();
+
+    let inv = s.run_investigation(&p, 60_000).await.unwrap();
+    assert_eq!(inv.events_examined, 2);
+    assert_eq!(inv.tenant_id, "dev");
+    // Facts prove counts: 1 identity signal, 1 credential signal, 1
+    // SENSITIVE event, 1 PUBLIC event.
+    let fact = |kind, subject: &str| {
+        inv.facts
+            .iter()
+            .find(|f| f.kind == kind && f.subject == subject)
+            .map(|f| f.count)
+    };
+    use sovir_domain::InvestigationFactKind as FK;
+    assert_eq!(fact(FK::SignalObserved, "IDENTITY_UNVERIFIED"), Some(1));
+    assert_eq!(fact(FK::SignalObserved, "CREDENTIAL_REQUEST"), Some(1));
+    assert_eq!(fact(FK::DataClassObserved, "SENSITIVE"), Some(1));
+    assert_eq!(fact(FK::DataClassObserved, "PUBLIC"), Some(1));
+    // Hypothesis (not fact): the escalation pattern is a hint.
+    assert!(inv
+        .hypotheses
+        .iter()
+        .any(|h| h.pattern == sovir_domain::SequencePattern::IdentityThenCredential));
+    // Persisted and listed newest-first for the calling principal only.
+    let listed = s.list_investigations(&p).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].investigation_id, inv.investigation_id);
+    // Another principal in the same tenant sees nothing.
+    let other = principal("other");
+    assert!(s.list_investigations(&other).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn investigation_requires_events_scope_and_clamps_window() {
+    let s = service();
+    let mut no_scope = principal("p");
+    no_scope.scopes = vec![Scope::DevicesWrite];
+    assert!(matches!(
+        s.run_investigation(&no_scope, 60_000).await,
+        Err(AppError::Forbidden)
+    ));
+    // Window larger than the bound is clamped, not rejected.
+    let p = principal("p");
+    s.grant(&p, grant()).await.unwrap();
+    s.ingest(&p, event()).await.unwrap();
+    let inv = s.run_investigation(&p, u64::MAX).await.unwrap();
+    assert_eq!(inv.window_ms, sovir_domain::MAX_INVESTIGATION_WINDOW_MS);
+    assert_eq!(inv.events_examined, 1);
 }

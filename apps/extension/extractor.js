@@ -19,6 +19,20 @@
 
     if (doc.querySelector('input[type="password"]')) signals.add("CREDENTIAL_REQUEST");
 
+    // Credential form whose action posts to a different origin: the page
+    // collects secrets for someone else — classic phishing shape.
+    for (const form of doc.querySelectorAll("form[action]")) {
+      if (!form.querySelector('input[type="password"]')) continue;
+      try {
+        const actionHost = new URL(form.action, loc.href ?? undefined).host;
+        const pageHost = new URL(loc.href).host;
+        if (actionHost && pageHost && actionHost !== pageHost) {
+          signals.add("IDENTITY_UNVERIFIED");
+          break;
+        }
+      } catch {}
+    }
+
     const paymentFields = doc.querySelectorAll(
       'input[autocomplete^="cc-"], input[name*="card" i], input[id*="card" i], input[name*="cvv" i], input[name*="iban" i]',
     );

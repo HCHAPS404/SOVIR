@@ -10,6 +10,8 @@ members = [
   "services/api",
   "services/migrations",
   "services/observer",
+  "crates/sovir-edge-store",
+  "crates/sovir-edge-extract",
 ]
 
 [workspace.package]
