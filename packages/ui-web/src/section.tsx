@@ -17,7 +17,7 @@ export type CatalogSection = {
   states: Record<string, Partial<Pick<CatalogSection, "title" | "lede" | "note" | "rows" | "blocks" | "actions">>>;
 };
 
-const data = catalog as {
+const data = catalog as unknown as {
   states: PatternState[];
   stateLabels: Record<string, string>;
   sections: CatalogSection[];

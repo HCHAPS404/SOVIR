@@ -130,6 +130,19 @@ jobs:
           test "$(psql "$APP_URL" -Atqc "SELECT count(*) FROM audit_events")" = "0"
           test "$(psql "$APP_URL" -Atqc "SELECT count(*) FROM intel_indicators")" = "0"
           test "$(psql "$APP_URL" -Atqc "SELECT count(*) FROM inference_budget")" = "0"
+          # sovir_app WITHOUT app.tenant_id must see zero rows in EVERY
+          # tenant-scoped table — the RLS fail-closed invariant across the
+          # whole schema, not just the tables above (B21).
+          for t in consent_grants sessions devices observation_events \
+                   interventions webhook_endpoints idempotency_keys \
+                   deletion_receipts audit_events inference_budget \
+                   intel_indicators inference_reservations; do
+            if psql "$DATABASE_URL" -Atqc \
+               "SELECT 1 FROM pg_tables WHERE tablename='$t'" | grep -q 1; then
+              n="$(psql "$APP_URL" -Atqc "SELECT count(*) FROM $t")"
+              test "$n" = "0" || { echo "RLS leak: $t exposes $n rows without tenant"; exit 1; }
+            fi
+          done
           echo "PASS: tenant RLS verified for sovir_app"
       - name: Durable-adapter smoke (Postgres-backed API)
         env:
@@ -203,6 +216,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: 'false'
 
   sbom:
     runs-on: ubuntu-latest
@@ -232,13 +246,17 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
-      # Report-only for now — no threshold gate until the baseline is known.
       - name: Workspace coverage (lcov)
         run: cargo llvm-cov --workspace --lcov --output-path coverage.lcov
-      - name: Coverage summary
-        run: cargo llvm-cov report --workspace --summary-only
+      # Gate calibrated to the 2026-10-30 baseline (total 58.69% lines):
+      # total floor 55% + per-crate floors; persistence/migrations are
+      # excluded (live-Postgres deferred toolchain), observer floor 25%
+      # (Windows-gated code cannot run on the Linux runner).
+      - name: Coverage summary + gate
+        run: |
+          cargo llvm-cov report --workspace --summary-only | tee coverage-summary.txt
+          python3 scripts/coverage_gate.py coverage-summary.txt
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-lcov
           path: coverage.lcov
-          GITLEAKS_ENABLE_COMMENTS: 'false'
