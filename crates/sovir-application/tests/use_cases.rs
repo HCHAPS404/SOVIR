@@ -1,11 +1,12 @@
 use sovir_adapters::{
     DeterministicRiskAnalyzer, InMemoryConsentRepository, InMemoryDeviceRegistry,
-    InMemoryEventRepository, InMemorySessionStore,
+    InMemoryEventRepository, InMemoryInterventionSink, InMemorySessionStore,
+    RecordingDeliveryChannel,
 };
-use sovir_application::{AppError, SovirService};
+use sovir_application::{AppError, ServicePorts, SovirService};
 use sovir_domain::{
-    ConsentGrant, DomainError, Modality, ObservedEvent, Platform, Principal, RiskLevel, RiskSignal,
-    Scope, SensitiveDataClass,
+    ConsentGrant, DeliveryState, DomainError, InterventionKind, Modality, ObservedEvent, Platform,
+    Principal, RiskLevel, RiskSignal, Scope, SensitiveDataClass,
 };
 use sovir_ports::Clock;
 use std::sync::Arc;
@@ -18,11 +19,15 @@ impl Clock for FixedClock {
 fn service() -> SovirService {
     SovirService::new(
         Arc::new(FixedClock),
-        Arc::new(InMemoryConsentRepository::default()),
-        Arc::new(InMemoryEventRepository::default()),
-        Arc::new(DeterministicRiskAnalyzer),
-        Arc::new(InMemorySessionStore::default()),
-        Arc::new(InMemoryDeviceRegistry::default()),
+        ServicePorts {
+            grants: Arc::new(InMemoryConsentRepository::default()),
+            events: Arc::new(InMemoryEventRepository::default()),
+            risk: Arc::new(DeterministicRiskAnalyzer),
+            sessions: Arc::new(InMemorySessionStore::default()),
+            devices: Arc::new(InMemoryDeviceRegistry::default()),
+            sink: Arc::new(InMemoryInterventionSink::default()),
+            channel: Arc::new(RecordingDeliveryChannel::default()),
+        },
     )
 }
 fn principal(id: &str) -> Principal {
@@ -149,4 +154,79 @@ fn dev_session_lifecycle_and_device_revocation_fail_closed() {
         service.issue_dev_session("p-1", "dev-device"),
         Err(AppError::DeviceRevoked)
     ));
+}
+#[test]
+fn warn_decision_enqueues_intervention_and_dispatch_delivers() {
+    let service = service();
+    let p = principal("p-1");
+    service.grant(&p, grant()).unwrap();
+    let decision = service.ingest(&p, event()).unwrap();
+    assert_eq!(
+        decision.assessment.decision,
+        sovir_domain::DecisionKind::Warn
+    );
+    let pending = service.list_interventions(&p).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].kind, InterventionKind::WarnBanner);
+    assert_eq!(pending[0].state, DeliveryState::Pending);
+    assert_eq!(service.dispatch_due(&p).unwrap(), 1);
+    let done = service.list_interventions(&p).unwrap();
+    assert_eq!(done[0].state, DeliveryState::Delivered);
+    assert_eq!(done[0].attempts, 1);
+    assert_eq!(done[0].audit.len(), 1);
+    // Nothing left due.
+    assert_eq!(service.dispatch_due(&p).unwrap(), 0);
+}
+#[test]
+fn observe_decision_enqueues_nothing() {
+    let service = service();
+    let p = principal("p-1");
+    service.grant(&p, grant()).unwrap();
+    let mut e = event();
+    e.signals = vec![];
+    service.ingest(&p, e).unwrap();
+    assert!(service.list_interventions(&p).unwrap().is_empty());
+}
+#[test]
+fn export_and_purge_principal_data() {
+    let service = service();
+    let p = principal("p-1");
+    service
+        .register_device(&p, Some("dev-device"), Platform::Linux, "rig")
+        .unwrap();
+    service.grant(&p, grant()).unwrap();
+    service.ingest(&p, event()).unwrap();
+    let export = service.export_data(&p).unwrap();
+    assert_eq!(export.grants.len(), 1);
+    assert_eq!(export.events.len(), 1);
+    assert_eq!(export.devices.len(), 1);
+    assert_eq!(export.interventions.len(), 1);
+    // Another principal's data is not in the export.
+    let other = principal("p-2");
+    assert!(service.export_data(&other).unwrap().events.is_empty());
+    // Purge removes stored data and revokes access.
+    let report = service.purge_data(&p).unwrap();
+    assert_eq!(report.events_deleted, 1);
+    assert_eq!(report.grants_deleted, 1);
+    assert_eq!(report.interventions_deleted, 1);
+    assert_eq!(report.devices_revoked, 1);
+    assert!(service.export_data(&p).unwrap().events.is_empty());
+}
+#[test]
+fn revoking_device_expires_its_pending_interventions() {
+    let service = service();
+    let p = principal("p-1");
+    service
+        .register_device(&p, Some("dev-device"), Platform::Android, "phone")
+        .unwrap();
+    service.grant(&p, grant()).unwrap();
+    service.ingest(&p, event()).unwrap(); // warn -> pending intervention
+    assert_eq!(
+        service.list_interventions(&p).unwrap()[0].state,
+        DeliveryState::Pending
+    );
+    service.revoke_device(&p, "dev-device").unwrap();
+    let after = service.list_interventions(&p).unwrap();
+    assert_eq!(after[0].state, DeliveryState::Expired);
+    assert_eq!(after[0].audit.last().unwrap().detail, "device revoked");
 }

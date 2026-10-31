@@ -1,20 +1,36 @@
 //! Use cases and orchestrated policy checks. No Axum, SQL or model SDK dependencies.
 use sovir_domain::{
-    valid_identifier, validate_consent, validate_device, validate_event, ConsentGrant, Device,
-    DomainError, EventDecision, ObservedEvent, Platform, Principal, Scope, Session,
+    intervention_for, next_attempt_ms, valid_identifier, validate_consent, validate_device,
+    validate_event, ConsentGrant, DeliveryAuditEntry, DeliveryState, Device, DomainError,
+    EventDecision, Intervention, ObservedEvent, Platform, Principal, Scope, Session,
+    MAX_DELIVERY_ATTEMPTS,
 };
 use sovir_ports::{
-    Clock, ConsentRepository, DeviceRegistry, EventRepository, PortError, RiskAnalyzer,
-    SessionStore,
+    Clock, ConsentRepository, DeliveryChannel, DeviceRegistry, EventRepository, InterventionSink,
+    PortError, RiskAnalyzer, SessionStore,
 };
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 
 /// Development sessions are short-lived; production session TTL is a separate decision.
 const DEV_SESSION_TTL_MS: u64 = 15 * 60 * 1000;
+
+#[derive(Debug, serde::Serialize)]
+pub struct PrincipalDataExport {
+    pub principal_id: String,
+    pub grants: Vec<ConsentGrant>,
+    pub events: Vec<ObservedEvent>,
+    pub devices: Vec<Device>,
+    pub interventions: Vec<Intervention>,
+}
+#[derive(Debug, serde::Serialize)]
+pub struct PurgeReport {
+    pub events_deleted: u64,
+    pub grants_deleted: u64,
+    pub interventions_deleted: u64,
+    pub sessions_revoked: u64,
+    pub devices_revoked: u64,
+}
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -36,6 +52,18 @@ pub enum AppError {
     DeviceRevoked,
 }
 
+/// All port implementations the service depends on, injected by the adapter
+/// layer (or test doubles).
+pub struct ServicePorts {
+    pub grants: Arc<dyn ConsentRepository>,
+    pub events: Arc<dyn EventRepository>,
+    pub risk: Arc<dyn RiskAnalyzer>,
+    pub sessions: Arc<dyn SessionStore>,
+    pub devices: Arc<dyn DeviceRegistry>,
+    pub sink: Arc<dyn InterventionSink>,
+    pub channel: Arc<dyn DeliveryChannel>,
+}
+
 #[derive(Clone)]
 pub struct SovirService {
     clock: Arc<dyn Clock>,
@@ -44,40 +72,28 @@ pub struct SovirService {
     risk: Arc<dyn RiskAnalyzer>,
     sessions: Arc<dyn SessionStore>,
     devices: Arc<dyn DeviceRegistry>,
-    id_counter: Arc<AtomicU64>,
+    sink: Arc<dyn InterventionSink>,
+    channel: Arc<dyn DeliveryChannel>,
 }
 impl SovirService {
-    pub fn new(
-        clock: Arc<dyn Clock>,
-        grants: Arc<dyn ConsentRepository>,
-        events: Arc<dyn EventRepository>,
-        risk: Arc<dyn RiskAnalyzer>,
-        sessions: Arc<dyn SessionStore>,
-        devices: Arc<dyn DeviceRegistry>,
-    ) -> Self {
+    pub fn new(clock: Arc<dyn Clock>, ports: ServicePorts) -> Self {
         Self {
             clock,
-            grants,
-            events,
-            risk,
-            sessions,
-            devices,
-            id_counter: Arc::new(AtomicU64::new(0)),
+            grants: ports.grants,
+            events: ports.events,
+            risk: ports.risk,
+            sessions: ports.sessions,
+            devices: ports.devices,
+            sink: ports.sink,
+            channel: ports.channel,
         }
     }
 
-    /// Dev-only token/id derivation: hash of clock + counter + inputs. NOT
-    /// cryptographic; acceptable only because the API is loopback-bound and
-    /// development-only (see ADR-0006).
-    fn dev_token(&self, prefix: &str, parts: &[&str]) -> String {
-        let n = self.id_counter.fetch_add(1, Ordering::Relaxed);
-        let mut h = DefaultHasher::new();
-        self.clock.now_ms().hash(&mut h);
-        n.hash(&mut h);
-        for p in parts {
-            p.hash(&mut h);
-        }
-        format!("{prefix}-{:016x}", h.finish())
+    /// Random token/id derivation (UUIDv4). The parts are accepted for
+    /// call-site clarity but intentionally unused: identifiers must not be
+    /// derivable from inputs.
+    fn dev_token(&self, prefix: &str, _parts: &[&str]) -> String {
+        format!("{prefix}-{}", uuid::Uuid::new_v4().simple())
     }
 
     /// Issues a short-lived development session for a synthetic principal.
@@ -180,12 +196,24 @@ impl SovirService {
         if !principal.has_scope(Scope::DevicesWrite) {
             return Err(AppError::Forbidden);
         }
-        let revoked =
-            self.devices
-                .revoke(&principal.principal_id, device_id, self.clock.now_ms())?;
+        let now = self.clock.now_ms();
+        let revoked = self
+            .devices
+            .revoke(&principal.principal_id, device_id, now)?;
         if revoked {
             self.sessions.revoke_by_device(device_id)?;
             self.grants.revoke_by_device(device_id)?;
+            // Fail closed: pending deliveries to a revoked device expire now.
+            for mut i in self.sink.list_by_device(device_id)? {
+                i.audit.push(DeliveryAuditEntry {
+                    at_ms: now,
+                    from: i.state,
+                    to: DeliveryState::Expired,
+                    detail: "device revoked".to_string(),
+                });
+                i.state = DeliveryState::Expired;
+                self.sink.update(i)?;
+            }
         }
         Ok(revoked)
     }
@@ -247,10 +275,111 @@ impl SovirService {
         let assessment = self.risk.analyze(&event);
         let id = event.event_id.clone();
         self.events.insert_once(event)?;
-        Ok(EventDecision {
+        let decision = EventDecision {
             event_id: id,
             assessment,
             protected_action_executed: false,
+        };
+        // Deterministic policy: warn/review decisions enqueue an intervention
+        // for the device channel. `Observe` produces nothing; there is no
+        // automated block path.
+        if let Some(kind) = intervention_for(&decision) {
+            let intervention = Intervention {
+                intervention_id: self.dev_token("int", &[&decision.event_id]),
+                event_id: decision.event_id.clone(),
+                principal_id: principal.principal_id.clone(),
+                device_id: principal.device_id.clone(),
+                kind,
+                state: DeliveryState::Pending,
+                attempts: 0,
+                created_at_ms: now,
+                next_attempt_at_ms: now,
+                last_error: None,
+                audit: vec![],
+            };
+            self.sink.enqueue(intervention)?;
+        }
+        Ok(decision)
+    }
+
+    pub fn list_interventions(&self, principal: &Principal) -> Result<Vec<Intervention>, AppError> {
+        Ok(self.sink.list(&principal.principal_id)?)
+    }
+
+    /// Data governance (B16): everything stored for a principal — metadata
+    /// only, never payloads or raw content.
+    pub fn export_data(&self, principal: &Principal) -> Result<PrincipalDataExport, AppError> {
+        Ok(PrincipalDataExport {
+            principal_id: principal.principal_id.clone(),
+            grants: self.grants.list_by_principal(&principal.principal_id)?,
+            events: self.events.list_by_principal(&principal.principal_id)?,
+            devices: self.devices.list(&principal.principal_id)?,
+            interventions: self.sink.list(&principal.principal_id)?,
         })
+    }
+
+    /// Erasure: hard-deletes events, grants and intervention records; revokes
+    /// all sessions and devices (audit-preserving tombstones). The calling
+    /// session is revoked too — the request still completes.
+    pub fn purge_data(&self, principal: &Principal) -> Result<PurgeReport, AppError> {
+        let now = self.clock.now_ms();
+        let mut report = PurgeReport {
+            events_deleted: self.events.delete_by_principal(&principal.principal_id)?,
+            grants_deleted: self.grants.delete_by_principal(&principal.principal_id)?,
+            interventions_deleted: self.sink.delete_by_principal(&principal.principal_id)?,
+            sessions_revoked: self.sessions.revoke_by_principal(&principal.principal_id)?,
+            devices_revoked: 0,
+        };
+        for d in self.devices.list(&principal.principal_id)? {
+            if d.is_active() {
+                self.devices
+                    .revoke(&principal.principal_id, &d.device_id, now)?;
+                self.sessions.revoke_by_device(&d.device_id)?;
+                report.devices_revoked += 1;
+            }
+        }
+        Ok(report)
+    }
+
+    /// Delivers every due intervention through the channel, recording state
+    /// transitions and audit entries. Failures reschedule with backoff and
+    /// expire after MAX_DELIVERY_ATTEMPTS. Returns the count delivered.
+    pub fn dispatch_due(&self, principal: &Principal) -> Result<u64, AppError> {
+        if !principal.has_scope(Scope::EventsWrite) {
+            return Err(AppError::Forbidden);
+        }
+        let now = self.clock.now_ms();
+        let mut delivered = 0u64;
+        for mut i in self.sink.due(now, 50)? {
+            if i.principal_id != principal.principal_id {
+                continue;
+            }
+            i.attempts = i.attempts.saturating_add(1);
+            let from = i.state;
+            match self.channel.send(&i) {
+                Ok(()) => {
+                    i.state = DeliveryState::Delivered;
+                    i.last_error = None;
+                    delivered += 1;
+                }
+                Err(e) => {
+                    i.last_error = Some(e.to_string());
+                    i.state = if i.attempts >= MAX_DELIVERY_ATTEMPTS {
+                        DeliveryState::Expired
+                    } else {
+                        i.next_attempt_at_ms = next_attempt_ms(i.attempts, now);
+                        DeliveryState::Failed
+                    };
+                }
+            }
+            i.audit.push(DeliveryAuditEntry {
+                at_ms: now,
+                from,
+                to: i.state,
+                detail: i.last_error.clone().unwrap_or_default(),
+            });
+            self.sink.update(i)?;
+        }
+        Ok(delivered)
     }
 }

@@ -25,6 +25,95 @@ components:
         revoked: {type: boolean, default: false}
     ObservedEvent:
       $ref: '../schemas/observed-event.schema.json'
+    ApiError:
+      type: object
+      required: [message]
+      properties:
+        message: {type: string}
+    DevSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [principal_id]
+      properties:
+        principal_id: {type: string}
+        device_id: {type: string}
+    Session:
+      type: object
+      description: Development session token and its binding. Dev-only, never production auth.
+      required: [token, session_id, principal_id, tenant_id, device_id, scopes, expires_at_ms, revoked]
+      properties:
+        token: {type: string}
+        session_id: {type: string}
+        principal_id: {type: string}
+        tenant_id: {type: string}
+        device_id: {type: string}
+        scopes: {type: array, items: {type: string, enum: [consent_write, events_write, devices_write, sessions_write]}}
+        expires_at_ms: {type: integer, format: int64}
+        revoked: {type: boolean}
+    Principal:
+      type: object
+      required: [principal_id, tenant_id, device_id, session_id, scopes]
+      properties:
+        principal_id: {type: string}
+        tenant_id: {type: string}
+        device_id: {type: string}
+        session_id: {type: string}
+        scopes: {type: array, items: {type: string}}
+    RegisterDeviceRequest:
+      type: object
+      additionalProperties: false
+      required: [platform]
+      properties:
+        device_id: {type: string}
+        platform: {type: string, enum: [ANDROID, IOS, WINDOWS, MACOS, LINUX, BROWSER_EXTENSION]}
+        label: {type: string}
+    Device:
+      type: object
+      required: [device_id, principal_id, platform, label, registered_at_ms]
+      properties:
+        device_id: {type: string}
+        principal_id: {type: string}
+        platform: {type: string}
+        label: {type: string}
+        registered_at_ms: {type: integer, format: int64}
+        last_seen_at_ms: {type: integer, format: int64, nullable: true}
+        revoked_at_ms: {type: integer, format: int64, nullable: true}
+    Intervention:
+      type: object
+      required: [intervention_id, event_id, principal_id, device_id, kind, state, attempts, created_at_ms, next_attempt_at_ms]
+      properties:
+        intervention_id: {type: string}
+        event_id: {type: string}
+        principal_id: {type: string}
+        device_id: {type: string}
+        kind: {type: string, enum: [notify, warn_banner, require_review]}
+        state: {type: string, enum: [pending, delivered, failed, expired]}
+        attempts: {type: integer}
+        created_at_ms: {type: integer, format: int64}
+        next_attempt_at_ms: {type: integer, format: int64}
+        last_error: {type: string, nullable: true}
+        audit: {type: array, items: {type: object}}
+    DispatchResult:
+      type: object
+      required: [delivered]
+      properties:
+        delivered: {type: integer}
+    PrincipalDataExport:
+      type: object
+      properties:
+        principal_id: {type: string}
+        grants: {type: array, items: {$ref: '#/components/schemas/ConsentGrant'}}
+        events: {type: array, items: {type: object}}
+        devices: {type: array, items: {$ref: '#/components/schemas/Device'}}
+        interventions: {type: array, items: {$ref: '#/components/schemas/Intervention'}}
+    PurgeReport:
+      type: object
+      properties:
+        events_deleted: {type: integer}
+        grants_deleted: {type: integer}
+        interventions_deleted: {type: integer}
+        sessions_revoked: {type: integer}
+        devices_revoked: {type: integer}
 security:
   - devBearer: []
 paths:
@@ -33,6 +122,90 @@ paths:
       security: []
       responses:
         '200': {description: Process is alive}
+  /health/ready:
+    get:
+      security: []
+      responses:
+        '200': {description: Ready (real pool probe when Postgres adapter is active)}
+        '503': {description: Not ready}
+  /v1/auth/dev-session:
+    post:
+      summary: Mint a short-lived development session (SOVIR_ENV=local|test only)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DevSessionRequest'}
+      responses:
+        '201': {description: Session created, content: {application/json: {schema: {$ref: '#/components/schemas/Session'}}}}
+        '403': {description: Dev sessions disabled or device revoked}
+        '400': {description: Invalid identifiers}
+  /v1/auth/logout:
+    post:
+      summary: Revoke the calling session
+      responses:
+        '204': {description: Logged out}
+        '401': {description: Missing session token}
+        '404': {description: Unknown session}
+  /v1/auth/whoami:
+    get:
+      summary: Resolved principal for the calling session
+      responses:
+        '200': {description: Principal, content: {application/json: {schema: {$ref: '#/components/schemas/Principal'}}}}
+        '401': {description: Missing, expired or revoked session}
+  /v1/devices:
+    post:
+      summary: Register a device for the calling principal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RegisterDeviceRequest'}
+      responses:
+        '201': {description: Device registered, content: {application/json: {schema: {$ref: '#/components/schemas/Device'}}}}
+        '401': {description: Unauthorized}
+        '409': {description: Device id already registered}
+    get:
+      summary: List the calling principal's devices
+      responses:
+        '200': {description: Devices, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Device'}}}}}
+        '401': {description: Unauthorized}
+  /v1/devices/{id}/revoke:
+    post:
+      summary: Revoke a device; fails closed on its sessions, grants and pending interventions
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+      responses:
+        '204': {description: Revoked}
+        '401': {description: Unauthorized}
+        '404': {description: Not found}
+  /v1/interventions:
+    get:
+      summary: List interventions for the calling principal
+      responses:
+        '200': {description: Interventions, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Intervention'}}}}}
+        '401': {description: Unauthorized}
+  /v1/interventions/dispatch:
+    post:
+      summary: "Deliver due interventions through the registered channel (dev: recording stub)"
+      responses:
+        '200': {description: Count delivered, content: {application/json: {schema: {$ref: '#/components/schemas/DispatchResult'}}}}
+        '401': {description: Unauthorized}
+  /v1/me/data:
+    get:
+      summary: Export the calling principal's stored metadata (B16 governance)
+      responses:
+        '200': {description: Export, content: {application/json: {schema: {$ref: '#/components/schemas/PrincipalDataExport'}}}}
+        '401': {description: Unauthorized}
+    delete:
+      summary: Erase the calling principal's data and revoke access (fail closed)
+      responses:
+        '200': {description: Purge report, content: {application/json: {schema: {$ref: '#/components/schemas/PurgeReport'}}}}
+        '401': {description: Unauthorized}
   /v1/consents:
     post:
       summary: Create a demo-only source consent

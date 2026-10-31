@@ -6,6 +6,7 @@ members = [
   "crates/sovir-application",
   "crates/sovir-inference",
   "crates/sovir-adapters",
+  "crates/sovir-persistence",
   "services/api",
   "services/migrations",
 ]
@@ -23,3 +24,4 @@ axum = { version = "0.8", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
