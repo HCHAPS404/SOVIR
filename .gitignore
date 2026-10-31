@@ -50,3 +50,6 @@ screenshots-private/
 # Tool/runtime artifacts
 *.log
 *.tsbuildinfo
+
+# Provider eval output (may contain provider metadata)
+results/
