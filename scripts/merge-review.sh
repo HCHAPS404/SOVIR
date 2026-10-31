@@ -10,7 +10,7 @@ cd "$(git rev-parse --show-toplevel)"
 die() { echo "ABORT: $*" >&2; exit 1; }
 
 # ---- 1. Preflight ----------------------------------------------------------
-[ -z "$(git status --porcelain)" ] || die "working tree not clean — commit or stash first"
+[ -z "$(git status --porcelain -uno)" ] || die "staged or modified files present — commit or stash first"
 git fetch origin --prune --quiet || die "git fetch failed"
 git rev-parse --verify "origin/$MAIN" >/dev/null || die "origin/$MAIN does not exist"
 

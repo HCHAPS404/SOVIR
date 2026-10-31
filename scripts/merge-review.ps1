@@ -8,7 +8,7 @@ Set-Location (git rev-parse --show-toplevel)
 function Die($msg) { Write-Host "ABORT: $msg" -ForegroundColor Red; exit 1 }
 
 # ---- 1. Preflight ----------------------------------------------------------
-if (git status --porcelain) { Die "working tree not clean - commit or stash first" }
+if (git status --porcelain -uno) { Die "staged or modified files present - commit or stash first" }
 git fetch origin --prune --quiet; if (-not $?) { Die "git fetch failed" }
 git rev-parse --verify "origin/$MAIN" 2>$null | Out-Null
 if (-not $?) { Die "origin/$MAIN does not exist" }
