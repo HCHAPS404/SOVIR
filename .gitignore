@@ -46,3 +46,7 @@ recordings/
 screenshots-private/
 .cache/
 .DS_Store
+
+# Tool/runtime artifacts
+*.log
+*.tsbuildinfo
