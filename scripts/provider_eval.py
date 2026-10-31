@@ -71,7 +71,10 @@ def chat_assess(url: str, key: str, model: str, request_id: str,
         ],
         "response_format": {"type": "json_object"},
         "temperature": 0,
-        "max_tokens": 300,
+        # Reasoning models (muse-spark, muse-spark-open) burn tokens
+        # thinking before emitting the JSON — low caps starve them into
+        # finish_reason=length with null content.
+        "max_tokens": 2048,
     }).encode()
     req = urllib.request.Request(
         url, data=body, method="POST",
@@ -79,7 +82,10 @@ def chat_assess(url: str, key: str, model: str, request_id: str,
                  "content-type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         resp = json.loads(r.read())
-    content = resp["choices"][0]["message"]["content"].strip()
+    content = resp["choices"][0]["message"].get("content")
+    if content is None:  # truncated on max_tokens before answering
+        raise RuntimeError("null content — finish_reason=length (raise max_tokens)")
+    content = content.strip()
     if content.startswith("```"):
         content = content.removeprefix("```json").removeprefix("```").strip("` \n")
     v = json.loads(content)
