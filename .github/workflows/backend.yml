@@ -216,6 +216,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: 'false'
 
   sbom:
     runs-on: ubuntu-latest
@@ -245,13 +246,17 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
-      # Report-only for now — no threshold gate until the baseline is known.
       - name: Workspace coverage (lcov)
         run: cargo llvm-cov --workspace --lcov --output-path coverage.lcov
-      - name: Coverage summary
-        run: cargo llvm-cov report --workspace --summary-only
+      # Gate calibrated to the 2026-10-30 baseline (total 58.69% lines):
+      # total floor 55% + per-crate floors; persistence/migrations are
+      # excluded (live-Postgres deferred toolchain), observer floor 25%
+      # (Windows-gated code cannot run on the Linux runner).
+      - name: Coverage summary + gate
+        run: |
+          cargo llvm-cov report --workspace --summary-only | tee coverage-summary.txt
+          python3 scripts/coverage_gate.py coverage-summary.txt
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-lcov
           path: coverage.lcov
-          GITLEAKS_ENABLE_COMMENTS: 'false'
