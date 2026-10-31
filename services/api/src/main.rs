@@ -11,7 +11,7 @@ use sovir_adapters::{
     InMemoryEventRepository, InMemoryInterventionSink, InMemorySessionStore,
     RecordingDeliveryChannel, SystemClock,
 };
-use sovir_application::{AppError, ServicePorts, SovirService};
+use sovir_application::{AppError, PrincipalDataExport, PurgeReport, ServicePorts, SovirService};
 use sovir_domain::{
     ConsentGrant, Device, DomainError, EventDecision, Intervention, ObservedEvent, Platform,
     Principal, Session,
@@ -275,6 +275,21 @@ async fn dispatch(
     Ok(Json(DispatchResult { delivered }))
 }
 
+async fn export_data(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<PrincipalDataExport>, ApiError> {
+    let p = require_principal(&headers, &s)?;
+    Ok(Json(s.service.export_data(&p).map_err(map_error)?))
+}
+async fn purge_data(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<PurgeReport>, ApiError> {
+    let p = require_principal(&headers, &s)?;
+    Ok(Json(s.service.purge_data(&p).map_err(map_error)?))
+}
+
 fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health/live", get(live))
@@ -289,6 +304,7 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/events", post(ingest))
         .route("/v1/interventions", get(list_interventions))
         .route("/v1/interventions/dispatch", post(dispatch))
+        .route("/v1/me/data", get(export_data).delete(purge_data))
         .layer(
             ServiceBuilder::new()
                 // Outermost first: assign x-request-id, echo it back, bound
