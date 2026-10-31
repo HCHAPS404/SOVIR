@@ -1,4 +1,4 @@
--- Reverts 0004: drops tenant policies and the application role.
+-- Reverts 0006: drops tenant policies and the application role.
 DO $$
 DECLARE t TEXT;
 BEGIN
