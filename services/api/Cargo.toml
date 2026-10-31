@@ -9,6 +9,7 @@ sovir-domain = { path = "../../crates/sovir-domain" }
 sovir-ports = { path = "../../crates/sovir-ports" }
 sovir-application = { path = "../../crates/sovir-application" }
 sovir-adapters = { path = "../../crates/sovir-adapters" }
+sovir-persistence = { path = "../../crates/sovir-persistence" }
 axum.workspace = true
 serde.workspace = true
 serde_json.workspace = true
