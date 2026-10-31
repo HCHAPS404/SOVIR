@@ -212,3 +212,21 @@ fn export_and_purge_principal_data() {
     assert_eq!(report.devices_revoked, 1);
     assert!(service.export_data(&p).unwrap().events.is_empty());
 }
+#[test]
+fn revoking_device_expires_its_pending_interventions() {
+    let service = service();
+    let p = principal("p-1");
+    service
+        .register_device(&p, Some("dev-device"), Platform::Android, "phone")
+        .unwrap();
+    service.grant(&p, grant()).unwrap();
+    service.ingest(&p, event()).unwrap(); // warn -> pending intervention
+    assert_eq!(
+        service.list_interventions(&p).unwrap()[0].state,
+        DeliveryState::Pending
+    );
+    service.revoke_device(&p, "dev-device").unwrap();
+    let after = service.list_interventions(&p).unwrap();
+    assert_eq!(after[0].state, DeliveryState::Expired);
+    assert_eq!(after[0].audit.last().unwrap().detail, "device revoked");
+}

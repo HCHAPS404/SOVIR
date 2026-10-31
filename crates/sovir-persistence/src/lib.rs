@@ -719,4 +719,19 @@ impl InterventionSink for PgStore {
             Ok(n)
         })
     }
+    fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError> {
+        block(async {
+            let q = format!(
+                "SELECT {INTERVENTION_COLS} FROM interventions
+                 WHERE device_id = $1 AND state IN ('pending','failed')
+                 ORDER BY created_at_ms"
+            );
+            let rows = sqlx::query_as::<_, InterventionRow>(&q)
+                .bind(device_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(map_storage)?;
+            rows.into_iter().map(row_to_intervention).collect()
+        })
+    }
 }

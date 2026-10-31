@@ -66,6 +66,9 @@ pub trait InterventionSink: Send + Sync {
     fn update(&self, intervention: Intervention) -> Result<(), PortError>;
     /// Data governance: hard deletion of the principal's intervention records.
     fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
+    /// Pending/failed interventions bound to a device (used to expire them
+    /// when the device is revoked).
+    fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError>;
 }
 /// The actual delivery surface (notification, banner, inbox). The dev
 /// adapter records attempts in memory; real channels are platform adapters.
