@@ -1,0 +1,9 @@
+[package]
+name = "sovir-migrations"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+[dependencies]
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "uuid"] }
+tokio.workspace = true

@@ -7,13 +7,15 @@
 
 Rust stable, `rustfmt`, `clippy`, Python 3.12 (comando `python3`), uv 0.13, Node 24, npm 11, pnpm 9.15, GNU Make 4.4 y Git. Con eso se ejecutan `make doctor`, `make check`, `make eval` y `make backend-check`.
 
+En esta máquina, desde el 28 oct 2026, también están Temurin 21 y el Android SDK 35 (cmdline-tools, platform android-35, build-tools 35.0.0 y platform-tools). No viven en el repositorio. Sirven para compilar el shell de `apps/android`. No activan captura.
+
 ## Aplazado a propósito
 
 | Herramienta | Qué es | Retomar cuando |
 |---|---|---|
 | Docker y Docker Compose | Ejecuta servicios locales en contenedores, incluido Postgres de desarrollo | Se salga de la API en memoria y haga falta `infra/docker/compose.backend.dev.yml` |
 | PostgreSQL | Base de datos multiusuario prevista para la nube | Haya ticket de persistencia, cuentas o auditoría. La migración `infra/postgres/migrations/0001_initial.sql` sigue siendo propuesta |
-| Java y Android SDK | Compilan la app Android nativa (Kotlin, Compose) | Empiece el hito de Screen Seeker en Android. Hoy `apps/android` es solo documentación |
+| Java y Android SDK | Compilan la app Android nativa (Kotlin, Compose) | El compilador ya está en esta máquina para el shell. Lo que sigue aplazado es la captura con MediaProjection, no el SDK. |
 | Xcode | Compila iOS y macOS nativos | Haya una máquina macOS. No se puede instalar en este Windows |
 | Flutter | Marco multiplataforma que el comando `make doctor` solo reporta | No instalarlo. La decisión vigente es Kotlin y Swift nativos. Cambiarlo exige un ADR |
 | Proveedores de IA (Meta, Baseten, Modal, Fireworks) y sus créditos | Inferencia remota y cómputo de experimento | El núcleo local esté verificado y haya presupuesto, allowlist y modo Standard. Por defecto no hay llamadas remotas |

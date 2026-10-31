@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { runTerminal } from "./terminal.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const catalog = JSON.parse(readFileSync(resolve(root, "packages/ui-web/src/catalog.json"), "utf8"));
 
@@ -64,7 +66,12 @@ function open(url) {
 }
 
 function help() {
-  console.log(`SOVIR CLI — control del esqueleto local
+  console.log(`SOVIR terminal — producto de escritorio en la consola
+
+  pnpm sovir
+      Abre la sesión interactiva.
+
+Atajos de una sola línea, para el desarrollo local:
 
   pnpm sovir list
   pnpm sovir show <seccion> [--state=review]
@@ -72,14 +79,15 @@ function help() {
   pnpm sovir theme light|dark
   pnpm sovir status
 
-No crea cuentas, no concede captura y no llama a un proveedor.
-Sitio en 3000, consola en 3001, vistas nativas en 8766.`);
+La terminal no crea cuentas, no concede captura y no llama a un proveedor.`);
 }
 
 const [command, ...rest] = process.argv.slice(2);
 const { words, flags } = argsOf(rest);
 
-if (!command || command === "help" || flags.help) {
+if (!command || command === "terminal") {
+  await runTerminal();
+} else if (command === "help" || flags.help) {
   help();
 } else if (command === "list") {
   let group = "";
@@ -134,8 +142,10 @@ if (!command || command === "help" || flags.help) {
   console.log(`Secciones: ${catalog.sections.length}`);
   console.log(`Estados: ${catalog.states.length}`);
   console.log("Web pública y consola: operativas en local, con datos sintéticos.");
-  console.log("Android e iOS: diseño navegable. Compilación NOT_IMPLEMENTED.");
-  console.log("Escritorio: shell navegable. Tauri y captura NOT_IMPLEMENTED.");
+  console.log("Android: interfaz nativa compilada en depuración. Falta instalarla en un teléfono.");
+  console.log("iOS: interfaz nativa en el proyecto. Compilación NOT_IMPLEMENTED en este Windows.");
+  console.log("Escritorio: ventanas de Windows y macOS. Tauri NOT_IMPLEMENTED.");
+  console.log("Terminal: pnpm sovir abre el producto interactivo.");
   console.log("Marca: Umbral, identidad final del esqueleto. Nombre en Outfit.");
 } else {
   console.error(`Comando desconocido: ${command}`);

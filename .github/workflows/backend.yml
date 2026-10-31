@@ -3,20 +3,34 @@ on:
   push:
     paths:
       - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'rust-toolchain.toml'
       - 'crates/**'
-      - 'services/api/**'
+      - 'services/**'
+      - 'infra/postgres/**'
       - 'packages/contracts/**'
+      - 'tests/backend/**'
+      - 'tests/fixtures/**'
       - 'scripts/backend_harness.py'
+      - 'scripts/contract_check.py'
+      - 'deny.toml'
+      - '.gitleaks.toml'
       - '.github/workflows/backend.yml'
   pull_request:
     paths:
       - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'rust-toolchain.toml'
       - 'crates/**'
-      - 'services/api/**'
+      - 'services/**'
+      - 'infra/postgres/**'
       - 'packages/contracts/**'
+      - 'tests/backend/**'
+      - 'tests/fixtures/**'
       - 'scripts/backend_harness.py'
+      - 'scripts/contract_check.py'
+      - 'deny.toml'
+      - '.gitleaks.toml'
       - '.github/workflows/backend.yml'
   workflow_dispatch:
 permissions:
@@ -37,3 +51,76 @@ jobs:
         env:
           SOVIR_BACKEND_REQUIRE_RUST: '1'
         run: python3 scripts/backend_harness.py
+      - name: End-to-end smoke on ephemeral loopback API
+        env:
+          SOVIR_API_DEV_TOKEN: ci_synthetic_dev_token_0123456789abcdef
+        run: |
+          cargo run -p sovir-api &
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8787/health/live >/dev/null && break
+            sleep 2
+          done
+          python3 scripts/backend_demo.py
+
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: sovir_dev
+          POSTGRES_PASSWORD: ci_ephemeral_local_only
+          POSTGRES_DB: sovir_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sovir_dev -d sovir_dev"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://sovir_dev:ci_ephemeral_local_only@localhost:5432/sovir_dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply migrations to ephemeral Postgres
+        run: cargo run -p sovir-migrations -- apply
+      - name: Revert all migrations (rollback path)
+        run: cargo run -p sovir-migrations -- revert
+      - name: Re-apply migrations (idempotent forward path)
+        run: cargo run -p sovir-migrations -- apply
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Validate OpenAPI, JSON Schema and synthetic fixtures
+        # Dependencies are pinned in the script's PEP 723 header.
+        run: uv run scripts/contract_check.py --self-test
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-deny and cargo-audit (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-audit
+      - name: License, ban and source policy
+        run: cargo deny check
+      - name: RustSec advisory audit
+        run: cargo audit
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: 'false'

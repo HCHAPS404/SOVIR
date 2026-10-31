@@ -3,6 +3,7 @@ name = "sovir-ports"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+publish = false
 [dependencies]
 sovir-domain = { path = "../sovir-domain" }
 thiserror.workspace = true
