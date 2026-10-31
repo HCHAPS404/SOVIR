@@ -78,6 +78,21 @@
       },
       "uniqueItems": true,
       "maxItems": 8
+    },
+    "principal_id": {
+      "type": "string",
+      "readOnly": true,
+      "description": "Server-sealed from the session. Client-supplied values are ignored."
+    },
+    "device_id": {
+      "type": "string",
+      "readOnly": true,
+      "description": "Server-sealed from the session. Client-supplied values are ignored."
+    },
+    "tenant_id": {
+      "type": "string",
+      "readOnly": true,
+      "description": "Server-sealed tenant binding (B19). Client-supplied values are ignored."
     }
   }
 }

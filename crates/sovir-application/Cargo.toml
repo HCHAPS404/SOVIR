@@ -10,6 +10,14 @@ sovir-ports = { path = "../sovir-ports" }
 thiserror.workspace = true
 serde.workspace = true
 uuid.workspace = true
+async-trait = "0.1.92"
 
 [dev-dependencies]
 sovir-adapters = { path = "../sovir-adapters" }
+
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[[bench]]
+name = "ingest"
+harness = false
