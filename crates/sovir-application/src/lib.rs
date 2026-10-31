@@ -1,20 +1,27 @@
 //! Use cases and orchestrated policy checks. No Axum, SQL or model SDK dependencies.
 use sovir_domain::{
-    intervention_for, next_attempt_ms, valid_identifier, validate_consent, validate_device,
-    validate_event, validate_url_for_egress, ConsentGrant, DeletionReceipt, DeliveryAuditEntry,
-    DeliveryState, Device, DomainError, EventDecision, Intervention, ObservedEvent, Platform,
-    Principal, Scope, Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
+    data_class_label, detect_sequences, intervention_for, next_attempt_ms, normalize_events,
+    risk_signal_label, valid_identifier, validate_consent, validate_device, validate_event,
+    validate_url_for_egress, AuditAction, AuditEvent, ConsentGrant, DecisionKind, DeletionReceipt,
+    DeliveryAuditEntry, DeliveryState, Device, DomainError, EventDecision, InferenceRequest,
+    InferenceVerdict, IntelIndicator, Intervention, Investigation, InvestigationFact,
+    InvestigationFactKind, ObservedEvent, Platform, Principal, RiskLevel, Scope, SequencePattern,
+    Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS, MAX_INVESTIGATION_EVENTS,
+    MAX_INVESTIGATION_WINDOW_MS,
 };
 use sovir_ports::{
-    Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel, DeviceRegistry,
-    EventRepository, IdempotencyStore, InterventionSink, PortError, RiskAnalyzer, SessionStore,
-    WebhookRegistry,
+    AuditLog, BudgetLedger, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel,
+    DeviceRegistry, EventRepository, IdempotencyStore, InferenceGateway, InterventionSink,
+    PortError, RiskAnalyzer, SessionStore, ThreatIntelFeed, WebhookRegistry,
 };
 use std::sync::Arc;
 use thiserror::Error;
 
 /// Development sessions are short-lived; production session TTL is a separate decision.
 const DEV_SESSION_TTL_MS: u64 = 15 * 60 * 1000;
+/// Evidence correlation window for sequence detection (B2). Dev value;
+/// production tuning is a policy decision.
+const EVIDENCE_WINDOW_MS: u64 = 60 * 60 * 1000;
 
 #[derive(Debug, serde::Serialize)]
 pub struct PrincipalDataExport {
@@ -24,6 +31,8 @@ pub struct PrincipalDataExport {
     pub devices: Vec<Device>,
     pub interventions: Vec<Intervention>,
     pub deletion_receipts: Vec<DeletionReceipt>,
+    /// Caller's own audit tombstones (metadata only — survives purges).
+    pub audit_events: Vec<sovir_domain::AuditEvent>,
 }
 #[derive(Debug, serde::Serialize)]
 pub struct PurgeReport {
@@ -41,6 +50,11 @@ pub struct RetentionReport {
     pub cutoff_ms: u64,
     pub events_deleted: u64,
     pub terminal_interventions_deleted: u64,
+    /// Session tombstones + expired idempotency keys dropped (global only).
+    #[serde(default)]
+    pub session_tombstones_deleted: u64,
+    #[serde(default)]
+    pub idem_keys_expired_deleted: u64,
 }
 
 #[derive(Debug, Error)]
@@ -61,6 +75,10 @@ pub enum AppError {
     Forbidden,
     #[error("device is revoked")]
     DeviceRevoked,
+    #[error("inference provider not configured")]
+    ProviderUnavailable,
+    #[error("inference budget exceeded")]
+    BudgetExceeded,
 }
 
 /// All port implementations the service depends on, injected by the adapter
@@ -76,6 +94,23 @@ pub struct ServicePorts {
     pub webhooks: Arc<dyn WebhookRegistry>,
     pub receipts: Arc<dyn DeletionReceiptStore>,
     pub idem: Arc<dyn IdempotencyStore>,
+    pub audit: Arc<dyn AuditLog>,
+    /// Inference gateway (B4). `None` = no provider configured — calls
+    /// refuse with ProviderUnavailable, never fake a verdict.
+    pub inference: Option<Arc<dyn InferenceGateway>>,
+    pub budget: Arc<dyn BudgetLedger>,
+    /// Durable spend reservations (B21). The atomic gate for inference
+    /// spend — reserve→settle/refund replaces the racy read-then-record
+    /// path; concurrent assess calls cannot both pass under the cap.
+    pub reservations: Arc<dyn sovir_ports::BudgetReservations>,
+    pub intel: Arc<dyn ThreatIntelFeed>,
+    /// Durable investigation reports (B5).
+    pub investigations: Arc<dyn sovir_ports::InvestigationStore>,
+    /// Verified-identity seam (B6/ADR-0013). `None` = dev sessions only.
+    pub identity: Option<Arc<dyn sovir_ports::IdentityVerifier>>,
+    /// Device attestation seam. `None` = attestation not attempted; the
+    /// audit entry then omits the verdict rather than implying one.
+    pub attester: Option<Arc<dyn sovir_ports::DeviceAttester>>,
 }
 
 #[derive(Clone)]
@@ -91,6 +126,13 @@ pub struct SovirService {
     webhooks: Arc<dyn WebhookRegistry>,
     receipts: Arc<dyn DeletionReceiptStore>,
     idem: Arc<dyn IdempotencyStore>,
+    audit: Arc<dyn AuditLog>,
+    inference: Option<Arc<dyn InferenceGateway>>,
+    reservations: Arc<dyn sovir_ports::BudgetReservations>,
+    intel: Arc<dyn ThreatIntelFeed>,
+    investigations: Arc<dyn sovir_ports::InvestigationStore>,
+    identity: Option<Arc<dyn sovir_ports::IdentityVerifier>>,
+    attester: Option<Arc<dyn sovir_ports::DeviceAttester>>,
 }
 impl SovirService {
     pub fn new(clock: Arc<dyn Clock>, ports: ServicePorts) -> Self {
@@ -106,6 +148,13 @@ impl SovirService {
             webhooks: ports.webhooks,
             receipts: ports.receipts,
             idem: ports.idem,
+            audit: ports.audit,
+            inference: ports.inference,
+            reservations: ports.reservations,
+            intel: ports.intel,
+            investigations: ports.investigations,
+            identity: ports.identity,
+            attester: ports.attester,
         }
     }
 
@@ -155,6 +204,13 @@ impl SovirService {
             revoked: false,
         };
         self.sessions.issue(session.clone()).await?;
+        self.audit(
+            tenant_id,
+            principal_id,
+            AuditAction::SessionIssued,
+            &format!("ses:{} dev:{}", session.session_id, device_id),
+        )
+        .await?;
         Ok(session)
     }
 
@@ -183,6 +239,40 @@ impl SovirService {
             }
         }
         Ok(principal)
+    }
+
+    /// Bearer dispatch (B6/ADR-0013): a JWT-shaped token (two dots) goes to
+    /// the configured `IdentityVerifier` and fails closed on rejection —
+    /// no silent downgrade to dev sessions. Anything else resolves through
+    /// the dev `SessionStore` (local/test only, self-declared tenant).
+    ///
+    /// Verified principals carry the same dev scope set for now: claim→scope
+    /// mapping is a pending maintainer decision, and `device_id` is empty —
+    /// OIDC device binding is unsolved, so device-revocation checks do not
+    /// apply on this path yet.
+    pub async fn authenticate_bearer(&self, token: &str) -> Result<Principal, AppError> {
+        if token.matches('.').count() == 2 {
+            let v = self.identity.as_ref().ok_or(AppError::Unauthorized)?;
+            let id = v.verify(token).await.map_err(|_| AppError::Unauthorized)?;
+            if !sovir_domain::valid_identifier(&id.tenant_id)
+                || !sovir_domain::valid_identifier(&id.principal_id)
+            {
+                return Err(AppError::Unauthorized);
+            }
+            return Ok(Principal {
+                principal_id: id.principal_id,
+                tenant_id: id.tenant_id,
+                device_id: String::new(),
+                session_id: String::new(),
+                scopes: vec![
+                    Scope::ConsentWrite,
+                    Scope::EventsWrite,
+                    Scope::DevicesWrite,
+                    Scope::SessionsWrite,
+                ],
+            });
+        }
+        self.authenticate(token).await
     }
 
     pub async fn logout(&self, token: &str) -> Result<bool, AppError> {
@@ -214,6 +304,22 @@ impl SovirService {
         };
         validate_device(&device)?;
         self.devices.register(device.clone()).await?;
+        // Attestation seam: when a provider is wired its verdict rides in
+        // the audit detail; `attest:none` honestly means no proof was made.
+        let attest = match &self.attester {
+            Some(a) => match a.attest(&device).await {
+                Ok(att) => format!("|attest:{}:{}", att.provider, att.level),
+                Err(_) => "|attest:error".to_string(),
+            },
+            None => String::new(),
+        };
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::DeviceRegistered,
+            &format!("dev:{}{}", device.device_id, attest),
+        )
+        .await?;
         Ok(device)
     }
 
@@ -267,6 +373,13 @@ impl SovirService {
                 i.state = DeliveryState::Expired;
                 self.sink.update(i).await?;
             }
+            self.audit(
+                &principal.tenant_id,
+                &principal.principal_id,
+                AuditAction::DeviceRevoked,
+                &format!("dev:{device_id}"),
+            )
+            .await?;
         }
         Ok(revoked)
     }
@@ -292,7 +405,15 @@ impl SovirService {
         {
             return Err(AppError::InvalidGrant);
         }
+        let grant_id = grant.grant_id.clone();
         self.grants.put(grant).await?;
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::ConsentGranted,
+            &format!("grant:{grant_id}"),
+        )
+        .await?;
         Ok(())
     }
     pub async fn revoke(&self, principal: &Principal, grant_id: &str) -> Result<bool, AppError> {
@@ -303,7 +424,17 @@ impl SovirService {
         // tenant-scoped get already makes cross-tenant grants invisible.
         match self.grants.get(&principal.tenant_id, grant_id).await? {
             Some(g) if g.principal_id == principal.principal_id => {
-                Ok(self.grants.revoke(&principal.tenant_id, grant_id).await?)
+                let n = self.grants.revoke(&principal.tenant_id, grant_id).await?;
+                if n {
+                    self.audit(
+                        &principal.tenant_id,
+                        &principal.principal_id,
+                        AuditAction::ConsentRevoked,
+                        &format!("grant:{grant_id}"),
+                    )
+                    .await?;
+                }
+                Ok(n)
             }
             Some(_) => Err(AppError::Forbidden),
             None => Ok(false),
@@ -339,13 +470,42 @@ impl SovirService {
                 now,
             )
             .await?;
-        let assessment = self.risk.analyze(&event);
+        let mut assessment = self.risk.analyze(&event);
         let id = event.event_id.clone();
         self.events.insert_once(event).await?;
+        // Evidence window (B2/ADR-0011): correlate the principal's recent
+        // events; findings can only raise the decision floor, never weaken
+        // consent/device checks or trigger enforcement by themselves.
+        let since = now.saturating_sub(EVIDENCE_WINDOW_MS);
+        let window = normalize_events(
+            self.events
+                .list_recent(&principal.tenant_id, &principal.principal_id, since)
+                .await?,
+        );
+        let sequence_findings = detect_sequences(&window);
+        for f in &sequence_findings {
+            assessment
+                .reasons
+                .push(format!("Sequence: {:?} over {}ms", f.pattern, f.span_ms));
+        }
+        if sequence_findings
+            .iter()
+            .any(|f| matches!(f.pattern, SequencePattern::HookThenPayment))
+        {
+            // A lure followed by a payment request in-window escalates to Warn
+            // regardless of the single-event verdict.
+            assessment.decision = DecisionKind::Warn;
+            if assessment.risk_level != RiskLevel::High {
+                assessment.risk_level = RiskLevel::High;
+            }
+        } else if !sequence_findings.is_empty() && assessment.decision == DecisionKind::Observe {
+            assessment.decision = DecisionKind::Review;
+        }
         let decision = EventDecision {
             event_id: id,
             assessment,
             protected_action_executed: false,
+            sequence_findings,
         };
         // Deterministic policy: warn/review decisions enqueue an intervention
         // for the device channel. `Observe` produces nothing; there is no
@@ -367,6 +527,16 @@ impl SovirService {
             };
             self.sink.enqueue(intervention).await?;
         }
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::EventIngested,
+            &format!(
+                "event:{} decision:{:?} policy:{}",
+                decision.event_id, decision.assessment.decision, decision.assessment.policy_version
+            ),
+        )
+        .await?;
         Ok(decision)
     }
 
@@ -405,6 +575,13 @@ impl SovirService {
             revoked_at_ms: None,
         };
         self.webhooks.register(ep.clone()).await?;
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::WebhookRegistered,
+            &format!("wh:{}", ep.endpoint_id),
+        )
+        .await?;
         Ok(ep)
     }
     pub async fn list_webhooks(
@@ -421,7 +598,7 @@ impl SovirService {
         principal: &Principal,
         endpoint_id: &str,
     ) -> Result<bool, AppError> {
-        Ok(self
+        let n = self
             .webhooks
             .revoke(
                 &principal.tenant_id,
@@ -429,7 +606,17 @@ impl SovirService {
                 endpoint_id,
                 self.clock.now_ms(),
             )
-            .await?)
+            .await?;
+        if n {
+            self.audit(
+                &principal.tenant_id,
+                &principal.principal_id,
+                AuditAction::WebhookRevoked,
+                &format!("wh:{endpoint_id}"),
+            )
+            .await?;
+        }
+        Ok(n)
     }
 
     /// Data governance (B16): everything stored for a principal — metadata
@@ -460,6 +647,10 @@ impl SovirService {
                 .receipts
                 .list_by_principal(&principal.tenant_id, &principal.principal_id)
                 .await?,
+            audit_events: self
+                .audit
+                .list_by_principal(&principal.tenant_id, &principal.principal_id)
+                .await?,
         })
     }
 
@@ -487,6 +678,8 @@ impl SovirService {
                     cutoff_ms,
                 )
                 .await?,
+            session_tombstones_deleted: 0, // principal-scoped sweep keeps tombstones
+            idem_keys_expired_deleted: 0,
         })
     }
 
@@ -499,14 +692,47 @@ impl SovirService {
         retention_ms: u64,
     ) -> Result<RetentionReport, AppError> {
         let cutoff_ms = self.clock.now_ms().saturating_sub(retention_ms);
-        Ok(RetentionReport {
+        // Hygiene: drop aged session tombstones and expired idempotency keys
+        // in the same sweep (expiry older than the retention cutoff).
+        let sessions_deleted = self.sessions.delete_expired(cutoff_ms).await?;
+        let idem_deleted = self.idem.delete_expired_any(cutoff_ms).await?;
+        let report = RetentionReport {
             cutoff_ms,
             events_deleted: self.events.delete_older_than_any(cutoff_ms).await?,
             terminal_interventions_deleted: self
                 .sink
                 .delete_terminal_older_than_any(cutoff_ms)
                 .await?,
-        })
+            session_tombstones_deleted: sessions_deleted,
+            idem_keys_expired_deleted: idem_deleted,
+        };
+        self.audit_global(
+            AuditAction::RetentionEnforced,
+            &format!(
+                "cutoff:{} events:{} interventions:{} sessions:{sessions_deleted} idem:{idem_deleted}",
+                report.cutoff_ms, report.events_deleted, report.terminal_interventions_deleted
+            ),
+        )
+        .await?;
+        Ok(report)
+    }
+
+    /// Orphan-reservation sweep (infrastructure caller, cross-tenant like
+    /// the other global ops). A crash between `reserve` and `settle`
+    /// leaves a `pending` row that would hold the tenant cap forever —
+    /// reservations older than `ttl_ms` are refunded. Settled/refunded
+    /// rows are never touched.
+    pub async fn refund_expired_reservations(&self, ttl_ms: u64) -> Result<u64, AppError> {
+        let cutoff_ms = self.clock.now_ms().saturating_sub(ttl_ms);
+        let refunded = self.reservations.refund_expired(cutoff_ms).await?;
+        if refunded > 0 {
+            self.audit_global(
+                AuditAction::ReservationsSwept,
+                &format!("refunded:{refunded} cutoff:{cutoff_ms}"),
+            )
+            .await?;
+        }
+        Ok(refunded)
     }
 
     /// Erasure: hard-deletes events, grants and intervention records; revokes
@@ -580,48 +806,370 @@ impl SovirService {
                 idem_keys_deleted: report.idem_keys_deleted,
             })
             .await?;
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::DataPurged,
+            &format!("receipt:{}", report.receipt_id),
+        )
+        .await?;
         Ok(report)
     }
 
     /// Delivers every due intervention through the channel, recording state
     /// transitions and audit entries. Failures reschedule with backoff and
     /// expire after MAX_DELIVERY_ATTEMPTS. Returns the count delivered.
+    /// Scheduled global dispatcher: delivers due interventions across all
+    /// tenants using each intervention's own sealed binding. Infra-only;
+    /// the caller-scoped `dispatch_due` remains for manual dispatch.
+    pub async fn dispatch_due_global(&self) -> Result<u64, AppError> {
+        let now = self.clock.now_ms();
+        let mut delivered = 0u64;
+        for i in self.sink.due_any(now, 100).await? {
+            delivered += self.deliver_one(i, now).await? as u64;
+        }
+        self.audit_global(AuditAction::DispatchRan, &format!("delivered:{delivered}"))
+            .await?;
+        Ok(delivered)
+    }
+
+    /// Delivers a single due intervention; returns 1 on success.
+    async fn deliver_one(&self, mut i: Intervention, now: u64) -> Result<u32, AppError> {
+        i.attempts = i.attempts.saturating_add(1);
+        let from = i.state;
+        let mut delivered = 0u32;
+        match self.channel.send(&i).await {
+            Ok(()) => {
+                i.state = DeliveryState::Delivered;
+                i.last_error = None;
+                delivered = 1;
+            }
+            Err(e) => {
+                i.last_error = Some(e.to_string());
+                i.state = if i.attempts >= MAX_DELIVERY_ATTEMPTS {
+                    DeliveryState::Expired
+                } else {
+                    i.next_attempt_at_ms = next_attempt_ms(i.attempts, now);
+                    DeliveryState::Failed
+                };
+            }
+        }
+        i.audit.push(DeliveryAuditEntry {
+            at_ms: now,
+            from,
+            to: i.state,
+            detail: i.last_error.clone().unwrap_or_default(),
+        });
+        self.sink.update(i).await?;
+        Ok(delivered)
+    }
+
+    /// Cross-tenant audit entry for infrastructure operations (retention
+    /// sweeps, global dispatch). Not visible to `list_by_principal`.
+    async fn audit_global(&self, action: AuditAction, detail: &str) -> Result<(), AppError> {
+        self.audit
+            .record(AuditEvent {
+                audit_id: uuid::Uuid::new_v4().simple().to_string(),
+                tenant_id: String::new(),
+                principal_id: String::new(),
+                action,
+                detail: detail.chars().take(120).collect(),
+                at_ms: self.clock.now_ms(),
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Principal-scoped audit entry. Tombstone: survives erasure.
+    async fn audit(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        action: AuditAction,
+        detail: &str,
+    ) -> Result<(), AppError> {
+        self.audit
+            .record(AuditEvent {
+                audit_id: uuid::Uuid::new_v4().simple().to_string(),
+                tenant_id: tenant_id.to_string(),
+                principal_id: principal_id.to_string(),
+                action,
+                detail: detail.chars().take(120).collect(),
+                at_ms: self.clock.now_ms(),
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// The principal's own audit history.
+    pub async fn list_audit(&self, principal: &Principal) -> Result<Vec<AuditEvent>, AppError> {
+        Ok(self
+            .audit
+            .list_by_principal(&principal.tenant_id, &principal.principal_id)
+            .await?)
+    }
+
+    /// The caller's stored observed events (read-back surface; digests and
+    /// typed signals only — never content).
+    pub async fn list_events(&self, principal: &Principal) -> Result<Vec<ObservedEvent>, AppError> {
+        Ok(self
+            .events
+            .list_by_principal(&principal.tenant_id, &principal.principal_id)
+            .await?)
+    }
+
     pub async fn dispatch_due(&self, principal: &Principal) -> Result<u64, AppError> {
         if !principal.has_scope(Scope::EventsWrite) {
             return Err(AppError::Forbidden);
         }
         let now = self.clock.now_ms();
         let mut delivered = 0u64;
-        for mut i in self.sink.due(now, 50).await? {
+        for i in self.sink.due(now, 50).await? {
             if i.tenant_id != principal.tenant_id || i.principal_id != principal.principal_id {
                 continue;
             }
-            i.attempts = i.attempts.saturating_add(1);
-            let from = i.state;
-            match self.channel.send(&i).await {
-                Ok(()) => {
-                    i.state = DeliveryState::Delivered;
-                    i.last_error = None;
-                    delivered += 1;
-                }
-                Err(e) => {
-                    i.last_error = Some(e.to_string());
-                    i.state = if i.attempts >= MAX_DELIVERY_ATTEMPTS {
-                        DeliveryState::Expired
-                    } else {
-                        i.next_attempt_at_ms = next_attempt_ms(i.attempts, now);
-                        DeliveryState::Failed
-                    };
-                }
-            }
-            i.audit.push(DeliveryAuditEntry {
-                at_ms: now,
-                from,
-                to: i.state,
-                detail: i.last_error.clone().unwrap_or_default(),
-            });
-            self.sink.update(i).await?;
+            delivered += self.deliver_one(i, now).await? as u64;
         }
         Ok(delivered)
+    }
+
+    /// Inference boundary (B4/ADR-0012). Checks the privacy mode is
+    /// servable, enforces the tenant's hard budget cap BEFORE calling,
+    /// and records spend only after a successful verdict. No provider =>
+    /// honest refusal, never a fabricated verdict.
+    pub async fn assess_with_inference(
+        &self,
+        principal: &Principal,
+        req: InferenceRequest,
+    ) -> Result<InferenceVerdict, AppError> {
+        if !principal.has_scope(Scope::EventsWrite) {
+            return Err(AppError::Forbidden);
+        }
+        if !valid_identifier(&req.request_id) {
+            return Err(AppError::InvalidRequest);
+        }
+        let gw = self.inference.as_ref().filter(|g| g.serves(req.privacy));
+        let Some(gw) = gw else {
+            self.audit(
+                &principal.tenant_id,
+                &principal.principal_id,
+                AuditAction::InferenceCalled,
+                &format!("unavailable req:{}", req.request_id),
+            )
+            .await?;
+            return Err(AppError::ProviderUnavailable);
+        };
+        // Durable reservation gate (B21): atomic cap check + pending row
+        // in one transaction — no check-then-act window. Same request_id
+        // is idempotent, so replayed ingress reuses its reservation.
+        match self
+            .reservations
+            .reserve(
+                &principal.tenant_id,
+                &req.request_id,
+                req.est_cost_micro_usd,
+            )
+            .await?
+        {
+            sovir_ports::ReserveOutcome::BudgetExceeded => return Err(AppError::BudgetExceeded),
+            sovir_ports::ReserveOutcome::Reserved(_) => {}
+        }
+        let verdict = match gw.assess(&req).await {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = self
+                    .reservations
+                    .refund(&principal.tenant_id, &req.request_id)
+                    .await;
+                return Err(e.into());
+            }
+        };
+        // Without provider metering, actuals equal the estimate. Usage
+        // still records what the gateway itself reported (model,
+        // provenance, redaction tier) so accounting is honest, not fake.
+        let usage = sovir_domain::InferenceUsage {
+            provider: verdict.provenance.clone(),
+            model: verdict.model_id.clone(),
+            tokens_est: 0,
+            tokens_actual: None,
+            cache_hit: false,
+            redaction_tier: match req.privacy {
+                sovir_domain::PrivacyMode::Private => "private".to_string(),
+                _ => "standard".to_string(),
+            },
+        };
+        self.reservations
+            .settle(
+                &principal.tenant_id,
+                &req.request_id,
+                req.est_cost_micro_usd,
+                usage,
+            )
+            .await?;
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::InferenceCalled,
+            &format!(
+                "ok req:{} micros:{} model:{}",
+                req.request_id, req.est_cost_micro_usd, verdict.model_id
+            ),
+        )
+        .await?;
+        Ok(verdict)
+    }
+
+    /// Threat-intel ingest (B5): pulls candidates and keeps only
+    /// indicators with verifiable provenance and bounded values. Anything
+    /// else is dropped, never trusted.
+    pub async fn pull_intel(&self, principal: &Principal) -> Result<u64, AppError> {
+        if !principal.has_scope(Scope::EventsWrite) {
+            return Err(AppError::Forbidden);
+        }
+        let now = self.clock.now_ms();
+        let mut kept = 0u64;
+        let mut dropped = 0u64;
+        for mut ind in self.intel.pull(0).await? {
+            if ind.provenance.is_empty() || !valid_identifier(&ind.value) {
+                dropped += 1;
+                continue; // unverified — drop
+            }
+            ind.tenant_id = principal.tenant_id.clone();
+            ind.at_ms = if ind.at_ms == 0 { now } else { ind.at_ms };
+            self.intel.record(ind).await?;
+            kept += 1;
+        }
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::IntelPulled,
+            &format!("kept:{kept} dropped:{dropped}"),
+        )
+        .await?;
+        Ok(kept)
+    }
+
+    /// Scheduled intel sweep (infrastructure caller — no principal exists).
+    /// Same fail-closed validation as `pull_intel` (provenance required,
+    /// bounded identifier values) but the tenant comes from the indicator:
+    /// the feed is global, so items keep their declared `tenant_id` or fall
+    /// back to `default_tenant`. Returns (kept, dropped).
+    pub async fn pull_intel_global(&self, default_tenant: &str) -> Result<(u64, u64), AppError> {
+        let now = self.clock.now_ms();
+        let (mut kept, mut dropped) = (0u64, 0u64);
+        for mut ind in self.intel.pull(0).await? {
+            if ind.provenance.is_empty() || !valid_identifier(&ind.value) {
+                dropped += 1;
+                continue; // unverified — drop
+            }
+            if ind.tenant_id.is_empty() {
+                ind.tenant_id = default_tenant.to_string();
+            }
+            ind.at_ms = if ind.at_ms == 0 { now } else { ind.at_ms };
+            self.intel.record(ind).await?;
+            kept += 1;
+        }
+        self.audit_global(
+            AuditAction::IntelPulled,
+            &format!("sweep kept:{kept} dropped:{dropped}"),
+        )
+        .await?;
+        Ok((kept, dropped))
+    }
+
+    /// Indicators already validated and recorded for the tenant.
+    pub async fn list_intel(&self, principal: &Principal) -> Result<Vec<IntelIndicator>, AppError> {
+        Ok(self.intel.list(&principal.tenant_id).await?)
+    }
+
+    /// Deterministic local investigation (B5). One bounded pass over the
+    /// principal's stored evidence: normalize → count (facts) →
+    /// `detect_sequences` (hypotheses) → persist → audit. No model calls,
+    /// no spend — the "budget" of this workflow is the event and window
+    /// caps in the domain, not money. Facts and hypotheses are returned
+    /// in separate typed fields (invariant 6); predictions/objectives are
+    /// absent because a deterministic local pass produces none.
+    pub async fn run_investigation(
+        &self,
+        principal: &Principal,
+        window_ms: u64,
+    ) -> Result<Investigation, AppError> {
+        if !principal.has_scope(Scope::EventsWrite) {
+            return Err(AppError::Forbidden);
+        }
+        let now = self.clock.now_ms();
+        let window_ms = window_ms.min(MAX_INVESTIGATION_WINDOW_MS);
+        let since_ms = now.saturating_sub(window_ms);
+        let mut events = normalize_events(
+            self.events
+                .list_recent(&principal.tenant_id, &principal.principal_id, since_ms)
+                .await?,
+        );
+        events.truncate(MAX_INVESTIGATION_EVENTS);
+        let events_examined = events.len() as u64;
+        // Facts: what the record proves — signal and data-class counts.
+        let mut signals = std::collections::BTreeMap::<&'static str, u64>::new();
+        let mut classes = std::collections::BTreeMap::<&'static str, u64>::new();
+        for e in &events {
+            for s in &e.signals {
+                *signals.entry(risk_signal_label(*s)).or_insert(0) += 1;
+            }
+            *classes
+                .entry(data_class_label(e.sensitive_data_class))
+                .or_insert(0) += 1;
+        }
+        let mut facts = Vec::with_capacity(signals.len() + classes.len());
+        for (subject, count) in signals {
+            facts.push(InvestigationFact {
+                kind: InvestigationFactKind::SignalObserved,
+                subject: subject.to_string(),
+                count,
+            });
+        }
+        for (subject, count) in classes {
+            facts.push(InvestigationFact {
+                kind: InvestigationFactKind::DataClassObserved,
+                subject: subject.to_string(),
+                count,
+            });
+        }
+        // Hypotheses: the same typed hints ingest reports — never facts.
+        let hypotheses = detect_sequences(&events);
+        let inv = Investigation {
+            investigation_id: format!("inv-{}", uuid::Uuid::new_v4().simple()),
+            tenant_id: principal.tenant_id.clone(),
+            principal_id: principal.principal_id.clone(),
+            window_ms,
+            events_examined,
+            facts,
+            hypotheses,
+            created_at_ms: now,
+        };
+        self.investigations.insert(inv.clone()).await?;
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::InvestigationRan,
+            &format!(
+                "events:{} facts:{} hypotheses:{}",
+                inv.events_examined,
+                inv.facts.len(),
+                inv.hypotheses.len()
+            ),
+        )
+        .await?;
+        Ok(inv)
+    }
+
+    /// The principal's own investigation history (newest first, paginated
+    /// by the HTTP layer).
+    pub async fn list_investigations(
+        &self,
+        principal: &Principal,
+    ) -> Result<Vec<Investigation>, AppError> {
+        Ok(self
+            .investigations
+            .list_by_principal(&principal.tenant_id, &principal.principal_id)
+            .await?)
     }
 }

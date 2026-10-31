@@ -7,8 +7,9 @@
 //! resolve another tenant's rows. Records carry the sealed tenant binding.
 use async_trait::async_trait;
 use sovir_domain::{
-    Assessment, ConsentGrant, DeletionReceipt, Device, IdempotentResponse, Intervention,
-    InterventionKind, ObservedEvent, Session, WebhookEndpoint,
+    Assessment, AuditEvent, ConsentGrant, DeletionReceipt, Device, IdempotentResponse,
+    InferenceRequest, InferenceVerdict, IntelIndicator, Intervention, InterventionKind,
+    Investigation, ObservedEvent, PrivacyMode, Session, VerifiedIdentity, WebhookEndpoint,
 };
 use thiserror::Error;
 
@@ -18,6 +19,12 @@ pub enum PortError {
     Storage,
     #[error("event already processed")]
     Duplicate,
+    #[error("consent grant missing, revoked or expired at write time")]
+    Consent,
+    #[error("provider or capability not configured")]
+    Unavailable,
+    #[error("credential verification failed")]
+    Unauthorized,
 }
 
 pub trait Clock: Send + Sync {
@@ -70,6 +77,14 @@ pub trait EventRepository: Send + Sync {
     /// Global retention sweep: deletes every event older than `cutoff_ms`
     /// regardless of principal. Used only by the scheduled sweep job.
     async fn delete_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError>;
+    /// Evidence window (B2/ADR-0011): the principal's events observed at or
+    /// after `since_ms`, used to detect escalation sequences on ingest.
+    async fn list_recent(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        since_ms: u64,
+    ) -> Result<Vec<ObservedEvent>, PortError>;
 }
 pub trait RiskAnalyzer: Send + Sync {
     fn analyze(&self, event: &ObservedEvent) -> Assessment;
@@ -90,6 +105,11 @@ pub trait SessionStore: Send + Sync {
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<u64, PortError>;
+    /// Global hygiene: hard-deletes session tombstones whose expiry
+    /// timestamp is older than `cutoff_ms` (passed as now_ms). Revoked
+    /// sessions persist as audit tombstones until their natural expiry also
+    /// ages past the cutoff. Only the scheduled retention sweep calls this.
+    async fn delete_expired(&self, now_ms: u64) -> Result<u64, PortError>;
 }
 /// Device inventory scoped by principal within a tenant. A device record is
 /// never self-declared proof of authorization; registration only records
@@ -161,6 +181,9 @@ pub trait InterventionSink: Send + Sync {
         principal_id: &str,
         cutoff_ms: u64,
     ) -> Result<u64, PortError>;
+    /// Global sweep: pending/failed interventions due at `now_ms` across
+    /// all tenants (scheduled dispatcher; infra-only operation).
+    async fn due_any(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError>;
     /// Global retention sweep counterpart of `delete_terminal_older_than`.
     async fn delete_terminal_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError>;
 }
@@ -204,6 +227,139 @@ pub trait HttpEgress: Send + Sync {
         body: &str,
         headers: &[(String, String)],
     ) -> Result<(), PortError>;
+    /// POST that returns the response body (ADR-0012 inference path).
+    /// Default refuses: recording egress must never fabricate a provider
+    /// response, so gateways built on top fail closed unless a real
+    /// transport implements this.
+    async fn post_and_receive(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(String, String)],
+    ) -> Result<String, PortError> {
+        let _ = (url, body, headers);
+        Err(PortError::Unavailable)
+    }
+    /// GET that returns the response body (OIDC/JWKS public-key retrieval).
+    /// Default refuses for the same reason: recording egress must never
+    /// fabricate key material.
+    async fn get(&self, url: &str, headers: &[(String, String)]) -> Result<String, PortError> {
+        let _ = (url, headers);
+        Err(PortError::Unavailable)
+    }
+}
+/// Verified caller identity (OIDC/B6). Producing one requires a real
+/// signature check against configured key material — dev sessions do NOT
+/// go through this path and remain self-declared.
+#[async_trait]
+pub trait IdentityVerifier: Send + Sync {
+    /// Verifies a bearer credential; returns typed claims or refuses.
+    async fn verify(&self, token: &str) -> Result<VerifiedIdentity, PortError>;
+}
+/// Device attestation outcome (seam — no real provider wired yet).
+/// `level` honestly reports what the provider actually proved.
+#[derive(Debug, Clone)]
+pub struct Attestation {
+    /// "none" | "os" | "hardware" — anything stronger than none requires a
+    /// real platform provider (Play Integrity, DeviceCheck, Windows attestation).
+    pub level: String,
+    pub provider: String,
+}
+/// Device attestation port. Implementations prove device integrity claims
+/// via platform mechanisms; the Noop adapter always reports `none` so the
+/// audit trail records honesty rather than an implied guarantee.
+#[async_trait]
+pub trait DeviceAttester: Send + Sync {
+    async fn attest(&self, device: &Device) -> Result<Attestation, PortError>;
+}
+/// Unified sensitive-action audit trail. Entries are metadata tombstones:
+/// they survive erasure (like deletion receipts) so administrative actions
+/// remain provable after the underlying data is gone.
+#[async_trait]
+pub trait AuditLog: Send + Sync {
+    async fn record(&self, event: AuditEvent) -> Result<(), PortError>;
+    /// The principal's own audit history (export / `/v1/me/audit`).
+    async fn list_by_principal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<Vec<AuditEvent>, PortError>;
+}
+/// Remote/local inference boundary (B4/ADR-0012). Implementations decide
+/// which `PrivacyMode`s they may serve; the domain never picks providers.
+#[async_trait]
+pub trait InferenceGateway: Send + Sync {
+    /// Typed signals in, typed hypotheses out. Never raw content.
+    async fn assess(&self, req: &InferenceRequest) -> Result<InferenceVerdict, PortError>;
+    /// Which privacy modes this gateway may serve under the egress policy.
+    fn serves(&self, mode: PrivacyMode) -> bool;
+}
+/// Per-tenant inference budget, micro-USD (integer money). Fail closed:
+/// a request that would exceed the cap is refused before any call.
+#[async_trait]
+pub trait BudgetLedger: Send + Sync {
+    async fn spent_micro_usd(&self, tenant_id: &str) -> Result<u64, PortError>;
+    async fn cap_micro_usd(&self, tenant_id: &str) -> Result<u64, PortError>;
+    async fn record_spend(&self, tenant_id: &str, micro_usd: u64) -> Result<(), PortError>;
+}
+/// Outcome of an atomic reservation attempt (B21).
+#[derive(Debug)]
+pub enum ReserveOutcome {
+    /// Reservation created (or the identical request_id already held one).
+    /// Boxed: the row is much larger than `BudgetExceeded`.
+    Reserved(Box<sovir_domain::InferenceReservation>),
+    /// spent + pending + estimate would exceed the tenant cap — refused
+    /// inside the same transaction that counted, so concurrent callers
+    /// cannot both pass.
+    BudgetExceeded,
+}
+/// Durable inference budget reservations. `reserve` is the atomic gate:
+/// it checks the cap AND writes the pending row in one transaction,
+/// so two simultaneous assess calls cannot both slip under the cap.
+/// `settle` commits actual spend + usage accounting; `refund` releases
+/// the hold when the gateway fails before producing a verdict.
+#[async_trait]
+pub trait BudgetReservations: Send + Sync {
+    async fn reserve(
+        &self,
+        tenant_id: &str,
+        request_id: &str,
+        est_micro_usd: u64,
+    ) -> Result<ReserveOutcome, PortError>;
+    async fn settle(
+        &self,
+        tenant_id: &str,
+        request_id: &str,
+        actual_micro_usd: u64,
+        usage: sovir_domain::InferenceUsage,
+    ) -> Result<(), PortError>;
+    async fn refund(&self, tenant_id: &str, request_id: &str) -> Result<(), PortError>;
+    /// Global hygiene: refunds `pending` reservations created at or before
+    /// `cutoff_ms` — a crash between reserve and settle must not hold the
+    /// tenant's cap forever. Cross-tenant by design; only the scheduled
+    /// sweep calls it (privileged path, like other `*_any` ops).
+    async fn refund_expired(&self, cutoff_ms: u64) -> Result<u64, PortError>;
+}
+/// Threat-intel feed boundary (B5). `pull` returns candidate indicators
+/// from a configured source; `record`/`list` persist the ones that pass
+/// provenance validation in the application layer.
+#[async_trait]
+pub trait ThreatIntelFeed: Send + Sync {
+    async fn pull(&self, since_ms: u64) -> Result<Vec<IntelIndicator>, PortError>;
+    async fn record(&self, indicator: IntelIndicator) -> Result<(), PortError>;
+    async fn list(&self, tenant_id: &str) -> Result<Vec<IntelIndicator>, PortError>;
+}
+/// Durable store for completed investigations (B5). Rows are metadata
+/// reports (counts + typed hypotheses) — never event payloads.
+#[async_trait]
+pub trait InvestigationStore: Send + Sync {
+    async fn insert(&self, inv: Investigation) -> Result<(), PortError>;
+    /// Newest-first history for the calling principal only.
+    async fn list_by_principal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<Vec<Investigation>, PortError>;
 }
 /// Idempotency-Key store (B10). Scoped by (tenant, principal) so keys of
 /// one principal never collide with another's. `put` is insert-once: a
@@ -223,6 +379,10 @@ pub trait IdempotencyStore: Send + Sync {
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<u64, PortError>;
+    /// Global hygiene: hard-delete keys older than `cutoff_ms` across all
+    /// tenants — replay windows expire with retention. Cross-tenant by
+    /// design; only the scheduled retention sweep calls it.
+    async fn delete_expired_any(&self, cutoff_ms: u64) -> Result<u64, PortError>;
 }
 /// Audit tombstones produced by erasure (B16). Receipts persist after purge;
 /// they carry counts and a pseudonymous principal id, never user content.
