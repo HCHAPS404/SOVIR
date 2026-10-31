@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "SOVIR",
-  "version": "0.1.0",
-  "description": "Estado local provisional. No lee sitios hasta que concedas un permiso opcional.",
+  "version": "0.2.0",
+  "description": "Observador local por sitio. Extrae señales tipadas (nunca contenido) solo donde el usuario lo activa.",
   "icons": {
     "128": "icons/icon-128.png"
   },
@@ -15,10 +15,8 @@
     "page": "options.html",
     "open_in_tab": true
   },
-  "side_panel": {
-    "default_path": "sidepanel.html"
-  },
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["http://127.0.0.1:8787/*"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js"
