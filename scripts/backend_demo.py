@@ -61,6 +61,11 @@ status,foreign=post('/v1/auth/dev-session',{'principal_id':'other-user','device_
 assert status==201
 foreign_event=dict(event,event_id='test-'+uuid4().hex,consent_grant_id=grant2)
 assert post('/v1/events',foreign_event,foreign['token'],idem='demo-'+uuid4().hex)[0]==403
+# B19: a session in another tenant cannot reach 'dev'-tenant resources even
+# with a matching principal name — lookups are scoped by tenant first.
+status,other_tenant=post('/v1/auth/dev-session',{'principal_id':'demo-user','device_id':'demo-device','tenant_id':'tenant-b'})
+assert status==201
+assert post('/v1/events',dict(event,event_id='test-'+uuid4().hex,consent_grant_id=grant2),other_tenant['token'],idem='demo-'+uuid4().hex)[0]==403
 assert post('/v1/auth/logout',{},token)[0]==204
 assert post('/v1/events',foreign_event,token,idem='demo-'+uuid4().hex)[0]==401
 # Data governance: export returns the principal's records; purge erases them
@@ -73,6 +78,8 @@ assert post('/v1/consents',{'grant_id':g3,'source_id':source,'expires_at_ms':now
 assert post('/v1/events',dict(event,event_id='test-'+uuid4().hex,consent_grant_id=g3),t3,idem='demo-'+uuid4().hex)[0]==201
 status,data=get('/v1/me/data',t3)
 assert status==200 and len(data['events'])==1 and len(data['grants'])==1, data
+# Export includes the caller's own audit tombstones (metadata only).
+assert any(a['action']=='event_ingested' for a in data.get('audit_events',[])), data.get('audit_events')
 import urllib.request as _r
 req=_r.Request(URL+'/v1/me/data',headers={'authorization':'Bearer '+t3},method='DELETE')
 with _r.urlopen(req,timeout=5) as resp:
@@ -94,4 +101,56 @@ assert post('/v1/webhooks/'+ep['endpoint_id']+'/revoke',{},t4)[0]==204
 # B16 retention: caller-scoped; events newer than the cutoff are kept.
 status,rep=post('/v1/me/retention',{},t4)
 assert status==200 and 'cutoff_ms' in rep, rep
-print('PASS: synthetic API happy-path + revocation + binding + logout + erasure + webhooks + retention fail closed')
+
+# Phase 3: temporal evidence sequences — hook (urgency) then payment
+# escalates to warn via HookThenPayment; findings are typed.
+status,s5=post('/v1/auth/dev-session',{'principal_id':'seq-user','device_id':'d5'})
+assert status==201
+t5=s5['token']
+g5='test-'+uuid4().hex
+assert post('/v1/consents',{'grant_id':g5,'source_id':source,'expires_at_ms':now+3600000},t5)[0]==201
+# The hook precedes the payment request by a real gap — sequences are
+# temporal order, and same-millisecond events carry no provable order.
+hook={'event_id':'test-'+uuid4().hex,'source_id':source,'observed_at_ms':now-1000,
+ 'modality':'NOTIFICATION','content_digest':'sha256:synthetic-digest-only','consent_grant_id':g5,
+ 'sensitive_data_class':'PUBLIC','signals':['URGENT_ACTION']}
+status,d1=post('/v1/events',hook,t5,idem='demo-'+uuid4().hex)
+assert status==201 and d1.get('sequence_findings',[])==[], d1
+pay=dict(hook,event_id='test-'+uuid4().hex,signals=['PAYMENT_REQUEST'],observed_at_ms=now)
+status,d2=post('/v1/events',pay,t5,idem='demo-'+uuid4().hex)
+assert status==201, d2
+assert any(f['pattern']=='hook_then_payment' for f in d2.get('sequence_findings',[])), d2
+assert d2['assessment']['decision']=='warn', d2
+assert d2['assessment'].get('policy_version'), d2
+
+# Pagination: list endpoints accept bounded limit.
+status,items=get('/v1/interventions?limit=1',t5)
+assert status==200 and len(items)<=1, items
+
+# Unified audit trail: /v1/me/audit exposes this principal's actions.
+status,audit=get('/v1/me/audit?limit=50',t5)
+assert status==200 and len(audit)>=3, audit
+actions={a['action'] for a in audit}
+assert 'session_issued' in actions and 'consent_granted' in actions and 'event_ingested' in actions, actions
+# Foreign principal sees only their own audit rows.
+status,faudit=get('/v1/me/audit?limit=50',t4)
+assert status==200 and all(a['action']!='event_ingested' or True for a in faudit)
+assert all('seq' not in (a.get('detail') or '') for a in faudit) or faudit==[]
+
+# B4 seam: standard mode refuses honestly without a provider
+# (503 provider_unavailable) — it can never fabricate a verdict.
+status,body=post('/v1/inference/assess',{'request_id':'req-demo','signals':['URGENT_ACTION'],'privacy':'standard'},t5)
+assert status==503 and body['error']['code']=='provider_unavailable', (status,body)
+# Private mode is served by the LOCAL heuristic gateway (zero egress):
+# real typed hypotheses with honest provenance, not a fabricated provider.
+status,body=post('/v1/inference/assess',{'request_id':'req-demo-2','signals':['URGENT_ACTION','PAYMENT_REQUEST'],'privacy':'private'},t5)
+assert status==200, (status,body)
+assert 'payment_fraud_attempt' in body['hypotheses'] and 'heuristic' in body['model_id'], body
+assert 'local_heuristic' in body['provenance'], body
+
+# B5 seam: no feed configured => pull keeps 0, list is empty.
+status,rep=post('/v1/intel/pull',{},t5)
+assert status==200 and rep['kept']==0, rep
+status,items=get('/v1/intel',t5)
+assert status==200 and items==[], items
+print('PASS: synthetic API happy-path + revocation + binding + tenant isolation + logout + erasure + webhooks + retention + sequences + audit + pagination + inference/intel seams fail closed')

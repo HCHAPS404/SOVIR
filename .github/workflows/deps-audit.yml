@@ -1,0 +1,29 @@
+name: SOVIR Dependency Audit (scheduled)
+# Weekly drift check: advisories and license/ban policy can change under a
+# fixed Cargo.lock, so the gate that passed at merge time can rot. This
+# reports drift independently of the PR gate — failures here mean "fix
+# before next merge", not "the last merge was wrong".
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-deny and cargo-audit (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-audit
+      - name: RustSec advisory audit
+        run: cargo audit
+      - name: License, ban and source policy
+        run: cargo deny check
+      - name: Outdated dependency report (informational)
+        run: cargo tree --duplicates || true

@@ -2,16 +2,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      Sin INTERNET, MediaProjection, accesibilidad, micrófono, cámara ni SMS.
-      El diálogo de captura no se puede abrir desde esta aplicación.
+      Observador UI_TREE (ADR-0014): INTERNET para la API loopback dev;
+      AccessibilityService declarado — el usuario lo activa en ajustes del
+      sistema (el SO concede la captura; el grant de SOVIR autoriza la
+      subida). Sin MediaProjection, micrófono, cámara ni SMS.
     -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Sovir">
+        android:theme="@style/Theme.Sovir"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -21,5 +25,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".observer.SovirAccessibilityService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/sovir_accessibility_service" />
+        </service>
     </application>
 </manifest>

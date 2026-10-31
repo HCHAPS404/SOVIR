@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sovir://contracts/inference-request.v0",
+  "title": "InferenceRequest v0 (provider boundary, ADR-0012)",
+  "description": "What a remote inference gateway may send: typed signals and mode only. Raw content, digests of content, principal ids, and payloads are structurally impossible here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "model", "signals", "privacy"],
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "model": {"type": "string", "minLength": 1, "maxLength": 128},
+    "signals": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "enum": [
+          "CREDENTIAL_REQUEST",
+          "PAYMENT_REQUEST",
+          "URGENT_ACTION",
+          "IDENTITY_UNVERIFIED",
+          "TRACKING_OBSERVED",
+          "HIDDEN_FEE_PATTERN",
+          "CONSENT_DARK_PATTERN",
+          "USER_DEFINED_EXPOSURE_LIMIT"
+        ]
+      }
+    },
+    "privacy": {"type": "string", "enum": ["standard", "private"]}
+  }
+}

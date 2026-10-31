@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS deletion_receipts (
   interventions_deleted BIGINT NOT NULL,
   sessions_revoked BIGINT NOT NULL,
   devices_revoked BIGINT NOT NULL,
-  labels_scrubbed BIGINT NOT NULL
+  labels_scrubbed BIGINT NOT NULL,
+  idem_keys_deleted BIGINT NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS receipts_principal_time
   ON deletion_receipts(principal_id, purged_at_ms DESC);

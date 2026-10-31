@@ -3,15 +3,17 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import { account, enterprise, operation } from "../lib/nav";
+import { enterprise, operation } from "../lib/nav";
 import { RailNav } from "./RailNav";
 
-export async function requireDemoSession() {
+/// Presence check only — the token's validity is proven by the first
+/// real API call (401 → ApiUnauthorized → redirect). The bearer lives in
+/// an httpOnly cookie; it never reaches client components.
+export async function requireApiSession() {
   const jar = await cookies();
-  const session = jar.get("sovir_demo_session")?.value;
-  if (session !== "synthetic-demo" && session !== "developer-profile") {
-    redirect("/sign-in");
-  }
+  const token = jar.get("sovir_api_token")?.value;
+  if (!token) redirect("/sign-in");
+  return token;
 }
 
 export async function ConsoleFrame({
@@ -22,7 +24,7 @@ export async function ConsoleFrame({
   children: ReactNode;
 }) {
   const jar = await cookies();
-  const developer = jar.get("sovir_demo_session")?.value === "developer-profile";
+  const principal = jar.get("sovir_api_principal")?.value ?? "desconocido";
   return (
     <div className="console">
       <a className="skip" href="#contenido">
@@ -38,7 +40,6 @@ export async function ConsoleFrame({
           groups={[
             { label: "Operación", items: operation },
             { label: "Organización", items: enterprise },
-            { label: "Cuenta", items: account },
           ]}
         />
         <div className="rail-foot">
@@ -46,8 +47,8 @@ export async function ConsoleFrame({
             <span className="mark" />
           </span>
           <span className="rail-who">
-            <strong>{developer ? "Desarrollador" : "Demo"}</strong>
-            <small>Sesión local</small>
+            <strong>{principal}</strong>
+            <small>Sesión API dev</small>
           </span>
           <form action="/api/session" method="post">
             <input type="hidden" name="intent" value="sign-out" />
@@ -59,7 +60,7 @@ export async function ConsoleFrame({
       </aside>
       <div className="workspace">
         <header className="console-top">
-          <p className="banner">Datos sintéticos. Sin mensajes privados.</p>
+          <p className="banner">API dev local · datos sintéticos, sin contenido privado.</p>
           <ThemeSwitch />
         </header>
         <div className="main" id="contenido">
