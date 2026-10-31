@@ -1267,6 +1267,7 @@ dependencies = [
  "sovir-domain",
  "sovir-ports",
  "thiserror",
+ "uuid",
 ]
 
 [[package]]
