@@ -17,11 +17,12 @@
 | `feat/backend-identity-b8` | `f1d8ed7` | propuesta + implementación: Principal, sesiones dev, Device registry (ADR-0006) | IMPLEMENTADO dev (sin OIDC) |
 | `feat/backend-data-governance-b16` | `a20c98c` | `docs/backend/proposals/b16-data-governance.md` | PROPUESTA + política |
 | `feat/backend-security-b17` | `48aa294` | `docs/security/THREAT_MODEL_B17.md` | STRIDE/LINDDUN + riesgos R1–R6 |
-| `feat/backend-devices-b9` | `45e6b1d` | `docs/backend/proposals/b9-devices-adapter.md` | PROPUESTA |
-| `infra/backend-persistence-pg` | (nuevo) | `crates/sovir-persistence` + migraciones 0001 reescrita y 0002 | IMPLEMENTADO — solo verificable en CI (sin PG local) |
-| `feat/backend-ingestion-b10` | `c0c1b1e` | propuesta + adapter implementado (idempotency, rate limit, error envelope) | PARCIAL — falta durable store |
-| `feat/backend-edge-runtime-b11` | `2513372` | propuesta + benchmark criterion + build matrix 3-OS | PARCIAL — FFI pendiente de Claude |
-| `feat/backend-intervention-b15` | `4af583b` | propuesta + InterventionSink/DeliveryChannel, backoff y auditoría | IMPLEMENTADO dev (canal in-memory) |
+| `feat/backend-devices-b9` | (en `feat/backend-identity-b8` `f1d8ed7`) | implementado junto a B8 (registry, revoke fail-closed) | IMPLEMENTADO dev |
+| `chore/backend-hardening` | `c7dd5e0` | UUIDv4 ids, expiración de intervenciones huérfanas, ADR-0007, OpenAPI completo | IMPLEMENTADO |
+| `infra/backend-persistence-pg` | `747696c` | `crates/sovir-persistence` (5 puertos sqlx) + migraciones 0001/0002 | IMPLEMENTADO — e2e PG solo en CI |
+| `feat/backend-ingestion-b10` | `7a9f471` | adapter implementado sobre el stack de sesiones (envelope, rate limit principal+device, Idempotency-Key) | IMPLEMENTADO dev (in-memory) |
+| `feat/backend-edge-runtime-b11` | `1c0702c` | benchmark criterion (nuevo path con binding) + build matrix 3-OS | IMPLEMENTADO bench — FFI pendiente |
+| `feat/backend-intervention-b15` | `4af583b` | propuesta + InterventionSink/DeliveryChannel, backoff, auditoría, expiración por device revocado | IMPLEMENTADO dev (canal in-memory) |
 | `feat/backend-integrations-b20` | `7af9b8c` | `docs/backend/proposals/b20-integrations.md` | PROPUESTA |
 
 ## Qué implementa Corte 0 (B21, esta rama)
