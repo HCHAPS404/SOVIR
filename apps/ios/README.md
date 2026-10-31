@@ -14,6 +14,10 @@ La misma estructura que Android, con controles de iOS:
 - Tema sistema, claro u oscuro.
 - No hay usage descriptions. No se declara ScreenCaptureKit, micrófono, cámara ni red. El selector del sistema no está dibujado.
 
+## Observador de pantalla
+
+En iOS **no existe API de observación de pantalla para terceros**: ScreenCaptureKit es de macOS y ReplayKit solo sirve para emitir/broadcast de la propia app, no para observar otras. La superficie realista en iOS es una **extensión de Safari** (port de `apps/extension`, mismo modelo de consentimiento por sitio, ADR-0014). Cualquier otra cosa sería fingir capacidad.
+
 ## Abrir en una Mac
 
 Abrir `apps/ios/Sovir.xcodeproj` con Xcode 16 o posterior. El destino mínimo es iOS 17, iPhone e iPad. Elegir un equipo de firma en el target Sovir y ejecutar en el simulador o en un dispositivo.

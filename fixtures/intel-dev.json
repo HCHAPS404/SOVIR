@@ -1,0 +1,29 @@
+[
+  {
+    "indicator_id": "ind-dev-001",
+    "tenant_id": "",
+    "kind": "domain",
+    "value": "credential-harvest.example",
+    "confidence_bp": 8200,
+    "provenance": "dev-synthetic-fixture; no external feed; not validated threat intel",
+    "at_ms": 1793390000000
+  },
+  {
+    "indicator_id": "ind-dev-002",
+    "tenant_id": "",
+    "kind": "url_pattern",
+    "value": "*/verify-account/*",
+    "confidence_bp": 6400,
+    "provenance": "dev-synthetic-fixture; no external feed; not validated threat intel",
+    "at_ms": 1793390000000
+  },
+  {
+    "indicator_id": "ind-dev-003-no-provenance",
+    "tenant_id": "",
+    "kind": "domain",
+    "value": "should-be-dropped.example",
+    "confidence_bp": 9000,
+    "provenance": "",
+    "at_ms": 1793390000000
+  }
+]

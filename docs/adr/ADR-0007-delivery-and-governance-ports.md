@@ -19,8 +19,19 @@
    `InterventionSink` ganan `list_by_principal`/`delete_by_principal`, y
    `SessionStore` `revoke_by_principal`. `GET /v1/me/data` exporta metadatos;
    `DELETE /v1/me/data` borra duro y revoca acceso (fail closed). Los devices
-   se revocan (tombstone), no se borran — decisión revisable: su `label`
-   persiste hasta una política de retención (B16 abierto).
+   se revocan (tombstone), no se borran; `DeviceRegistry::scrub_label`
+   sustituye su `label` por `[redacted]` durante el purge, resolviendo la
+   cuestión de retención del identificador amigable.
+3bis. **Recibo de borrado**: `DeletionReceipt` (dominio) + puerto
+   `DeletionReceiptStore` (`record`, `list_by_principal`). `purge_data`
+   persiste un tombstone de auditoría con conteos y el id seudónimo del
+   principal — nunca contenido. Tabla `deletion_receipts` (migración 0003).
+3ter. **Retención ejecutable**: `EventRepository::delete_older_than` e
+   `InterventionSink::delete_terminal_older_than` (solo estados
+   `delivered`/`expired`; las pendientes deben aún intentos de entrega).
+   `enforce_retention` es por principal invocante (`POST /v1/me/retention`,
+   cutoff = `SOVIR_RETENTION_MS`, def. 30 días). Un barrido global
+   programado es decisión de infraestructura, no de este puerto.
 4. **Consistencia fail-closed**: revocar un dispositivo expira sus
    intervenciones pendientes (`list_by_device` + `update` con entrada de
    auditoría `device revoked`).
@@ -37,7 +48,7 @@
 
 - Sin canal de entrega real: `Delivered` significa "entregado por el canal
   registrado", que en dev es un stub. No afirmar notificación real.
-- El borrado no produce recibo durable (solo `PurgeReport` en respuesta);
-  tabla de auditoría de erasures queda para B16 completo.
+- El borrado produce `DeletionReceipt` durable; el recibo en sí es metadato
+  de auditoría y sobrevive al purge deliberadamente.
 - `list_by_device` solo filtra `pending`/`failed`: las entregadas/expiradas
   son inmutables salvo borrado por gobernanza.
