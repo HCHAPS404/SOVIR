@@ -230,6 +230,49 @@ pub struct InferenceVerdict {
     pub provenance: String,
 }
 
+/// Usage accounting for one inference call (B21). Populated at settle
+/// time — without provider metering the honest values are the estimate
+/// and the fields the gateway itself reports (model, provenance).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceUsage {
+    /// Gateway/provider label from verdict provenance ("" when unknown).
+    pub provider: String,
+    pub model: String,
+    #[serde(default)]
+    pub tokens_est: u32,
+    #[serde(default)]
+    pub tokens_actual: Option<u32>,
+    #[serde(default)]
+    pub cache_hit: bool,
+    /// Redaction tier applied before egress ("private"|"standard").
+    #[serde(default)]
+    pub redaction_tier: String,
+}
+/// Durable budget reservation state machine: pending → settled|refunded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReservationState {
+    Pending,
+    Settled,
+    Refunded,
+}
+/// A durable reservation row: the atomic unit of inference spend. The
+/// reservation holds the cap under lock at write time; settle commits the
+/// actual cost, refund releases it (B21).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceReservation {
+    pub reservation_id: String,
+    pub tenant_id: String,
+    /// One reservation per logical request (idempotent on re-ingress).
+    pub request_id: String,
+    pub state: ReservationState,
+    pub est_micro_usd: u64,
+    pub actual_micro_usd: Option<u64>,
+    #[serde(default)]
+    pub usage: Option<InferenceUsage>,
+    pub created_at_ms: u64,
+    pub settled_at_ms: Option<u64>,
+}
 /// A verified threat-intel indicator (B5). `provenance` is mandatory —
 /// indicators without a verifiable source are dropped at ingest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,6 +307,8 @@ pub enum AuditAction {
     DispatchRan,
     InferenceCalled,
     IntelPulled,
+    ReservationsSwept,
+    InvestigationRan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -296,6 +341,16 @@ pub struct IdempotentResponse {
 /// Shared identifier rule: non-empty, bounded, no control characters.
 pub fn valid_identifier(s: &str) -> bool {
     !s.trim().is_empty() && s.len() <= 128 && !s.chars().any(char::is_control)
+}
+/// Strict identifier charset for values that cross a trust boundary
+/// (provider egress, headers, URLs). ASCII alphanumeric plus `-._:` —
+/// quotes, whitespace, path or shell metacharacters are refused so an id
+/// can never carry an injection payload to a wire (B21).
+pub fn egress_safe_identifier(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 128
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b':'))
 }
 
 pub fn validate_device(d: &Device) -> Result<(), DomainError> {
@@ -359,6 +414,70 @@ pub struct SequenceFinding {
     pub pattern: SequencePattern,
     pub span_ms: u64,
     pub event_ids: Vec<String>,
+}
+
+/// Bounds of the deterministic local investigation pass (B5). The window
+/// mirrors the anti-replay horizon; the event cap keeps a poisoned store
+/// from turning a bounded report into an unbounded scan.
+pub const MAX_INVESTIGATION_WINDOW_MS: u64 = 86_400_000;
+pub const MAX_INVESTIGATION_EVENTS: usize = 512;
+
+/// Stable metadata label for a signal — same spelling as its serde name.
+pub fn risk_signal_label(s: RiskSignal) -> &'static str {
+    match s {
+        RiskSignal::CredentialRequest => "CREDENTIAL_REQUEST",
+        RiskSignal::PaymentRequest => "PAYMENT_REQUEST",
+        RiskSignal::UrgentAction => "URGENT_ACTION",
+        RiskSignal::IdentityUnverified => "IDENTITY_UNVERIFIED",
+        RiskSignal::TrackingObserved => "TRACKING_OBSERVED",
+        RiskSignal::HiddenFeePattern => "HIDDEN_FEE_PATTERN",
+        RiskSignal::ConsentDarkPattern => "CONSENT_DARK_PATTERN",
+        RiskSignal::UserDefinedExposureLimit => "USER_DEFINED_EXPOSURE_LIMIT",
+    }
+}
+/// Stable metadata label for a sensitive-data class (matches serde name).
+pub fn data_class_label(c: SensitiveDataClass) -> &'static str {
+    match c {
+        SensitiveDataClass::Public => "PUBLIC",
+        SensitiveDataClass::Personal => "PERSONAL",
+        SensitiveDataClass::Sensitive => "SENSITIVE",
+        SensitiveDataClass::Secret => "SECRET",
+    }
+}
+
+/// A completed deterministic local investigation (B5). `facts` are counts
+/// the stored record proves outright; `hypotheses` are the same typed
+/// pattern hints ingest produces — the two are never conflated
+/// (invariant 6). Predictions and objectives are deliberately absent:
+/// this workflow emits none.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Investigation {
+    pub investigation_id: String,
+    pub tenant_id: String,
+    pub principal_id: String,
+    /// Evidence window examined, clamped to MAX_INVESTIGATION_WINDOW_MS.
+    pub window_ms: u64,
+    pub events_examined: u64,
+    pub facts: Vec<InvestigationFact>,
+    pub hypotheses: Vec<SequenceFinding>,
+    pub created_at_ms: u64,
+}
+
+/// Something the stored record proves outright: how many events carried
+/// a given signal or sensitive-data class inside the window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvestigationFact {
+    pub kind: InvestigationFactKind,
+    /// Signal or data-class label (`risk_signal_label`/`data_class_label`)
+    /// — metadata only, never content.
+    pub subject: String,
+    pub count: u64,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InvestigationFactKind {
+    SignalObserved,
+    DataClassObserved,
 }
 
 /// Canonical evidence ordering: dedup by `event_id` (first wins), then

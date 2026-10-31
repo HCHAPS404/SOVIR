@@ -157,7 +157,7 @@ components:
           enum: [session_issued, consent_granted, consent_revoked, event_ingested,
                  device_registered, device_revoked, webhook_registered, webhook_revoked,
                  data_purged, retention_enforced, dispatch_ran,
-                 inference_called, intel_pulled]
+                 inference_called, intel_pulled, reservations_swept]
         detail: {type: string}
         at_ms: {type: integer}
     InferenceRequestBody:
@@ -202,6 +202,39 @@ components:
         confidence_bp: {type: integer, minimum: 0, maximum: 10000}
         provenance: {type: string}
         at_ms: {type: integer}
+    RunInvestigationRequest:
+      type: object
+      properties:
+        window_ms: {type: integer, default: 3600000, minimum: 0}
+    Investigation:
+      type: object
+      description: >
+        Deterministic local report over stored evidence (B5). `facts` are
+        counts the record proves; `hypotheses` are typed sequence hints —
+        never conflated (invariant 6). Predictions/objectives absent.
+      properties:
+        investigation_id: {type: string}
+        tenant_id: {type: string}
+        principal_id: {type: string}
+        window_ms: {type: integer}
+        events_examined: {type: integer}
+        facts:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: {type: string, enum: [signal_observed, data_class_observed]}
+              subject: {type: string}
+              count: {type: integer}
+        hypotheses:
+          type: array
+          items:
+            type: object
+            properties:
+              pattern: {type: string, enum: [hook_then_payment, identity_then_credential, escalating_manipulation]}
+              span_ms: {type: integer}
+              event_ids: {type: array, items: {type: string}}
+        created_at_ms: {type: integer}
     PurgeReport:
       type: object
       properties:
@@ -386,6 +419,25 @@ paths:
       responses:
         '200': {description: Indicators, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/IntelIndicator'}}}}}
         '401': {description: Unauthorized}
+  /v1/investigations:
+    post:
+      summary: Run a bounded deterministic investigation over stored evidence (B5)
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/RunInvestigationRequest'}}}
+      responses:
+        '201': {description: Investigation report, content: {application/json: {schema: {$ref: '#/components/schemas/Investigation'}}}}
+        '401': {description: Unauthorized}
+        '403': {description: Scope missing}
+    get:
+      summary: Caller's investigation history (newest first)
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
+      responses:
+        '200': {description: Investigations, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Investigation'}}}}}
+        '401': {description: Unauthorized}
   /v1/webhooks:
     post:
       summary: Register a signed webhook endpoint (B20; SSRF allowlist enforced)
@@ -465,3 +517,8 @@ paths:
       responses:
         '200': {description: Version info, content: {application/json: {schema: {type: object}}}}
         '409': {description: Duplicate event ID}
+  /v1/metrics:
+    get:
+      summary: Internal counters (Prometheus text format, local only)
+      responses:
+        '200': {description: Counters, content: {text/plain: {schema: {type: string}}}}

@@ -1,11 +1,13 @@
 //! Use cases and orchestrated policy checks. No Axum, SQL or model SDK dependencies.
 use sovir_domain::{
-    detect_sequences, intervention_for, next_attempt_ms, normalize_events, valid_identifier,
-    validate_consent, validate_device, validate_event, validate_url_for_egress, AuditAction,
-    AuditEvent, ConsentGrant, DecisionKind, DeletionReceipt, DeliveryAuditEntry, DeliveryState,
-    Device, DomainError, EventDecision, InferenceRequest, InferenceVerdict, IntelIndicator,
-    Intervention, ObservedEvent, Platform, Principal, RiskLevel, Scope, SequencePattern, Session,
-    WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
+    data_class_label, detect_sequences, intervention_for, next_attempt_ms, normalize_events,
+    risk_signal_label, valid_identifier, validate_consent, validate_device, validate_event,
+    validate_url_for_egress, AuditAction, AuditEvent, ConsentGrant, DecisionKind, DeletionReceipt,
+    DeliveryAuditEntry, DeliveryState, Device, DomainError, EventDecision, InferenceRequest,
+    InferenceVerdict, IntelIndicator, Intervention, Investigation, InvestigationFact,
+    InvestigationFactKind, ObservedEvent, Platform, Principal, RiskLevel, Scope, SequencePattern,
+    Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS, MAX_INVESTIGATION_EVENTS,
+    MAX_INVESTIGATION_WINDOW_MS,
 };
 use sovir_ports::{
     AuditLog, BudgetLedger, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel,
@@ -97,9 +99,18 @@ pub struct ServicePorts {
     /// refuse with ProviderUnavailable, never fake a verdict.
     pub inference: Option<Arc<dyn InferenceGateway>>,
     pub budget: Arc<dyn BudgetLedger>,
+    /// Durable spend reservations (B21). The atomic gate for inference
+    /// spend — reserve→settle/refund replaces the racy read-then-record
+    /// path; concurrent assess calls cannot both pass under the cap.
+    pub reservations: Arc<dyn sovir_ports::BudgetReservations>,
     pub intel: Arc<dyn ThreatIntelFeed>,
+    /// Durable investigation reports (B5).
+    pub investigations: Arc<dyn sovir_ports::InvestigationStore>,
     /// Verified-identity seam (B6/ADR-0013). `None` = dev sessions only.
     pub identity: Option<Arc<dyn sovir_ports::IdentityVerifier>>,
+    /// Device attestation seam. `None` = attestation not attempted; the
+    /// audit entry then omits the verdict rather than implying one.
+    pub attester: Option<Arc<dyn sovir_ports::DeviceAttester>>,
 }
 
 #[derive(Clone)]
@@ -117,9 +128,11 @@ pub struct SovirService {
     idem: Arc<dyn IdempotencyStore>,
     audit: Arc<dyn AuditLog>,
     inference: Option<Arc<dyn InferenceGateway>>,
-    budget: Arc<dyn BudgetLedger>,
+    reservations: Arc<dyn sovir_ports::BudgetReservations>,
     intel: Arc<dyn ThreatIntelFeed>,
+    investigations: Arc<dyn sovir_ports::InvestigationStore>,
     identity: Option<Arc<dyn sovir_ports::IdentityVerifier>>,
+    attester: Option<Arc<dyn sovir_ports::DeviceAttester>>,
 }
 impl SovirService {
     pub fn new(clock: Arc<dyn Clock>, ports: ServicePorts) -> Self {
@@ -137,9 +150,11 @@ impl SovirService {
             idem: ports.idem,
             audit: ports.audit,
             inference: ports.inference,
-            budget: ports.budget,
+            reservations: ports.reservations,
             intel: ports.intel,
+            investigations: ports.investigations,
             identity: ports.identity,
+            attester: ports.attester,
         }
     }
 
@@ -289,11 +304,20 @@ impl SovirService {
         };
         validate_device(&device)?;
         self.devices.register(device.clone()).await?;
+        // Attestation seam: when a provider is wired its verdict rides in
+        // the audit detail; `attest:none` honestly means no proof was made.
+        let attest = match &self.attester {
+            Some(a) => match a.attest(&device).await {
+                Ok(att) => format!("|attest:{}:{}", att.provider, att.level),
+                Err(_) => "|attest:error".to_string(),
+            },
+            None => String::new(),
+        };
         self.audit(
             &principal.tenant_id,
             &principal.principal_id,
             AuditAction::DeviceRegistered,
-            &format!("dev:{}", device.device_id),
+            &format!("dev:{}{}", device.device_id, attest),
         )
         .await?;
         Ok(device)
@@ -693,6 +717,24 @@ impl SovirService {
         Ok(report)
     }
 
+    /// Orphan-reservation sweep (infrastructure caller, cross-tenant like
+    /// the other global ops). A crash between `reserve` and `settle`
+    /// leaves a `pending` row that would hold the tenant cap forever —
+    /// reservations older than `ttl_ms` are refunded. Settled/refunded
+    /// rows are never touched.
+    pub async fn refund_expired_reservations(&self, ttl_ms: u64) -> Result<u64, AppError> {
+        let cutoff_ms = self.clock.now_ms().saturating_sub(ttl_ms);
+        let refunded = self.reservations.refund_expired(cutoff_ms).await?;
+        if refunded > 0 {
+            self.audit_global(
+                AuditAction::ReservationsSwept,
+                &format!("refunded:{refunded} cutoff:{cutoff_ms}"),
+            )
+            .await?;
+        }
+        Ok(refunded)
+    }
+
     /// Erasure: hard-deletes events, grants and intervention records; revokes
     /// all sessions and devices (audit-preserving tombstones) and scrubs
     /// device labels. A durable `DeletionReceipt` records the counts — it is
@@ -917,22 +959,60 @@ impl SovirService {
             .await?;
             return Err(AppError::ProviderUnavailable);
         };
-        let spent = self.budget.spent_micro_usd(&principal.tenant_id).await?;
-        let cap = self.budget.cap_micro_usd(&principal.tenant_id).await?;
-        if spent.saturating_add(req.est_cost_micro_usd) > cap {
-            return Err(AppError::BudgetExceeded);
+        // Durable reservation gate (B21): atomic cap check + pending row
+        // in one transaction — no check-then-act window. Same request_id
+        // is idempotent, so replayed ingress reuses its reservation.
+        match self
+            .reservations
+            .reserve(
+                &principal.tenant_id,
+                &req.request_id,
+                req.est_cost_micro_usd,
+            )
+            .await?
+        {
+            sovir_ports::ReserveOutcome::BudgetExceeded => return Err(AppError::BudgetExceeded),
+            sovir_ports::ReserveOutcome::Reserved(_) => {}
         }
-        let verdict = gw.assess(&req).await?;
-        self.budget
-            .record_spend(&principal.tenant_id, req.est_cost_micro_usd)
+        let verdict = match gw.assess(&req).await {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = self
+                    .reservations
+                    .refund(&principal.tenant_id, &req.request_id)
+                    .await;
+                return Err(e.into());
+            }
+        };
+        // Without provider metering, actuals equal the estimate. Usage
+        // still records what the gateway itself reported (model,
+        // provenance, redaction tier) so accounting is honest, not fake.
+        let usage = sovir_domain::InferenceUsage {
+            provider: verdict.provenance.clone(),
+            model: verdict.model_id.clone(),
+            tokens_est: 0,
+            tokens_actual: None,
+            cache_hit: false,
+            redaction_tier: match req.privacy {
+                sovir_domain::PrivacyMode::Private => "private".to_string(),
+                _ => "standard".to_string(),
+            },
+        };
+        self.reservations
+            .settle(
+                &principal.tenant_id,
+                &req.request_id,
+                req.est_cost_micro_usd,
+                usage,
+            )
             .await?;
         self.audit(
             &principal.tenant_id,
             &principal.principal_id,
             AuditAction::InferenceCalled,
             &format!(
-                "ok req:{} micros:{}",
-                req.request_id, req.est_cost_micro_usd
+                "ok req:{} micros:{} model:{}",
+                req.request_id, req.est_cost_micro_usd, verdict.model_id
             ),
         )
         .await?;
@@ -969,8 +1049,127 @@ impl SovirService {
         Ok(kept)
     }
 
+    /// Scheduled intel sweep (infrastructure caller — no principal exists).
+    /// Same fail-closed validation as `pull_intel` (provenance required,
+    /// bounded identifier values) but the tenant comes from the indicator:
+    /// the feed is global, so items keep their declared `tenant_id` or fall
+    /// back to `default_tenant`. Returns (kept, dropped).
+    pub async fn pull_intel_global(&self, default_tenant: &str) -> Result<(u64, u64), AppError> {
+        let now = self.clock.now_ms();
+        let (mut kept, mut dropped) = (0u64, 0u64);
+        for mut ind in self.intel.pull(0).await? {
+            if ind.provenance.is_empty() || !valid_identifier(&ind.value) {
+                dropped += 1;
+                continue; // unverified — drop
+            }
+            if ind.tenant_id.is_empty() {
+                ind.tenant_id = default_tenant.to_string();
+            }
+            ind.at_ms = if ind.at_ms == 0 { now } else { ind.at_ms };
+            self.intel.record(ind).await?;
+            kept += 1;
+        }
+        self.audit_global(
+            AuditAction::IntelPulled,
+            &format!("sweep kept:{kept} dropped:{dropped}"),
+        )
+        .await?;
+        Ok((kept, dropped))
+    }
+
     /// Indicators already validated and recorded for the tenant.
     pub async fn list_intel(&self, principal: &Principal) -> Result<Vec<IntelIndicator>, AppError> {
         Ok(self.intel.list(&principal.tenant_id).await?)
+    }
+
+    /// Deterministic local investigation (B5). One bounded pass over the
+    /// principal's stored evidence: normalize → count (facts) →
+    /// `detect_sequences` (hypotheses) → persist → audit. No model calls,
+    /// no spend — the "budget" of this workflow is the event and window
+    /// caps in the domain, not money. Facts and hypotheses are returned
+    /// in separate typed fields (invariant 6); predictions/objectives are
+    /// absent because a deterministic local pass produces none.
+    pub async fn run_investigation(
+        &self,
+        principal: &Principal,
+        window_ms: u64,
+    ) -> Result<Investigation, AppError> {
+        if !principal.has_scope(Scope::EventsWrite) {
+            return Err(AppError::Forbidden);
+        }
+        let now = self.clock.now_ms();
+        let window_ms = window_ms.min(MAX_INVESTIGATION_WINDOW_MS);
+        let since_ms = now.saturating_sub(window_ms);
+        let mut events = normalize_events(
+            self.events
+                .list_recent(&principal.tenant_id, &principal.principal_id, since_ms)
+                .await?,
+        );
+        events.truncate(MAX_INVESTIGATION_EVENTS);
+        let events_examined = events.len() as u64;
+        // Facts: what the record proves — signal and data-class counts.
+        let mut signals = std::collections::BTreeMap::<&'static str, u64>::new();
+        let mut classes = std::collections::BTreeMap::<&'static str, u64>::new();
+        for e in &events {
+            for s in &e.signals {
+                *signals.entry(risk_signal_label(*s)).or_insert(0) += 1;
+            }
+            *classes
+                .entry(data_class_label(e.sensitive_data_class))
+                .or_insert(0) += 1;
+        }
+        let mut facts = Vec::with_capacity(signals.len() + classes.len());
+        for (subject, count) in signals {
+            facts.push(InvestigationFact {
+                kind: InvestigationFactKind::SignalObserved,
+                subject: subject.to_string(),
+                count,
+            });
+        }
+        for (subject, count) in classes {
+            facts.push(InvestigationFact {
+                kind: InvestigationFactKind::DataClassObserved,
+                subject: subject.to_string(),
+                count,
+            });
+        }
+        // Hypotheses: the same typed hints ingest reports — never facts.
+        let hypotheses = detect_sequences(&events);
+        let inv = Investigation {
+            investigation_id: format!("inv-{}", uuid::Uuid::new_v4().simple()),
+            tenant_id: principal.tenant_id.clone(),
+            principal_id: principal.principal_id.clone(),
+            window_ms,
+            events_examined,
+            facts,
+            hypotheses,
+            created_at_ms: now,
+        };
+        self.investigations.insert(inv.clone()).await?;
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::InvestigationRan,
+            &format!(
+                "events:{} facts:{} hypotheses:{}",
+                inv.events_examined,
+                inv.facts.len(),
+                inv.hypotheses.len()
+            ),
+        )
+        .await?;
+        Ok(inv)
+    }
+
+    /// The principal's own investigation history (newest first, paginated
+    /// by the HTTP layer).
+    pub async fn list_investigations(
+        &self,
+        principal: &Principal,
+    ) -> Result<Vec<Investigation>, AppError> {
+        Ok(self
+            .investigations
+            .list_by_principal(&principal.tenant_id, &principal.principal_id)
+            .await?)
     }
 }

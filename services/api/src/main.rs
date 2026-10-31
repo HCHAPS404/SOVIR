@@ -8,10 +8,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sovir_adapters::{
     CompositeDeliveryChannel, DeterministicRiskAnalyzer, InMemoryAuditLog, InMemoryBudgetLedger,
-    InMemoryConsentRepository, InMemoryDeletionReceiptStore, InMemoryDeviceRegistry,
-    InMemoryEventRepository, InMemoryIdempotencyStore, InMemoryInterventionSink,
-    InMemorySessionStore, InMemoryThreatIntel, InMemoryWebhookRegistry, RecordingDeliveryChannel,
-    RecordingHttpEgress, SystemClock, WebhookChannel,
+    InMemoryBudgetReservations, InMemoryConsentRepository, InMemoryDeletionReceiptStore,
+    InMemoryDeviceRegistry, InMemoryEventRepository, InMemoryIdempotencyStore,
+    InMemoryInterventionSink, InMemorySessionStore, InMemoryThreatIntel, InMemoryWebhookRegistry,
+    RecordingDeliveryChannel, RecordingHttpEgress, SystemClock, WebhookChannel,
 };
 use sovir_application::{AppError, PrincipalDataExport, PurgeReport, ServicePorts, SovirService};
 use sovir_domain::{
@@ -51,6 +51,25 @@ struct AppState {
     idem: std::sync::Arc<dyn sovir_ports::IdempotencyStore>,
     /// Webhook egress allowlist (SSRF guard) for endpoint registration.
     webhook_allowlist: Vec<String>,
+    /// Internal counters for the local metrics endpoint (B-metrics). Cheap
+    /// atomics, incremented at handler success points — not telemetry, they
+    /// never leave the loopback API.
+    counters: std::sync::Arc<Counters>,
+}
+#[derive(Default)]
+struct Counters {
+    requests: std::sync::atomic::AtomicU64,
+    events_ingested: std::sync::atomic::AtomicU64,
+    interventions: std::sync::atomic::AtomicU64,
+    sessions_issued: std::sync::atomic::AtomicU64,
+    consents_granted: std::sync::atomic::AtomicU64,
+    consents_revoked: std::sync::atomic::AtomicU64,
+    devices_registered: std::sync::atomic::AtomicU64,
+    rate_limited: std::sync::atomic::AtomicU64,
+    errors_5xx: std::sync::atomic::AtomicU64,
+}
+fn bump(c: &std::sync::atomic::AtomicU64) {
+    c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 #[derive(Serialize)]
 struct ApiMessage {
@@ -131,6 +150,7 @@ fn rate_check(state: &AppState, p: &Principal, headers: &HeaderMap) -> Result<()
     }
     *count += 1;
     if *count > state.rate_limit_per_min {
+        bump(&state.counters.rate_limited);
         return Err(ApiError {
             status: StatusCode::TOO_MANY_REQUESTS,
             code: "rate_limited",
@@ -171,6 +191,7 @@ fn map_error(e: AppError, headers: &HeaderMap) -> ApiError {
             (StatusCode::BAD_REQUEST, "invalid_request", false)
         }
         AppError::Port(PortError::Duplicate) => (StatusCode::CONFLICT, "duplicate_event", false),
+        AppError::Port(PortError::Consent) => (StatusCode::FORBIDDEN, "consent_required", false),
         AppError::Port(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error", true),
         AppError::ProviderUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -334,7 +355,14 @@ async fn compose_service(
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(0);
-        let pg = PgStore::connect(url)
+        // Split-role posture (B21): DATABASE_URL should carry the
+        // `sovir_app` non-owner role so RLS bites on every tenant-scoped
+        // query. SOVIR_PG_ADMIN_URL is the privileged pool for
+        // cross-tenant ops (session resolve by token, retention sweeps,
+        // dispatch `due`). Without it both pools share DATABASE_URL —
+        // owner-mode dev compat, not production posture.
+        let admin_url = env::var("SOVIR_PG_ADMIN_URL").ok();
+        let pg = PgStore::connect_split(url, admin_url.as_deref())
             .await
             .expect("DATABASE_URL is set but Postgres is unreachable; refusing to start")
             .with_budget_cap(budget_usd.saturating_mul(1_000_000));
@@ -361,8 +389,11 @@ async fn compose_service(
                 audit: Arc::new(pg.clone()),
                 inference: inference_gateway(&egress, webhook_allowlist, sovir_env),
                 budget: Arc::new(pg.clone()),
+                reservations: Arc::new(pg.clone()),
                 intel: intel_feed(Arc::new(pg.clone())),
+                investigations: Arc::new(pg.clone()),
                 identity: identity_verifier(&egress),
+                attester: Some(Arc::new(sovir_adapters::NoopAttester)),
             },
         );
         return (service, Some(pg));
@@ -421,8 +452,17 @@ fn dev_service_with(
                         .unwrap_or(0)
                         .saturating_mul(1_000_000),
                 )),
+                reservations: Arc::new(InMemoryBudgetReservations::with_cap(
+                    env::var("SOVIR_INFERENCE_BUDGET_USD")
+                        .ok()
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .unwrap_or(0)
+                        .saturating_mul(1_000_000),
+                )),
                 intel: intel_feed(Arc::new(InMemoryThreatIntel::default())),
+                investigations: Arc::new(sovir_adapters::InMemoryInvestigationStore::default()),
                 identity: webhooks.as_ref().and_then(|(_, e)| identity_verifier(e)),
+                attester: Some(Arc::new(sovir_adapters::NoopAttester)),
             },
         ),
         registry,
@@ -478,6 +518,7 @@ async fn dev_session(
         .issue_dev_session(&body.principal_id, &device_id, &body.tenant_id)
         .await
         .map_err(|e| map_error(e, &headers))?;
+    bump(&s.counters.sessions_issued);
     Ok((StatusCode::CREATED, Json(session)))
 }
 async fn logout(State(s): State<AppState>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
@@ -519,6 +560,7 @@ async fn register_device(
         .register_device(&p, body.device_id.as_deref(), body.platform, &body.label)
         .await
         .map_err(|e| map_error(e, &headers))?;
+    bump(&s.counters.devices_registered);
     Ok((StatusCode::CREATED, Json(device)))
 }
 async fn list_devices(
@@ -551,13 +593,52 @@ async fn list_events(
     items.truncate(list_limit(&q));
     Ok(Json(items))
 }
+/// Served contract revision — single source for the version endpoint and
+/// the `sovir-contract-version` response header.
+const CONTRACT_VERSION: &str = "backend-dev.v0";
+/// Internal metrics in Prometheus text exposition format. Loopback-only
+/// observability — counters are in-process and reset on restart.
+async fn metrics(State(s): State<AppState>) -> String {
+    let c = &s.counters;
+    let get = |a: &std::sync::atomic::AtomicU64| a.load(std::sync::atomic::Ordering::Relaxed);
+    let mut out = String::new();
+    for (name, val) in [
+        ("sovir_requests_total", get(&c.requests)),
+        ("sovir_events_ingested_total", get(&c.events_ingested)),
+        ("sovir_interventions_total", get(&c.interventions)),
+        ("sovir_sessions_issued_total", get(&c.sessions_issued)),
+        ("sovir_consents_granted_total", get(&c.consents_granted)),
+        ("sovir_consents_revoked_total", get(&c.consents_revoked)),
+        ("sovir_devices_registered_total", get(&c.devices_registered)),
+        ("sovir_rate_limited_total", get(&c.rate_limited)),
+        ("sovir_errors_5xx_total", get(&c.errors_5xx)),
+    ] {
+        out.push_str(&format!("# TYPE {name} counter\n{name} {val}\n"));
+    }
+    out
+}
+/// Counts every request and flags 5xx responses. Cheap in-process
+/// middleware — the alternative (per-handler bumps) misses rejections from
+/// extractors and middleware.
+async fn count_requests(
+    State(s): State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    bump(&s.counters.requests);
+    let res = next.run(req).await;
+    if res.status().is_server_error() {
+        bump(&s.counters.errors_5xx);
+    }
+    res
+}
 /// Build/version disclosure (ops + debugging): package version and the
 /// contract revision served. No secrets, no config values.
 async fn version() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "name": "sovir-api",
         "version": env!("CARGO_PKG_VERSION"),
-        "contract": "backend-dev.v0",
+        "contract": CONTRACT_VERSION,
         "build_sha": option_env!("SOVIR_BUILD_SHA").unwrap_or("dev"),
     }))
 }
@@ -589,6 +670,7 @@ async fn grant(
         .grant(&p, body)
         .await
         .map_err(|e| map_error(e, &headers))?;
+    bump(&s.counters.consents_granted);
     Ok(StatusCode::CREATED)
 }
 async fn revoke(
@@ -603,7 +685,10 @@ async fn revoke(
         .await
         .map_err(|e| map_error(e, &headers))?
     {
-        true => Ok(StatusCode::NO_CONTENT),
+        true => {
+            bump(&s.counters.consents_revoked);
+            Ok(StatusCode::NO_CONTENT)
+        }
         false => Err(api_err(StatusCode::NOT_FOUND, "not_found", &headers, false)),
     }
 }
@@ -675,6 +760,10 @@ async fn ingest(
                 created_at_ms: now_ms(),
             })
             .await;
+    }
+    bump(&s.counters.events_ingested);
+    if decision.protected_action_executed {
+        bump(&s.counters.interventions);
     }
     Ok((StatusCode::CREATED, Json(decision)))
 }
@@ -768,6 +857,42 @@ async fn list_interventions(
     let mut items = s
         .service
         .list_interventions(&p)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    items.truncate(list_limit(&q));
+    Ok(Json(items))
+}
+#[derive(Deserialize)]
+struct RunInvestigationRequest {
+    /// Evidence window in ms; clamped server-side to the domain bound.
+    #[serde(default = "default_investigation_window_ms")]
+    window_ms: u64,
+}
+fn default_investigation_window_ms() -> u64 {
+    60 * 60 * 1000
+}
+async fn run_investigation(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RunInvestigationRequest>,
+) -> Result<(StatusCode, Json<sovir_domain::Investigation>), ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    let inv = s
+        .service
+        .run_investigation(&p, body.window_ms)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    Ok((StatusCode::CREATED, Json(inv)))
+}
+async fn list_investigations(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Vec<sovir_domain::Investigation>>, ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    let mut items = s
+        .service
+        .list_investigations(&p)
         .await
         .map_err(|e| map_error(e, &headers))?;
     items.truncate(list_limit(&q));
@@ -903,9 +1028,18 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/inference/assess", post(assess_inference))
         .route("/v1/intel/pull", post(pull_intel))
         .route("/v1/intel", get(list_intel))
+        .route(
+            "/v1/investigations",
+            post(run_investigation).get(list_investigations),
+        )
         .route("/v1/me/retention", post(enforce_retention))
         .route("/v1/webhooks", post(register_webhook).get(list_webhooks))
         .route("/v1/webhooks/{id}/revoke", post(revoke_webhook))
+        .route("/v1/metrics", get(metrics))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            count_requests,
+        ))
         .layer(
             ServiceBuilder::new()
                 // Outermost first: assign x-request-id, echo it back, bound
@@ -951,6 +1085,12 @@ fn build_router(state: AppState) -> Router {
                 .layer(SetResponseHeaderLayer::overriding(
                     axum::http::header::REFERRER_POLICY,
                     axum::http::HeaderValue::from_static("no-referrer"),
+                ))
+                // Contract version travels on every response so clients can
+                // detect drift instead of inferring it from field shapes.
+                .layer(SetResponseHeaderLayer::overriding(
+                    axum::http::HeaderName::from_static("sovir-contract-version"),
+                    axum::http::HeaderValue::from_static(CONTRACT_VERSION),
                 )),
         )
         .with_state(state)
@@ -1036,6 +1176,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // Scheduled threat-intel sweep (B5 infra path): pulls validated
+    // indicators every SOVIR_INTEL_SWEEP_MS; 0/unset disables it.
+    // SOVIR_INTEL_TENANT sets the fallback tenant for indicators that do
+    // not declare one (default "dev", the dev tenant).
+    let intel_sweep_ms: u64 = env::var("SOVIR_INTEL_SWEEP_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    if intel_sweep_ms > 0 {
+        let intel_tenant = env::var("SOVIR_INTEL_TENANT").unwrap_or_else(|_| "dev".into());
+        let svc = service.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_millis(intel_sweep_ms));
+            loop {
+                tick.tick().await;
+                match svc.pull_intel_global(&intel_tenant).await {
+                    Ok((kept, dropped)) if kept > 0 || dropped > 0 => {
+                        tracing::info!(kept, dropped, "intel sweep")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "intel sweep failed"),
+                }
+            }
+        });
+    }
+    // Scheduled orphan-reservation sweep (B21 infra path): a crash between
+    // reserve and settle leaves a `pending` row that would hold the tenant
+    // cap forever. Runs refund_expired_reservations every
+    // SOVIR_RESERVATION_SWEEP_MS; 0/unset disables it.
+    let reservation_sweep_ms: u64 = env::var("SOVIR_RESERVATION_SWEEP_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    if reservation_sweep_ms > 0 {
+        let ttl_ms: u64 = env::var("SOVIR_RESERVATION_TTL_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(600_000); // 10 min default
+        let svc = service.clone();
+        tokio::spawn(async move {
+            let mut tick =
+                tokio::time::interval(std::time::Duration::from_millis(reservation_sweep_ms));
+            loop {
+                tick.tick().await;
+                match svc.refund_expired_reservations(ttl_ms).await {
+                    Ok(n) if n > 0 => tracing::info!(refunded = n, "reservation sweep"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "reservation sweep failed"),
+                }
+            }
+        });
+    }
     let idem_store: std::sync::Arc<dyn sovir_ports::IdempotencyStore> = pg
         .as_ref()
         .map(|p| {
@@ -1053,6 +1245,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rate_limit_per_min,
         idem: idem_store,
         webhook_allowlist,
+        counters: std::sync::Arc::new(Counters::default()),
     };
     let app = build_router(state);
     tracing::info!(addr = %addr, env = %sovir_env, "starting loopback-only SOVIR development API");
@@ -1106,6 +1299,7 @@ mod tests {
             rate_limit_per_min: 60,
             idem: std::sync::Arc::new(InMemoryIdempotencyStore::default()),
             webhook_allowlist: vec!["127.0.0.1".to_string(), "localhost".to_string()],
+            counters: std::sync::Arc::new(Counters::default()),
         }
     }
 
