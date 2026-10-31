@@ -1,0 +1,31 @@
+{
+  "version": "dev-1",
+  "default_risk": "unknown",
+  "default_decision": "observe",
+  "rules": [
+    {
+      "name": "compounded_sensitive_request",
+      "clauses": [
+        ["CREDENTIAL_REQUEST", "PAYMENT_REQUEST"],
+        ["IDENTITY_UNVERIFIED", "URGENT_ACTION"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "sensitive_or_manipulative",
+      "clauses": [
+        [
+          "CREDENTIAL_REQUEST",
+          "PAYMENT_REQUEST",
+          "TRACKING_OBSERVED",
+          "CONSENT_DARK_PATTERN",
+          "HIDDEN_FEE_PATTERN",
+          "USER_DEFINED_EXPOSURE_LIMIT"
+        ]
+      ],
+      "risk_level": "elevated",
+      "decision": "review"
+    }
+  ]
+}

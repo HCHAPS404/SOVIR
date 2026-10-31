@@ -1,0 +1,16 @@
+# OPTIONAL local Postgres for the durable adapter. Docker remains deferred
+# (docs/operations/DEFERRED_TOOLCHAINS.md); CI uses a service container
+# instead. Ephemeral dev credentials — never reuse elsewhere.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: sovir_dev
+      POSTGRES_PASSWORD: ci_ephemeral_local_only
+      POSTGRES_DB: sovir_dev
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
