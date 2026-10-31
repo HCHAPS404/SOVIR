@@ -8,7 +8,7 @@ use sovir_ports::{
     PortError, RiskAnalyzer, SessionStore,
 };
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Mutex, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -61,17 +61,52 @@ impl ConsentRepository for InMemoryConsentRepository {
         }
         Ok(n)
     }
+
+    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ConsentGrant>, PortError> {
+        self.0
+            .read()
+            .map(|g| {
+                g.values()
+                    .filter(|x| x.principal_id == principal_id)
+                    .cloned()
+                    .collect()
+            })
+            .map_err(|_| PortError::Storage)
+    }
+    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+        let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
+        let before = guard.len();
+        guard.retain(|_, g| g.principal_id != principal_id);
+        Ok((before - guard.len()) as u64)
+    }
 }
 #[derive(Default)]
-pub struct InMemoryEventRepository(Mutex<HashSet<String>>);
+pub struct InMemoryEventRepository(Mutex<HashMap<String, ObservedEvent>>);
 impl EventRepository for InMemoryEventRepository {
     fn insert_once(&self, event: ObservedEvent) -> Result<(), PortError> {
         let mut events = self.0.lock().map_err(|_| PortError::Storage)?;
-        if events.insert(event.event_id) {
-            Ok(())
-        } else {
-            Err(PortError::Duplicate)
+        if events.contains_key(&event.event_id) {
+            return Err(PortError::Duplicate);
         }
+        events.insert(event.event_id.clone(), event);
+        Ok(())
+    }
+    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ObservedEvent>, PortError> {
+        self.0
+            .lock()
+            .map(|e| {
+                e.values()
+                    .filter(|x| x.principal_id == principal_id)
+                    .cloned()
+                    .collect()
+            })
+            .map_err(|_| PortError::Storage)
+    }
+    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+        let mut events = self.0.lock().map_err(|_| PortError::Storage)?;
+        let before = events.len();
+        events.retain(|_, e| e.principal_id != principal_id);
+        Ok((before - events.len()) as u64)
     }
 }
 #[derive(Default)]
@@ -105,6 +140,18 @@ impl SessionStore for InMemorySessionStore {
         let mut n = 0u64;
         for s in guard.values_mut() {
             if s.device_id == device_id && !s.revoked {
+                s.revoked = true;
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
+    fn revoke_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+        let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
+        let mut n = 0u64;
+        for s in guard.values_mut() {
+            if s.principal_id == principal_id && !s.revoked {
                 s.revoked = true;
                 n += 1;
             }
@@ -216,6 +263,29 @@ impl InterventionSink for InMemoryInterventionSink {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         guard.insert(intervention.intervention_id.clone(), intervention);
         Ok(())
+    }
+    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+        let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
+        let before = guard.len();
+        guard.retain(|_, i| i.principal_id != principal_id);
+        Ok((before - guard.len()) as u64)
+    }
+    fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError> {
+        self.0
+            .read()
+            .map(|g| {
+                let mut v: Vec<Intervention> = g
+                    .values()
+                    .filter(|i| {
+                        i.device_id == device_id
+                            && matches!(i.state, DeliveryState::Pending | DeliveryState::Failed)
+                    })
+                    .cloned()
+                    .collect();
+                v.sort_by_key(|i| i.created_at_ms);
+                v
+            })
+            .map_err(|_| PortError::Storage)
     }
 }
 /// Development channel: pretends delivery always succeeds and keeps a count.

@@ -11,11 +11,12 @@ use sovir_adapters::{
     InMemoryEventRepository, InMemoryInterventionSink, InMemorySessionStore,
     RecordingDeliveryChannel, SystemClock,
 };
-use sovir_application::{AppError, ServicePorts, SovirService};
+use sovir_application::{AppError, PrincipalDataExport, PurgeReport, ServicePorts, SovirService};
 use sovir_domain::{
     ConsentGrant, Device, DomainError, EventDecision, Intervention, ObservedEvent, Platform,
     Principal, Session,
 };
+use sovir_persistence::PgStore;
 use sovir_ports::PortError;
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 use tower::ServiceBuilder;
@@ -30,6 +31,9 @@ struct AppState {
     service: SovirService,
     /// dev-session endpoint is only enabled for local/test environments.
     dev_session_enabled: bool,
+    /// Present only when the durable Postgres adapter is active; readiness
+    /// then means a live pool probe instead of a trivial constant.
+    pg: Option<PgStore>,
 }
 #[derive(Serialize)]
 struct ApiMessage {
@@ -70,6 +74,29 @@ fn map_error(e: AppError) -> ApiError {
     };
     (status, Json(ApiMessage { message }))
 }
+/// Durable adapter when `DATABASE_URL` is set (fails closed on connect
+/// error); in-memory otherwise.
+async fn compose_service(database_url: Option<&str>) -> (SovirService, Option<PgStore>) {
+    if let Some(url) = database_url {
+        let pg = PgStore::connect(url)
+            .await
+            .expect("DATABASE_URL is set but Postgres is unreachable; refusing to start");
+        let service = SovirService::new(
+            Arc::new(SystemClock),
+            ServicePorts {
+                grants: Arc::new(pg.clone()),
+                events: Arc::new(pg.clone()),
+                risk: Arc::new(DeterministicRiskAnalyzer),
+                sessions: Arc::new(pg.clone()),
+                devices: Arc::new(pg.clone()),
+                sink: Arc::new(pg.clone()),
+                channel: Arc::new(RecordingDeliveryChannel::default()),
+            },
+        );
+        return (service, Some(pg));
+    }
+    (dev_service(), None)
+}
 fn dev_service() -> SovirService {
     SovirService::new(
         Arc::new(SystemClock),
@@ -87,11 +114,18 @@ fn dev_service() -> SovirService {
 async fn live() -> Json<ApiMessage> {
     Json(ApiMessage { message: "alive" })
 }
-// Readiness for the in-memory development API: the service has no external
-// dependencies, so constructed == ready. A future durable adapter must make
-// this check real (pool connectivity, migration version) before reuse.
-async fn ready() -> Json<ApiMessage> {
-    Json(ApiMessage { message: "ready" })
+// Readiness: in-memory means constructed == ready; with the Postgres adapter
+// it is a real pool probe (SELECT 1).
+async fn ready(State(s): State<AppState>) -> Result<Json<ApiMessage>, ApiError> {
+    match &s.pg {
+        Some(pg) if !pg.healthy().await => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiMessage {
+                message: "not_ready",
+            }),
+        )),
+        _ => Ok(Json(ApiMessage { message: "ready" })),
+    }
 }
 
 #[derive(Deserialize)]
@@ -241,6 +275,21 @@ async fn dispatch(
     Ok(Json(DispatchResult { delivered }))
 }
 
+async fn export_data(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<PrincipalDataExport>, ApiError> {
+    let p = require_principal(&headers, &s)?;
+    Ok(Json(s.service.export_data(&p).map_err(map_error)?))
+}
+async fn purge_data(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<PurgeReport>, ApiError> {
+    let p = require_principal(&headers, &s)?;
+    Ok(Json(s.service.purge_data(&p).map_err(map_error)?))
+}
+
 fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health/live", get(live))
@@ -255,6 +304,7 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/events", post(ingest))
         .route("/v1/interventions", get(list_interventions))
         .route("/v1/interventions/dispatch", post(dispatch))
+        .route("/v1/me/data", get(export_data).delete(purge_data))
         .layer(
             ServiceBuilder::new()
                 // Outermost first: assign x-request-id, echo it back, bound
@@ -303,10 +353,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("remote inference not implemented; disable it (fail closed)".into());
     }
     tracing_subscriber::fmt().with_env_filter("info").init();
-    let service = dev_service();
+    let database_url = env::var("DATABASE_URL").ok();
+    let (service, pg) = compose_service(database_url.as_deref()).await;
     let state = AppState {
         service,
         dev_session_enabled,
+        pg,
     };
     let app = build_router(state);
     tracing::info!(addr = %addr, env = %sovir_env, "starting loopback-only SOVIR development API");
@@ -326,6 +378,7 @@ mod tests {
         AppState {
             service: dev_service(),
             dev_session_enabled: true,
+            pg: None,
         }
     }
 
