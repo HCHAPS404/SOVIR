@@ -1,0 +1,49 @@
+{
+  "status": "STRUCTURE_ONLY",
+  "rule": "Misma semántica, controles y densidad propios de cada plataforma.",
+  "expressions": [
+    {
+      "id": "web-public",
+      "path": "apps/website",
+      "owner": "cursor",
+      "character": "editorial",
+      "now": "information-architecture"
+    },
+    {
+      "id": "web-app",
+      "path": "apps/console",
+      "owner": "cursor",
+      "character": "operational",
+      "now": "information-architecture"
+    },
+    {
+      "id": "browser",
+      "path": "apps/extension",
+      "owner": "cursor",
+      "character": "single-primary-action",
+      "now": "inventory-only"
+    },
+    {
+      "id": "desktop",
+      "path": "apps/desktop",
+      "owner": "cursor",
+      "character": "one-shell-three-skins",
+      "skins": ["macos", "windows", "linux-gnome", "linux-kde"],
+      "now": "inventory-only"
+    },
+    {
+      "id": "ios",
+      "path": "apps/ios",
+      "owner": "cursor",
+      "character": "swiftui",
+      "now": "inventory-only"
+    },
+    {
+      "id": "android",
+      "path": "apps/android",
+      "owner": "cursor",
+      "character": "compose",
+      "now": "inventory-only"
+    }
+  ]
+}

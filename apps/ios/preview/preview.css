@@ -1,0 +1,12 @@
+body { margin: 0; }
+.banner { margin-bottom: 1rem; }
+.phone-bar {
+  width: min(393px, calc(100% - 2rem));
+  margin: 1rem auto 0.4rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+body[data-form="pad"] .phone-bar { width: min(1024px, calc(100% - 2rem)); }
+#app { margin-bottom: 2rem; }
+#form { padding: 0.4rem 0.7rem; }

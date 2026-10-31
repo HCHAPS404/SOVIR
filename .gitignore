@@ -24,10 +24,13 @@ node_modules/
 dist/
 build/
 coverage/
+tests/ui/test-results/
+tests/ui/playwright-report/
 
 # Apple / Android
 DerivedData/
 .gradle/
+local.properties
 **/.idea/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
@@ -43,3 +46,7 @@ recordings/
 screenshots-private/
 .cache/
 .DS_Store
+
+# Tool/runtime artifacts
+*.log
+*.tsbuildinfo

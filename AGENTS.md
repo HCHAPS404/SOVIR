@@ -25,10 +25,10 @@ Antes de cualquier trabajo, lee `README.md` y ADRs aplicables en `docs/adr/`. Es
 
 ## Responsabilidades
 
-- ChatGPT: especificación/producto/ADR y evaluación; no fusiona cambios sin acceso y autorización.
-- Claude Code: dominio Rust, contratos, inferencia y revisión de seguridad/evals.
-- Cursor: apps nativas/desktop/web y sensores autorizados.
-- Devin: CI, infrastructure, workers y tareas desacopladas en PRs.
+- ChatGPT: arquitectura técnica/producto, ADR, contratos, evals y auditoría; puede implementar tickets de backend delimitados en PR con revisión independiente cuando esté autorizado; nunca fusiona sin aprobación del maintainer.
+- Claude Code: implementación principal de backend Rust (dominio, puertos, ingestión, runtime local, políticas, inferencia, grafo, detectores y ML); contratos y evaluaciones.
+- Cursor: frontend web y nativo, extensión, sensores con permisos OS, clientes tipados e integración con contratos backend aprobados; no implementa backend por defecto.
+- Devin: backend de servicios, infraestructura, identidad/persistencia segura, seguridad operativa, jobs, observabilidad, CI/CD y facturación en PRs separados.
 - Humano: responsable final de merges, permisos de plataforma, políticas, gasto, compliance.
 
 ## Skills y agentes por plataforma
@@ -37,9 +37,9 @@ Cada procedimiento vive en la carpeta de su rol. No copies una skill de Claude a
 
 | Rol | Skills | Agentes | Puede tocar | No puede tocar |
 |---|---|---|---|---|
-| Cursor | `.cursor/skills/platform-permission-review`, `local-performance-profile` | `.cursor/agents/native-client-implementer`, `product-ui-implementer`, `platform-permission-reviewer` | `apps/`, `packages/ui-web` | dominio, contratos, infra, tokens de marca |
+| Cursor | `.cursor/skills/platform-permission-review`, `local-performance-profile` | `.cursor/agents/native-client-implementer`, `product-ui-implementer`, `platform-permission-reviewer` | `apps/`, `packages/ui-web`, adaptadores OS y clientes tipados | `crates/`, `services/`, contratos, infra, tokens de marca salvo ticket backend autorizado |
 | Devin | `.devin/skills/api-contract-check`, `ci-performance-profile`, `release-readiness` | `.devin/agents/ci-infra-implementer`, `api-contract-checker`, `visual-ci-operator`, `release-checker` | `.github/`, `infra/`, `scripts/`, `services/` y tests de CI nombrados en el ticket | dominio, consentimiento, rediseño de UI, deploy |
-| ChatGPT / Codex | `.agents/skills/product-architecture-review`, `product-cost-audit`, `eval-spec` | `.codex/agents/product-architect`, `cost-eval-reviewer` | `docs/` de producto, ADR y fixtures sintéticos | apps, crates, servicios, contratos |
+| ChatGPT / Codex | `.agents/skills/product-architecture-review`, `product-cost-audit`, `eval-spec` | `.codex/agents/product-architect`, `cost-eval-reviewer` | `docs/` de producto, ADR y fixtures sintéticos; código backend SOLO por ticket específico autorizado | apps/UI; crates, servicios y contratos sin ticket/PR revisado |
 | Claude | `.claude/skills/` | `.claude/agents/` | crates, contratos y revisiones de ML o seguridad | UI y permisos de OS sin ticket |
 
 Devin también indexa `.claude/skills/` y `.agents/skills/`. Las skills de `.agents/skills/` solo se invocan de forma explícita y se detienen si el ejecutor no es ChatGPT o Codex. Cursor puede listar `.codex/agents/` por compatibilidad; esos agentes rechazan trabajo de implementación.
@@ -61,4 +61,14 @@ Before changing UI read `docs/design/FRONTEND_MASTER_PLAN.md` and `FRONTEND_GOVE
 For work in `crates/`, `services/`, `infra/postgres/`, read
 `docs/backend/BACKEND_MASTER_PLAN.md` and ADR-0005. `make backend-check` must pass
 with Rust installed before a backend PR merges. The local demo cannot be deployed
-on the Internet. It has no tenant authentication, DB persistence or model access.
+on the Internet. Auth is dev-session-only (OIDC seam unconfigured), remote
+inference is unwired by default, and there is no real model — only the local
+heuristic. Postgres persistence exists behind `DATABASE_URL` (unverified
+without a live database).
+
+
+## Ownership definitivo del backend (2026-10-28)
+
+Responsables **Claude Code, Devin y ChatGPT**; el humano mantiene la aprobación. Cursor no es dueño de los dominios B1–B21: construye frontend y sensores/adaptadores nativos en `apps/`, consumiendo contratos publicados. B9/B10/B11/B15/B20 incluyen lógica/backend de Claude y Devin y presentación/adaptadores de Cursor sin compartir archivos simultáneamente. Mapa y prioridades en `docs/operations/BRANCHES.md`; especificación en `docs/backend/BACKEND_MASTER_PLAN.md`.
+
+Créditos temporales: Modal USD 100 confirmados por el maintainer durante la competencia; no utilizar GPUs ni APIs pagas sin presupuesto, control de cierre y ticket. Referencia de vigencia, incertidumbre y límites: `docs/operations/SPONSOR_CREDITS_2026-10-28.md`. Prohibido publicar tokens, credenciales o saldos asociados a una cuenta. No se autorizan merges por estos cambios documentales.

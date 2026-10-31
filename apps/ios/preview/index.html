@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SOVIR iOS</title>
+    <link rel="stylesheet" href="../../../packages/ui-web/src/tokens.css" />
+    <link rel="stylesheet" href="../../../packages/ui-web/src/native-preview.css" />
+    <link rel="stylesheet" href="preview.css" />
+    <script src="../../../packages/ui-web/src/theme.js"></script>
+  </head>
+  <body>
+    <p class="banner">Boceto en el navegador. La aplicación es el proyecto Xcode de apps/ios. No declara ScreenCaptureKit. En este Windows la compilación sigue en NOT_IMPLEMENTED.</p>
+    <header class="phone-bar">
+      <strong class="brand-lockup"><span class="mark" aria-hidden="true"></span><span class="brand-name">SOVIR</span></strong>
+      <button id="form" type="button" class="secondary">Vista iPad</button>
+      <div class="theme-switch" role="group" aria-label="Tema">
+        <button type="button" data-theme-choice="light">Claro</button>
+        <button type="button" data-theme-choice="dark">Oscuro</button>
+      </div>
+    </header>
+    <div id="app"></div>
+    <script type="module" src="preview.js"></script>
+  </body>
+</html>

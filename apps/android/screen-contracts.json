@@ -1,0 +1,15 @@
+{
+  "implementation": "ui-source",
+  "toolchain": "Android SDK. La compilación se comprueba con Gradle en esta máquina cuando el SDK está instalado.",
+  "permission": "Ninguno declarado. MediaProjection no está en el manifiesto. El diálogo del sistema no se dibuja.",
+  "screens": [
+    { "id": "Welcome", "states": ["empty"], "copy": "Esta aplicación no observa la pantalla." },
+    { "id": "SignIn", "states": ["empty", "error"], "copy": "Simulación de acceso. No hay cuenta ni clave guardada." },
+    { "id": "Register", "states": ["empty"], "copy": "Simulación de alta. No se crea un usuario." },
+    { "id": "Home", "states": ["empty", "permission-denied"], "copy": "Sin sensores. Vacío no significa protegido." },
+    { "id": "Connections", "states": ["empty", "limited"], "copy": "Ninguna fuente está enlazada. Una nota local no es un enlace." },
+    { "id": "Activity", "states": ["empty", "review"], "copy": "No hay observaciones. El fixture sintético está etiquetado." },
+    { "id": "Account", "states": ["ready"], "copy": "Sesión de demostración. No hay correo ni nombre." },
+    { "id": "Permissions", "states": ["permission-denied", "revoked"], "copy": "No hay permiso de captura y no se puede conceder desde la app." }
+  ]
+}

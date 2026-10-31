@@ -1,0 +1,14 @@
+[package]
+name = "sovir-persistence"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+[dependencies]
+sovir-domain = { path = "../sovir-domain" }
+sovir-ports = { path = "../sovir-ports" }
+serde_json.workspace = true
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
+tokio.workspace = true
+async-trait = "0.1.92"
+uuid = { version = "1", features = ["v4"] }

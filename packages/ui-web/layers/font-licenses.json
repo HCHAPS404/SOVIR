@@ -1,0 +1,28 @@
+{
+  "status": "RECORDED_NOT_APPROVED_FOR_REDISTRIBUTION",
+  "runtimeChoice": "system-stack",
+  "reason": "Ninguna ruta visual está elegida. No se copian archivos de fuentes al repositorio.",
+  "candidates": [
+    {
+      "route": "mineral",
+      "family": "IBM Plex Sans",
+      "mono": "IBM Plex Mono",
+      "publishedLicense": "SIL Open Font License 1.1",
+      "shippingApproval": "pending-human"
+    },
+    {
+      "route": "cartographic",
+      "family": "Public Sans",
+      "mono": "IBM Plex Mono",
+      "publishedLicense": "SIL Open Font License 1.1",
+      "shippingApproval": "pending-human"
+    },
+    {
+      "route": "editorial",
+      "family": "Source Sans 3",
+      "display": "Newsreader",
+      "publishedLicense": "SIL Open Font License 1.1",
+      "shippingApproval": "pending-human"
+    }
+  ]
+}

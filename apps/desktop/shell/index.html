@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>SOVIR escritorio</title>
+    <link rel="stylesheet" href="../../../packages/ui-web/src/tokens.css" />
+    <link rel="stylesheet" href="../../../packages/ui-web/src/native-preview.css" />
+    <link rel="stylesheet" href="shell.css" />
+    <script src="../../../packages/ui-web/src/theme.js"></script>
+  </head>
+  <body data-skin="windows">
+    <p class="banner">Aplicación de escritorio en diseño. Tauri, captura y notarización: NOT_IMPLEMENTED.</p>
+    <div class="window">
+      <header class="desk-bar">
+        <strong class="brand-lockup"><span class="mark" aria-hidden="true"></span><span class="brand-name">SOVIR</span></strong>
+        <p id="chrome" class="chrome">Bandeja</p>
+        <div class="desk-tools">
+        <div class="theme-switch" role="group" aria-label="Tema">
+          <button type="button" data-theme-choice="light">Claro</button>
+          <button type="button" data-theme-choice="dark">Oscuro</button>
+        </div>
+        <nav aria-label="Sistema">
+          <button type="button" data-skin="macos">macOS</button>
+          <button type="button" data-skin="windows">Windows</button>
+          <button type="button" data-skin="gnome">Linux GNOME</button>
+          <button type="button" data-skin="kde">Linux KDE</button>
+        </nav>
+        </div>
+      </header>
+      <div id="app"></div>
+    </div>
+    <script type="module" src="shell.js"></script>
+  </body>
+</html>

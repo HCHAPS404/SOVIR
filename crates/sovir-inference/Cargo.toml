@@ -1,7 +1,0 @@
-[package]
-name = "sovir-inference"
-edition.workspace = true
-version.workspace = true
-license.workspace = true
-[dependencies]
-thiserror.workspace = true

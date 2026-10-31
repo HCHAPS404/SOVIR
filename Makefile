@@ -25,7 +25,10 @@ else
 REQUIRE_RUST = SOVIR_BACKEND_REQUIRE_RUST=1
 endif
 
-.PHONY: backend-check backend-run backend-smoke
+.PHONY: backend-check backend-run backend-smoke contract-check
+contract-check:
+	uv run scripts/contract_check.py --self-test
+
 backend-check:
 	$(REQUIRE_RUST) $(PYTHON) scripts/backend_harness.py
 

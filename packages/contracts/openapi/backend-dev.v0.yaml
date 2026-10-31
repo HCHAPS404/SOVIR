@@ -18,13 +18,260 @@ components:
       type: object
       additionalProperties: false
       required: [grant_id, source_id, expires_at_ms]
+      description: >-
+        principal_id, device_id and tenant_id are server-sealed from the
+        session; any client-supplied binding is ignored.
       properties:
         grant_id: {type: string}
         source_id: {type: string}
         expires_at_ms: {type: integer, format: int64}
         revoked: {type: boolean, default: false}
+        principal_id: {type: string, readOnly: true}
+        device_id: {type: string, readOnly: true}
+        tenant_id: {type: string, readOnly: true}
     ObservedEvent:
       $ref: '../schemas/observed-event.schema.json'
+    ApiError:
+      type: object
+      required: [error]
+      description: >-
+        Uniform error envelope (B10). `retry-after` is signalled via the
+        Retry-After response header on 429s, not in the body.
+      properties:
+        error:
+          type: object
+          required: [code, request_id, retryable]
+          properties:
+            code: {type: string}
+            request_id: {type: string}
+            retryable: {type: boolean}
+    DevSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [principal_id]
+      description: >-
+        Dev-only session issue. tenant_id defaults to 'dev'; it is a
+        caller-declared label so tenant isolation is exercisable — never
+        proof of authorization.
+      properties:
+        principal_id: {type: string}
+        device_id: {type: string}
+        tenant_id: {type: string, default: dev}
+    Session:
+      type: object
+      description: Development session token and its binding. Dev-only, never production auth.
+      required: [token, session_id, principal_id, tenant_id, device_id, scopes, expires_at_ms, revoked]
+      properties:
+        token: {type: string}
+        session_id: {type: string}
+        principal_id: {type: string}
+        tenant_id: {type: string}
+        device_id: {type: string}
+        scopes: {type: array, items: {type: string, enum: [consent_write, events_write, devices_write, sessions_write]}}
+        expires_at_ms: {type: integer, format: int64}
+        revoked: {type: boolean}
+    Principal:
+      type: object
+      required: [principal_id, tenant_id, device_id, session_id, scopes]
+      properties:
+        principal_id: {type: string}
+        tenant_id: {type: string}
+        device_id: {type: string}
+        session_id: {type: string}
+        scopes: {type: array, items: {type: string}}
+    RegisterDeviceRequest:
+      type: object
+      additionalProperties: false
+      required: [platform]
+      properties:
+        device_id: {type: string}
+        platform: {type: string, enum: [ANDROID, IOS, WINDOWS, MACOS, LINUX, BROWSER_EXTENSION]}
+        label: {type: string}
+    Device:
+      type: object
+      required: [device_id, principal_id, tenant_id, platform, label, registered_at_ms]
+      properties:
+        device_id: {type: string}
+        principal_id: {type: string}
+        tenant_id: {type: string}
+        platform: {type: string}
+        label: {type: string}
+        registered_at_ms: {type: integer, format: int64}
+        last_seen_at_ms: {type: integer, format: int64, nullable: true}
+        revoked_at_ms: {type: integer, format: int64, nullable: true}
+    Intervention:
+      type: object
+      required: [intervention_id, event_id, principal_id, device_id, tenant_id, kind, state, attempts, created_at_ms, next_attempt_at_ms]
+      properties:
+        intervention_id: {type: string}
+        event_id: {type: string}
+        principal_id: {type: string}
+        device_id: {type: string}
+        tenant_id: {type: string}
+        kind: {type: string, enum: [notify, warn_banner, require_review]}
+        state: {type: string, enum: [pending, delivered, failed, expired]}
+        attempts: {type: integer}
+        created_at_ms: {type: integer, format: int64}
+        next_attempt_at_ms: {type: integer, format: int64}
+        last_error: {type: string, nullable: true}
+        audit: {type: array, items: {type: object}}
+    DispatchResult:
+      type: object
+      required: [delivered]
+      properties:
+        delivered: {type: integer}
+    PrincipalDataExport:
+      type: object
+      properties:
+        principal_id: {type: string}
+        grants: {type: array, items: {$ref: '#/components/schemas/ConsentGrant'}}
+        events: {type: array, items: {type: object}}
+        devices: {type: array, items: {$ref: '#/components/schemas/Device'}}
+        interventions: {type: array, items: {$ref: '#/components/schemas/Intervention'}}
+        deletion_receipts: {type: array, items: {$ref: '#/components/schemas/DeletionReceipt'}}
+        audit_events: {type: array, items: {$ref: '#/components/schemas/AuditEvent'}}
+    DeletionReceipt:
+      type: object
+      description: Durable audit tombstone of an erasure; counts and pseudonymous id only.
+      properties:
+        receipt_id: {type: string}
+        principal_id: {type: string}
+        tenant_id: {type: string}
+        purged_at_ms: {type: integer}
+        events_deleted: {type: integer}
+        grants_deleted: {type: integer}
+        interventions_deleted: {type: integer}
+        sessions_revoked: {type: integer}
+        devices_revoked: {type: integer}
+        labels_scrubbed: {type: integer}
+        idem_keys_deleted: {type: integer}
+    AuditEvent:
+      type: object
+      description: Sensitive-action tombstone (metadata only; survives erasure).
+      properties:
+        audit_id: {type: string}
+        tenant_id: {type: string}
+        principal_id: {type: string}
+        action:
+          type: string
+          enum: [session_issued, consent_granted, consent_revoked, event_ingested,
+                 device_registered, device_revoked, webhook_registered, webhook_revoked,
+                 data_purged, retention_enforced, dispatch_ran,
+                 inference_called, intel_pulled, reservations_swept]
+        detail: {type: string}
+        at_ms: {type: integer}
+    InferenceRequestBody:
+      type: object
+      description: >-
+        Client half of contracts/schemas/inference-request.v0. Signals and
+        privacy only; est_cost_micro_usd is accepted but overridden by the
+        server so callers never price their own spend.
+      required: [request_id, signals, privacy]
+      properties:
+        request_id: {type: string}
+        signals:
+          type: array
+          items:
+            type: string
+            enum: [CREDENTIAL_REQUEST, PAYMENT_REQUEST, URGENT_ACTION,
+                   IDENTITY_UNVERIFIED, TRACKING_OBSERVED, HIDDEN_FEE_PATTERN,
+                   CONSENT_DARK_PATTERN, USER_DEFINED_EXPOSURE_LIMIT]
+        privacy: {type: string, enum: [standard, private]}
+        est_cost_micro_usd: {type: integer}
+    InferenceVerdict:
+      type: object
+      description: Typed hypotheses only — never an authorized action.
+      properties:
+        request_id: {type: string}
+        model_id: {type: string}
+        hypotheses: {type: array, items: {type: string}}
+        confidence_bp: {type: integer, minimum: 0, maximum: 10000}
+        provenance: {type: string}
+    IntelPullReport:
+      type: object
+      properties:
+        kept: {type: integer}
+    IntelIndicator:
+      type: object
+      description: Verified threat-intel indicator (provenance mandatory).
+      properties:
+        indicator_id: {type: string}
+        tenant_id: {type: string}
+        kind: {type: string}
+        value: {type: string}
+        confidence_bp: {type: integer, minimum: 0, maximum: 10000}
+        provenance: {type: string}
+        at_ms: {type: integer}
+    RunInvestigationRequest:
+      type: object
+      properties:
+        window_ms: {type: integer, default: 3600000, minimum: 0}
+    Investigation:
+      type: object
+      description: >
+        Deterministic local report over stored evidence (B5). `facts` are
+        counts the record proves; `hypotheses` are typed sequence hints —
+        never conflated (invariant 6). Predictions/objectives absent.
+      properties:
+        investigation_id: {type: string}
+        tenant_id: {type: string}
+        principal_id: {type: string}
+        window_ms: {type: integer}
+        events_examined: {type: integer}
+        facts:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: {type: string, enum: [signal_observed, data_class_observed]}
+              subject: {type: string}
+              count: {type: integer}
+        hypotheses:
+          type: array
+          items:
+            type: object
+            properties:
+              pattern: {type: string, enum: [hook_then_payment, identity_then_credential, escalating_manipulation]}
+              span_ms: {type: integer}
+              event_ids: {type: array, items: {type: string}}
+        created_at_ms: {type: integer}
+    PurgeReport:
+      type: object
+      properties:
+        receipt_id: {type: string}
+        events_deleted: {type: integer}
+        grants_deleted: {type: integer}
+        interventions_deleted: {type: integer}
+        sessions_revoked: {type: integer}
+        devices_revoked: {type: integer}
+        labels_scrubbed: {type: integer}
+        idem_keys_deleted: {type: integer}
+    RetentionReport:
+      type: object
+      properties:
+        cutoff_ms: {type: integer}
+        events_deleted: {type: integer}
+        terminal_interventions_deleted: {type: integer}
+        session_tombstones_deleted: {type: integer}
+        idem_keys_expired_deleted: {type: integer}
+    WebhookEndpoint:
+      type: object
+      description: Registered egress endpoint. Secret is dev-only plaintext.
+      properties:
+        endpoint_id: {type: string}
+        principal_id: {type: string}
+        tenant_id: {type: string}
+        url: {type: string}
+        secret: {type: string}
+        kinds: {type: array, items: {type: string, enum: [notify, warn_banner, require_review]}}
+        created_at_ms: {type: integer}
+        revoked_at_ms: {type: integer, nullable: true}
+    RegisterWebhookRequest:
+      type: object
+      required: [url, kinds]
+      properties:
+        url: {type: string, description: "http(s) URL; host must be in SOVIR_WEBHOOK_ALLOWLIST"}
+        kinds: {type: array, items: {type: string, enum: [notify, warn_banner, require_review]}}
 security:
   - devBearer: []
 paths:
@@ -33,6 +280,192 @@ paths:
       security: []
       responses:
         '200': {description: Process is alive}
+  /health/ready:
+    get:
+      security: []
+      responses:
+        '200': {description: Ready (real pool probe when Postgres adapter is active)}
+        '503': {description: Not ready}
+  /v1/auth/dev-session:
+    post:
+      summary: Mint a short-lived development session (SOVIR_ENV=local|test only)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DevSessionRequest'}
+      responses:
+        '201': {description: Session created, content: {application/json: {schema: {$ref: '#/components/schemas/Session'}}}}
+        '403': {description: Dev sessions disabled or device revoked}
+        '400': {description: Invalid identifiers}
+  /v1/auth/logout:
+    post:
+      summary: Revoke the calling session
+      responses:
+        '204': {description: Logged out}
+        '401': {description: Missing session token}
+        '404': {description: Unknown session}
+  /v1/auth/whoami:
+    get:
+      summary: Resolved principal for the calling session
+      responses:
+        '200': {description: Principal, content: {application/json: {schema: {$ref: '#/components/schemas/Principal'}}}}
+        '401': {description: Missing, expired or revoked session}
+  /v1/devices:
+    post:
+      summary: Register a device for the calling principal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RegisterDeviceRequest'}
+      responses:
+        '201': {description: Device registered, content: {application/json: {schema: {$ref: '#/components/schemas/Device'}}}}
+        '401': {description: Unauthorized}
+        '409': {description: Device id already registered}
+    get:
+      summary: List the calling principal's devices
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
+      responses:
+        '200': {description: Devices, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Device'}}}}}
+        '401': {description: Unauthorized}
+  /v1/devices/{id}/revoke:
+    post:
+      summary: Revoke a device; fails closed on its sessions, grants and pending interventions
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+      responses:
+        '204': {description: Revoked}
+        '401': {description: Unauthorized}
+        '404': {description: Not found}
+  /v1/interventions:
+    get:
+      summary: List interventions for the calling principal
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
+      responses:
+        '200': {description: Interventions, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Intervention'}}}}}
+        '401': {description: Unauthorized}
+  /v1/interventions/dispatch:
+    post:
+      summary: "Deliver due interventions through the registered channel (dev: recording stub)"
+      responses:
+        '200': {description: Count delivered, content: {application/json: {schema: {$ref: '#/components/schemas/DispatchResult'}}}}
+        '401': {description: Unauthorized}
+  /v1/me/data:
+    get:
+      summary: Export the calling principal's stored metadata (B16 governance)
+      responses:
+        '200': {description: Export, content: {application/json: {schema: {$ref: '#/components/schemas/PrincipalDataExport'}}}}
+        '401': {description: Unauthorized}
+    delete:
+      summary: Erase the calling principal's data and revoke access (fail closed)
+      responses:
+        '200': {description: Purge report, content: {application/json: {schema: {$ref: '#/components/schemas/PurgeReport'}}}}
+        '401': {description: Unauthorized}
+  /v1/me/retention:
+    post:
+      summary: Enforce retention on the caller's data (B16; cutoff via SOVIR_RETENTION_MS)
+      responses:
+        '200': {description: Retention report, content: {application/json: {schema: {$ref: '#/components/schemas/RetentionReport'}}}}
+        '401': {description: Unauthorized}
+  /v1/me/audit:
+    get:
+      summary: The caller's sensitive-action audit trail (tombstones survive erasure)
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
+      responses:
+        '200': {description: Audit events, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/AuditEvent'}}}}}
+        '401': {description: Unauthorized}
+  /v1/inference/assess:
+    post:
+      summary: Remote inference via configured provider (B4 seam; 503 when no provider is wired)
+      description: >-
+        est_cost_micro_usd is ignored — the server prices every request
+        (SOVIR_INFERENCE_REQ_COST_MICROS) so a caller can never set its
+        own spend. Budget cap is enforced before any provider call.
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/InferenceRequestBody'}}}
+      responses:
+        '200': {description: Typed verdict, content: {application/json: {schema: {$ref: '#/components/schemas/InferenceVerdict'}}}}
+        '401': {description: Unauthorized}
+        '429': {description: Budget exceeded}
+        '503': {description: No provider configured or privacy mode not servable}
+  /v1/intel/pull:
+    post:
+      summary: Pull threat-intel candidates; keeps only items with verifiable provenance (B5)
+      responses:
+        '200': {description: Kept count, content: {application/json: {schema: {$ref: '#/components/schemas/IntelPullReport'}}}}
+        '401': {description: Unauthorized}
+  /v1/intel:
+    get:
+      summary: Verified intel indicators recorded for the caller's tenant
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
+      responses:
+        '200': {description: Indicators, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/IntelIndicator'}}}}}
+        '401': {description: Unauthorized}
+  /v1/investigations:
+    post:
+      summary: Run a bounded deterministic investigation over stored evidence (B5)
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/RunInvestigationRequest'}}}
+      responses:
+        '201': {description: Investigation report, content: {application/json: {schema: {$ref: '#/components/schemas/Investigation'}}}}
+        '401': {description: Unauthorized}
+        '403': {description: Scope missing}
+    get:
+      summary: Caller's investigation history (newest first)
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
+      responses:
+        '200': {description: Investigations, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Investigation'}}}}}
+        '401': {description: Unauthorized}
+  /v1/webhooks:
+    post:
+      summary: Register a signed webhook endpoint (B20; SSRF allowlist enforced)
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/RegisterWebhookRequest'}}}
+      responses:
+        '201': {description: Registered, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookEndpoint'}}}}
+        '400': {description: Invalid or non-allowlisted URL}
+        '401': {description: Unauthorized}
+    get:
+      summary: List the caller's webhook endpoints
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
+      responses:
+        '200': {description: Endpoints, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/WebhookEndpoint'}}}}}
+        '401': {description: Unauthorized}
+  /v1/webhooks/{id}/revoke:
+    post:
+      summary: Revoke a webhook endpoint
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '204': {description: Revoked}
+        '401': {description: Unauthorized}
+        '404': {description: Not found}
   /v1/consents:
     post:
       summary: Create a demo-only source consent
@@ -69,4 +502,23 @@ paths:
         '400': {description: Invalid or prohibited data}
         '401': {description: Not authorized}
         '403': {description: Consent missing, expired, mismatched or revoked}
+    get:
+      summary: List the caller's stored observed events (metadata + typed signals)
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 100, maximum: 500}
+      responses:
+        '200': {description: Events, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+        '401': {description: Unauthorized}
+  /v1/version:
+    get:
+      summary: Build and contract version disclosure
+      responses:
+        '200': {description: Version info, content: {application/json: {schema: {type: object}}}}
         '409': {description: Duplicate event ID}
+  /v1/metrics:
+    get:
+      summary: Internal counters (Prometheus text format, local only)
+      responses:
+        '200': {description: Counters, content: {text/plain: {schema: {type: string}}}}

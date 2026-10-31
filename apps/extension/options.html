@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Opciones SOVIR</title>
+    <link rel="stylesheet" href="extension.css" />
+    <script src="theme.js"></script>
+  </head>
+  <body>
+    <main style="width: min(640px, 100%)">
+      <p class="brand-lockup"><span class="mark" aria-hidden="true"></span><span class="brand-name">SOVIR</span></p>
+      <div class="theme-switch" role="group" aria-label="Tema">
+        <button type="button" data-theme-choice="light">Claro</button>
+        <button type="button" data-theme-choice="dark">Oscuro</button>
+      </div>
+      <p class="note">Observación opt-in por sitio. Emite señales tipadas, nunca contenido.</p>
+      <h1>Opciones</h1>
+      <p>
+        La observación se activa sitio a sitio desde el popup (permiso opcional de Chrome). Cada
+        sitio concedido inyecta <code>content.js</code>, que extrae señales tipadas —
+        <code>CREDENTIAL_REQUEST</code>, <code>PAYMENT_REQUEST</code>, <code>URGENT_ACTION</code>,
+        <code>CONSENT_DARK_PATTERN</code>, <code>TRACKING_OBSERVED</code>,
+        <code>IDENTITY_UNVERIFIED</code> — y un digest sha256 de metadatos. Nunca sale texto, DOM ni
+        valores de campos de la página.
+      </p>
+      <p>
+        Los eventos van a la API dev local (<code>http://127.0.0.1:8787</code>) bajo el grant{" "}
+        <code>ext-observer-grant</code> de la fuente <code>screen-observer:ext</code>. Revocar el
+        grant o el dispositivo en la consola corta la ingesta al instante.
+      </p>
+      <p>La observación de píxeles/pantalla completa no existe en la extensión: es metadata de página.</p>
+      <h2>API</h2>
+      <p>
+        <label>
+          URL base de la API
+          <input id="api-url" type="url" value="http://127.0.0.1:8787" />
+        </label>
+        <button id="save" type="button">Guardar</button>
+        <span id="saved" class="note"></span>
+      </p>
+      <script src="options.js"></script>
+    </main>
+  </body>
+</html>

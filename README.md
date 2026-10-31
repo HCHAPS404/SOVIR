@@ -3,7 +3,7 @@
 # SOVIR — Digital Autonomy Intelligence
 
 > **Nombre de trabajo, pendiente de comprobación de marca.**  
-> **Estado:** especificación maestra de producto y arquitectura; no representa funcionalidades ya implementadas.  
+> **Estado:** especificación maestra, más un esqueleto local de frontend. No es una aplicación de protección en producción. Avance de front al 28 oct 2026: [§0.3](#03-avance-de-front-28-oct-2026).  
 > **Versión del documento:** 0.1.0 · **Fecha base:** 27 de octubre de 2026  
 > **Modalidades objetivo:** Personal · Plus · Enterprise / B2B2C  
 > **Ámbito:** Android · iOS · Windows · macOS · Linux · navegadores  
@@ -25,6 +25,61 @@ Las afirmaciones de este README pertenecen a uno de cuatro estados:
 - **RESTRICCIÓN VERIFICADA:** limitación de API o condiciones reportadas por documentación de proveedores, sujetas a versiones y políticas futuras.
 
 **Regla de veracidad:** ningún colaborador humano o agente debe declarar una función como «implementada», «compatible», «detectada» o «probada» sin código, evidencia y pruebas reproducibles. En particular, «multiplataforma» significa arquitectura preparada para diversas plataformas, no permisos universales de lectura de todas las apps.
+
+### 0.2 Avance del esqueleto (27 oct 2026)
+
+Hecho en local, en `feat/design-foundations-dx01`:
+
+- Identidad **Umbral** definida para el esqueleto: símbolo entregado por el responsable, paleta clara y oscura, nombre en Outfit, títulos en Newsreader, texto en Source Sans 3 y etiquetas en IBM Plex Mono. Peligro, aviso, éxito y desconocido no usan el color de marca.
+- Sitio público en `apps/website` y consola en `apps/console`, con registro y entrada simulados. No hay cuentas, precios publicados ni binarios.
+- Catálogo de 16 secciones y 9 estados de simulación, compartido por la consola, Android, iOS y el escritorio.
+- Extensión con popup, panel y opciones. No observa sitios hasta un permiso opcional.
+- Vistas de Android, iOS y escritorio. Su compilación y Tauri siguen en `NOT_IMPLEMENTED`.
+- Tema claro/oscuro en cada superficie. CLI: `pnpm sovir list`, `show`, `open`, `theme`, `status`.
+- Archivo Figma [SOVIR Umbral](https://www.figma.com/design/ugk030WRnYLejNPEj0kV0K). No hay un frame por cada sección y estado.
+
+La fase siguiente, pedida por el responsable, es el frente de la landing y la consola, el frente de la extensión, y la arquitectura backend-frontend de esas superficies para marcar hitos. El detalle está en [`docs/operations/NEXT_PHASE.md`](docs/operations/NEXT_PHASE.md). El pendiente por rama está en [`docs/operations/BRANCHES.md`](docs/operations/BRANCHES.md). Lo que de eso ya se dibujó en sitio y consola, y lo que sigue sin hacerse, está en [§0.3](#03-avance-de-front-28-oct-2026).
+
+### 0.3 Avance de front (28 oct 2026)
+
+Hecho en local, todavía en `feat/design-foundations-dx01`. Es interfaz de demostración. No observa pantallas, no llama al API Rust y no publica instaladores.
+
+**Sitio público (`apps/website`)**
+
+- Landing con marca de puntos interactiva en el hero. La frase de la derecha es una sola: «En el dispositivo, con una política, en tus manos.»
+- Cobertura de descarga visible solo para Mac y Windows. Cada icono abre su página. Esas páginas dicen que el instalador no está publicado.
+- Pie de página dibujado con puntos dorados, no con la foto. El cursor los mueve y un clic suelta una onda. Encima siguen el símbolo y «Sovir 2026».
+- Entrada y registro son portales de diseño. No crean una cuenta ni envían el correo.
+
+**Consola (`apps/console`)**
+
+- Sesión demo por cookie. El botón «Perfil de desarrollador» entra sin cuenta real. Si no hay tema guardado, la consola abre en oscuro, con la paleta de SOVIR (negro, crema, tono de marca).
+- Barra lateral con búsqueda de secciones, grupos Operación, Organización y Cuenta, y la sesión abajo.
+- Inicio muestra la sesión, la conexión y lo que falta por conectar. El resto de secciones tiene la forma de lo que el backend va a guardar: las cuatro decisiones de protección, la tabla de incidentes, los pasos de investigación, dispositivos, la concesión, las tres compuertas de recursos, cuenta, ajustes, políticas, agregados, integraciones, auditoría y facturación.
+- No hay cifras de uso, precios, planes ni una afirmación de cobertura. Vacío no significa protegido.
+
+**Móvil (28 oct 2026, tarde)**
+
+- Android es un proyecto Compose en `apps/android`. iOS es un proyecto SwiftUI en `apps/ios`, con tab bar en el iPhone y barra lateral en el iPad.
+- Entrada, registro, menú, inicio, conexiones, actividad y cuenta. El perfil de desarrollador abre la app sin cuenta. El correo y la clave no se guardan.
+- Ninguna fuente está enlazada. Una nota local no es un enlace ni un permiso. No se declara captura de pantalla.
+- En esta máquina, `gradlew :app:assembleDebug :app:testDebugUnitTest` terminó en BUILD SUCCESSFUL. Cuatro pruebas de lógica, cero fallos. No había un teléfono conectado: la instalación en dispositivo queda pendiente. iOS no se compiló: no hay Xcode en Windows.
+
+**Pendiente de front**
+
+- Unir cada sección de la consola con los contratos reales (`POST /v1/consents`, revocación, `POST /v1/events`) cuando existan identidad y almacenamiento. Hoy los campos están dibujados y vacíos.
+- Decidir Android, iOS y Linux en la fila de descarga cuando haya binarios. Hoy no se muestran.
+- Llevar estas pantallas a Figma con node IDs reales. El archivo citado en §0.2 no cubre este pase.
+- Pruebas visuales y de accesibilidad de la landing y la consola nuevas. No se ejecutó una suite que las cubra.
+- Revisión humana de marca y de merge. Esta rama no está lista para fusionar solo por este pase.
+
+**No hecho en front**
+
+- Autenticación real, OAuth, perfiles con nombre o correo, ni persistencia de ajustes.
+- Diálogos de permiso del sistema, captura, sensores o extensión observando sitios.
+- Compilación de iOS y de escritorio. iOS sigue en `NOT_IMPLEMENTED` en este Windows. Tauri también. Android compiló el APK de depuración; no se instaló en un teléfono.
+- Gráficas de uso, facturas, medios de pago y series temporales. No hay datos que dibujar.
+- El interruptor de estados de simulación (`Listo`, `Vacío`, etc.) ya no se muestra. La query `?state=` sigue existiendo en el código, sin controles en pantalla.
 
 ### 0.1 ADRs fundamentales
 
@@ -900,11 +955,13 @@ En el scaffold entregado, `scripts/harness.py` y `scripts/check_architecture.py`
 
 | Participante | Responsabilidad principal | Puede modificar directamente | No debe hacer sin autorización |
 |---|---|---|---|
-| **ChatGPT** | Product architect, estrategia, briefs, research, ADR propuestos, eval specs, revisión de riesgos | Artefactos de especificación entregados al repo mediante PR y humano | Cambiar contratos unilateralmente, asumir acceso a repo, prometer features. |
-| **Claude Code** | Domain architect / Rust core / contratos / revisión de seguridad y ML | `crates/`, `packages/contracts`, eval specs asignadas | Rediseñar UI o permisos OS sin ticket/ADR. |
-| **Cursor** | Implementación interactiva UI, nativo, integración de sensores y debugging local | `apps/`, UI/adapters asignados | Redefinir modelos core, esquemas o políticas sin RFC. |
-| **Devin** | Infra, CI/CD, scripts, integraciones desacopladas, automatización de pruebas, PRs acotados | `infra/`, `services` asignados, `.github`, `scripts` | Reestructurar monorepo, resolver decisiones de seguridad en solitario, mergear cambios críticos. |
+| **ChatGPT** | Arquitectura backend, especificación de contratos, ADR, seguridad, evaluación, FinOps y tareas backend acotadas | Docs/ADRs; código backend únicamente con ticket aprobado y PR revisado | Cambiar contratos unilateralmente, fusionar cambios o ejecutar servicios costosos sin autorización. |
+| **Claude Code** | Implementación de core Rust, ingestión, evidencia, runtime local, riesgo, políticas, inferencia, investigación y ML | `crates/`, `packages/contracts`, eval specs y servicios backend específicamente asignados | Rediseñar UI o permisos OS sin ticket/ADR. |
+| **Cursor** | Frontend y aplicaciones nativas, captura consentida, SDK cliente y puentes OS | `apps/`, `packages/ui-*`, adaptadores nativos asignados | Cambiar directamente backend `crates/` o `services/` sin ticket de backend aprobado. |
+| **Devin** | Servicios backend, identidad, almacenamiento, seguridad operativa, APIs/SDK servidor, facturación, infra y CI/CD | `services/`, `infra/`, `.github`, `scripts` y módulos asignados | Rediseñar dominio/contratos unilateralmente, publicar servicios sin seguridad o mergear cambios críticos. |
 | **Humano maintainer** | Decisiones finales, credenciales, acceso físico/dispositivos, cumplimiento, merges y releases | Todo bajo revisión | Delegar autonomía irreversible a agentes. |
+
+**Distribución backend aprobada el 28 oct 2026:** ChatGPT (arquitectura/contratos/evals/auditoría, implementación sólo por ticket), Claude (Rust/core/ML/policy), Devin (servicios, datos, identidad, seguridad, infraestructura) comparten la ejecución del backend en PRs separados. Cursor se concentra en frontends y adaptadores del sistema operativo, no en el core Rust ni servidores. Matriz de dominios: [BRANCHES.md](docs/operations/BRANCHES.md). Crédito temporal Modal confirmado: [SPONSOR_CREDITS_2026-10-28.md](docs/operations/SPONSOR_CREDITS_2026-10-28.md). **Sin merge por esta actualización.**
 
 ### 16.2 Protocolo para tickets multiagente
 
@@ -1162,7 +1219,7 @@ Objetivos iniciales, sujetos a benchmark por hardware:
 
 **Qué hace:** infraestructura de ejecución Python y GPUs/serverless bajo demanda; endpoints, sandbox, jobs de cómputo/entrenamiento.
 
-**Oferta del evento:** **USD 100** para participantes seleccionados.
+**Oferta del evento:** **USD 100** para participantes seleccionados. **Estado de SOVIR: USD 100 otorgados y confirmados por el responsable; vigencia durante la competencia según el responsable.** Verificar vencimiento exacto y saldo en panel Modal.
 
 **Uso en SOVIR:** batch OCR/video/frames de prueba, generación sintética autorizada, evaluación de modelos, jobs de entrenamiento y análisis de dataset. **Ideal para compute episódico**, no para capturar permanentemente pantallas de usuarios.
 
@@ -1198,8 +1255,8 @@ Objetivos iniciales, sujetos a benchmark por hardware:
 | Meta USD 150 condicional | USD 20 | colchón de reintentos/validación | no superar total |
 | Baseten USD 100 condicional | USD 60 | benchmark open weights | métricas frente Meta/local |
 | Baseten USD 100 condicional | USD 40 | pruebas de carga acotadas | costo/latencia |
-| Modal USD 100 condicional | USD 75 | dataset/jobs GPU | costo reproducible |
-| Modal USD 100 condicional | USD 25 | contingencia benchmark | cola/timeout |
+| Modal USD 100 confirmado por el responsable | USD 75 | dataset/jobs GPU | costo reproducible |
+| Modal USD 100 confirmado por el responsable | USD 25 | contingencia benchmark | cola/timeout |
 | Fireworks USD 25 condicional | USD 25 | benchmark proveedor adicional | privacidad + comparables |
 
 **Nunca** activar los cuatro créditos en un mismo flujo de producción sin demostrar la necesidad. Establecer hard caps y supervisar los saldos desde panel de cada sponsor. Los beneficios no necesariamente son transferibles, acumulables o aptos para cualquier modelo; validar términos.
@@ -1497,11 +1554,11 @@ Las referencias de mercado (fraude, dark patterns, salud digital, créditos coac
 
 ## 28. Frontend Experience Architecture — Marca, Figma y expresiones nativas (nuevo)
 
-**DECISIÓN PROPUESTA; identidad pendiente de aprobación humana.** SOVIR tiene una marca y un núcleo técnico, pero **no** una UI clonada en todos los sistemas. La capa de presentación es un adaptador hexagonal: ningún componente React/SwiftUI/Compose decide la lógica de riesgo ni permisos reales del OS. Diseño y frontend tienen el mismo rigor que backend: diseño versionado, contratos, QA, accesibilidad, rendimiento y ownership.
+**Identidad Umbral definida para el esqueleto el 27 oct 2026.** El pase de landing y consola del 28 oct 2026 está en [§0.3](#03-avance-de-front-28-oct-2026). SOVIR tiene una marca de esqueleto y un núcleo técnico, pero **no** una UI clonada en todos los sistemas. La capa de presentación es un adaptador hexagonal: ningún componente React/SwiftUI/Compose decide la lógica de riesgo ni permisos reales del OS. Diseño y frontend tienen el mismo rigor que backend: diseño versionado, contratos, QA, accesibilidad, rendimiento y ownership.
 
 **Superficies:** `apps/website` marketing público (`www`, landing, marca, plataformas, privacidad, precios sin inventar, descarga, enterprise, login); `apps/console` app web con autenticación (`app`); `apps/extension` popup/side panel/options; `apps/ios` SwiftUI; `apps/android` Compose; `apps/desktop` Tauri/React con expresiones y adaptadores Windows, macOS y Linux GNOME/KDE. Shell de escritorio compartido, patrones nativos diferenciados y feature flags por capacidades, jamás fingir permisos del sistema.
 
-**Sistema visual:** `Brand → Semantic Tokens → Platform Expressions → Feature Patterns → Screens`. Tres rutas exploratorias (Mineral, Cartográfica, Editorial) esperan votación humana de marca, paleta, logo, tipografía y voz. Tokens programáticos se congelan mediante ADR; colores de alertas no dependen de marca. Archivo Figma de biblioteca y otro de experiencias (o páginas equivalentes), con capas editables, variables, auto-layout, componentes, estados y prototipos. Conectar con Code Connect sólo si acceso/licencia lo habilita; como fallback, manifest de node IDs reales y mapeo manual.
+**Sistema visual:** `Brand → Semantic Tokens → Platform Expressions → Feature Patterns → Screens`. Umbral es la identidad en uso. Mineral, Cartográfica y Editorial quedan archivadas en `packages/design-system/tokens/brand-candidates.json`. Tokens programáticos se congelan mediante ADR; colores de alertas no dependen de marca. Archivo Figma de biblioteca y otro de experiencias (o páginas equivalentes), con capas editables, variables, auto-layout, componentes, estados y prototipos. Conectar con Code Connect sólo si acceso/licencia lo habilita; como fallback, manifest de node IDs reales y mapeo manual.
 
 **Trabajo multiagente:** humano aprueba marca y releases; ChatGPT desarrolla arquitectura y specs; Claude audita contratos/tokens; Cursor implementa UI por plataforma; Devin mantiene CI visual/accesibilidad; Figma es herramienta de composición/handoff. Ramas cortas por feature, no ramas permanentes `frontend` ni por OS. Cualquier pantalla requiere referencia y estado Figma, copy, pruebas de estados, a11y y evidencia visual.
 
@@ -1518,7 +1575,7 @@ Las referencias de mercado (fraude, dark patterns, salud digital, créditos coac
 - `design/figma/screen-manifest.json` y `packages/design-system/*` — fuentes de verdad pendientes de Figma y cierre de marca.
 - `scripts/design_harness.py` — validación de consistencia mínima de scaffold y tokens; no sustituye tests E2E.
 
-**Nota de Figma:** se comprobó que la cuenta conectada tiene múltiples teams y asiento `View`. No se ha creado un archivo ni se han generado node IDs de Figma: se requiere elegir equipo y verificar permisos de edición antes de construir allí. El kit técnico/design y planes están listos offline para llevarlos a Figma.
+**Nota de Figma:** el archivo editable es [SOVIR Umbral](https://www.figma.com/design/ugk030WRnYLejNPEj0kV0K), en el equipo personal de la cuenta conectada. Los node IDs reales están en `design/figma/screen-manifest.json` y `design/figma/HANDOFF.md`. Falta un frame por cada sección y estado.
 
 
 

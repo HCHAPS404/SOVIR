@@ -1,0 +1,13 @@
+[package]
+name = "sovir-edge-extract"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+# Pure pixel→signal extraction (ADR-0015). No I/O, no OS, no async:
+# a frame in, typed signal hints out. Real screen capture is a
+# per-platform adapter concern and stays NOT_IMPLEMENTED here.
+[dependencies]
+sovir-domain = { path = "../sovir-domain" }
+sha2 = "0.10"

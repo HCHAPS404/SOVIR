@@ -1,0 +1,376 @@
+{
+  "states": ["ready", "loading", "empty", "offline", "error", "permission-denied", "limited", "revoked", "review"],
+  "stateLabels": {
+    "ready": "Listo",
+    "loading": "Carga",
+    "empty": "Vacío",
+    "offline": "Sin conexión",
+    "error": "Error",
+    "permission-denied": "Sin permiso",
+    "limited": "Cobertura limitada",
+    "revoked": "Revocado",
+    "review": "Revisión"
+  },
+  "sections": [
+    {
+      "id": "entrar",
+      "path": "/sign-in",
+      "group": "Acceso",
+      "label": "Entrar",
+      "title": "Entrar",
+      "lede": "Simulación de acceso. No hay cuenta ni clave guardada.",
+      "note": "El formulario no sale de este dispositivo.",
+      "actions": [{ "label": "Entrar con fixture sintético", "href": "/sign-in" }],
+      "rows": [["Cuenta", "No existe"], ["Cookie", "Solo si entras al demo"]],
+      "blocks": [{ "heading": "Qué ocurre", "body": "La consola puede crear una cookie local de demostración. No comprueba un correo ni una contraseña." }],
+      "states": {
+        "loading": { "lede": "Comprobando el acceso de demostración.", "rows": [["Paso", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay una sesión. Vacío no significa protegido.", "rows": [["Sesión", "Ausente"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. Esta demo no necesita red para la cookie local.", "rows": [["Red", "Sin conexión"]], "blocks": [] },
+        "error": { "lede": "No se pudo abrir la sesión de demostración.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "No hay permiso de captura. Entrar no lo concede.", "rows": [["Captura", "No concedida"]], "blocks": [] },
+        "limited": { "lede": "El acceso de demo no cubre sensores.", "rows": [["Cobertura", "Limitada"]], "blocks": [] },
+        "revoked": { "lede": "La sesión anterior fue cerrada.", "rows": [["Cookie", "Ausente"]], "blocks": [] },
+        "review": { "lede": "Revisión: este acceso es un fixture, no una identidad.", "rows": [["Identidad", "No verificada"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "registro",
+      "path": "/registro",
+      "group": "Acceso",
+      "label": "Registro",
+      "title": "Registro",
+      "lede": "Simulación de alta. No se crea un usuario ni se conserva la clave.",
+      "note": "Confirmar solo muestra que no se guardó nada.",
+      "actions": [{ "label": "Volver a entrar", "href": "/sign-in" }],
+      "rows": [["Alta", "No enviada"], ["Servidor", "No se llama"]],
+      "blocks": [{ "heading": "Campos", "body": "Nombre, correo y clave se pintan para el diseño. El navegador no los envía a un proveedor." }],
+      "states": {
+        "loading": { "lede": "Simulando el alta. No hay una petición en curso.", "rows": [["Alta", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay un registro. No existe una cuenta que mostrar.", "rows": [["Cuentas", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. El registro simulado tampoco usa red.", "rows": [["Red", "Sin conexión"]], "blocks": [] },
+        "error": { "lede": "La simulación de alta no se completó. No quedó una cuenta a medias.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "Registrarse no concede captura.", "rows": [["Captura", "No concedida"]], "blocks": [] },
+        "limited": { "lede": "Un alta futura no implicaría cobertura de sensores.", "rows": [["Cobertura", "Ninguna"]], "blocks": [] },
+        "revoked": { "lede": "No hay un alta que revocar.", "rows": [["Alta", "No existe"]], "blocks": [] },
+        "review": { "lede": "Revisión: los campos son de diseño. La clave no se lee ni se guarda.", "rows": [["Clave", "No almacenada"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "inicio",
+      "path": "/",
+      "group": "Trabajo",
+      "label": "Inicio",
+      "title": "Sin cobertura que afirmar",
+      "lede": "No hay sensores conectados. Vacío no significa protegido.",
+      "note": "El permiso de captura lo pide el sistema.",
+      "actions": [{ "label": "Revisar protecciones", "href": "/protections" }, { "label": "Ver permisos", "href": "/permissions" }],
+      "rows": [["Captura", "Sin permiso"], ["Último evento", "Ninguno"], ["Cobertura", "NOT_IMPLEMENTED"]],
+      "blocks": [{ "heading": "Qué puedes hacer", "body": "Recorrer protecciones, incidentes e investigación. Nada de eso observa la pantalla todavía." }],
+      "states": {
+        "loading": { "lede": "Cargando el resumen de demostración.", "rows": [["Resumen", "En curso"]], "blocks": [] },
+        "empty": { "lede": "El estado inicial es vacío: no hay sensores conectados. Vacío no significa protegido.", "rows": [["Sensores", "0"], ["Eventos", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. El resumen local sigue vacío.", "rows": [["Red", "Sin conexión"]], "blocks": [] },
+        "error": { "lede": "No se pudo mostrar el resumen.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "Permiso no concedido. El inicio no afirma protección.", "rows": [["Captura", "No concedida"]], "blocks": [] },
+        "limited": { "lede": "Cobertura limitada. Falta al menos una fuente.", "rows": [["Fuentes", "Incompletas"]], "blocks": [] },
+        "revoked": { "lede": "El permiso fue revocado. El inicio no muestra cobertura activa.", "rows": [["Permiso", "Revocado"]], "blocks": [] },
+        "review": { "lede": "Revisión del resumen. No hay una detección que confirmar.", "rows": [["Detecciones", "Ninguna"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "protecciones",
+      "path": "/protections",
+      "group": "Trabajo",
+      "label": "Protecciones",
+      "title": "Protecciones",
+      "lede": "La captura prevista es de esta sesión y se puede revocar antes de pedirla al sistema.",
+      "note": "El botón no abre el diálogo del sistema.",
+      "actions": [{ "label": "Ir a permisos", "href": "/permissions" }],
+      "rows": [["Esta sesión", "No concedida"], ["Otras apps", "No se leen"], ["Pantallas seguras", "No se evaden"]],
+      "blocks": [{ "heading": "Alcance", "body": "Solo fuentes que la persona elija, durante la sesión, con pausa y revocación visibles." }, { "heading": "Límite", "body": "No hay un sensor publicado. Esta pantalla explica el alcance, no lo activa." }],
+      "states": {
+        "loading": { "lede": "Cargando el alcance previsto.", "rows": [["Alcance", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay una protección activa. Vacío no significa protegido.", "rows": [["Protecciones", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. El alcance local no cambia.", "rows": [["Red", "Sin conexión"]], "blocks": [] },
+        "error": { "lede": "No se pudo mostrar el alcance.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "Permiso no concedido. No hay captura de esta sesión.", "rows": [["Sesión", "No concedida"]], "blocks": [] },
+        "limited": { "lede": "Solo se explicaría una parte de las fuentes. Eso es cobertura limitada.", "rows": [["Fuentes", "Parcial"]], "blocks": [] },
+        "revoked": { "lede": "La protección de sesión fue revocada.", "rows": [["Sesión", "Revocada"]], "blocks": [] },
+        "review": { "lede": "Revisión del alcance. No hay una fuente independiente que lo confirme.", "rows": [["Confirmación", "No verificada"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "incidentes",
+      "path": "/incidents",
+      "group": "Trabajo",
+      "label": "Incidentes",
+      "title": "Incidentes",
+      "lede": "No hay observaciones. Eso no significa protección activa.",
+      "note": "Un fixture sintético no es una detección validada.",
+      "actions": [{ "label": "Abrir investigación", "href": "/investigations" }],
+      "rows": [["Observados", "0"], ["Inferidos", "0"], ["Desconocidos", "0"]],
+      "blocks": [],
+      "states": {
+        "loading": { "lede": "Cargando incidentes de demostración.", "rows": [["Lista", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay incidentes. La lista vacía no significa que la sesión esté protegida.", "rows": [["Observados", "0"], ["Inferidos", "0"], ["Desconocidos", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. No se buscan incidentes remotos.", "rows": [["Búsqueda remota", "No disponible"]], "blocks": [] },
+        "error": { "lede": "No se pudo mostrar la lista de incidentes.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "Sin permiso de captura no puede haber un incidente observado.", "rows": [["Observación", "Imposible sin permiso"]], "blocks": [] },
+        "limited": { "lede": "Faltan fuentes. Un incidente parcial no se presenta como confirmado.", "rows": [["Fuentes", "Incompletas"]], "blocks": [] },
+        "revoked": { "lede": "El permiso fue revocado. No se conservan observaciones de esta vista.", "rows": [["Observaciones", "Ninguna"]], "blocks": [] },
+        "review": {
+          "lede": "Fixture sintético en revisión. No es una detección validada.",
+          "rows": [["Fuente", "Página de prueba"], ["Verificación externa", "No ejecutada"]],
+          "blocks": [
+            { "heading": "Observado", "body": "Una página de prueba pide un código de un solo uso y un cambio de cuenta." },
+            { "heading": "Inferido, no verificado", "body": "Podría ser una suplantación. No hay fuente independiente en este fixture." },
+            { "heading": "Desconocido", "body": "La identidad del remitente no está corroborada." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "investigacion",
+      "path": "/investigations",
+      "group": "Trabajo",
+      "label": "Investigación",
+      "title": "Investigación",
+      "lede": "No hay una investigación en curso. El costo remoto de esta demostración es cero.",
+      "note": "Hecho, hipótesis y verificación externa se mantienen separados.",
+      "actions": [{ "label": "Volver a incidentes", "href": "/incidents" }],
+      "rows": [["Estado", "Sin cola"], ["Costo remoto", "0"], ["Fuentes citadas", "Ninguna"]],
+      "blocks": [{ "heading": "Pasos previstos", "body": "Evento, hipótesis y verificación. La verificación externa no se ejecuta en este esqueleto." }],
+      "states": {
+        "loading": { "lede": "Mirando la cola. Está vacía.", "rows": [["Cola", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay investigaciones. No hay un costo que mostrar.", "rows": [["Cola", "0"], ["Costo", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. No se lanza una investigación remota.", "rows": [["Remoto", "No disponible"]], "blocks": [] },
+        "error": { "lede": "No se pudo leer la cola de investigación.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "Sin captura no hay un evento que investigar.", "rows": [["Evento", "Ausente"]], "blocks": [] },
+        "limited": { "lede": "La investigación solo vería las fuentes ya concedidas.", "rows": [["Fuentes", "Parcial"]], "blocks": [] },
+        "revoked": { "lede": "No hay una investigación que cancelar.", "rows": [["Cola", "Vacía"]], "blocks": [] },
+        "review": { "lede": "Revisión de un caso sintético. La verificación externa no se ejecutó.", "rows": [["Costo", "0"], ["Resultado", "No verificado"]], "blocks": [{ "heading": "Hipótesis", "body": "Separada del hecho. No se presenta como conclusión." }] }
+      }
+    },
+    {
+      "id": "dispositivos",
+      "path": "/devices",
+      "group": "Trabajo",
+      "label": "Dispositivos",
+      "title": "Dispositivos",
+      "lede": "Ningún sistema tiene certificación funcional en este esqueleto.",
+      "note": "La ausencia de un dispositivo no es protección.",
+      "actions": [{ "label": "Ver permisos", "href": "/permissions" }],
+      "rows": [["Este equipo", "Sin sensor"], ["Android", "NOT_IMPLEMENTED"], ["iOS", "NOT_IMPLEMENTED"], ["Escritorio", "Solo shell"]],
+      "blocks": [{ "heading": "Matriz", "body": "Android e iOS no compilan aquí. El escritorio cambia de expresión, pero no captura." }],
+      "states": {
+        "loading": { "lede": "Buscando dispositivos de demostración.", "rows": [["Búsqueda", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay dispositivos vinculados.", "rows": [["Vinculados", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. No se consulta un inventario remoto.", "rows": [["Inventario", "Local y vacío"]], "blocks": [] },
+        "error": { "lede": "No se pudo mostrar el inventario.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "Sin permiso, este equipo no aparece como sensor.", "rows": [["Sensor", "No disponible"]], "blocks": [] },
+        "limited": { "lede": "Solo el shell de escritorio está dibujado. El resto no está compilado.", "rows": [["Compilados", "0"]], "blocks": [] },
+        "revoked": { "lede": "No hay un vínculo que revocar.", "rows": [["Vínculos", "0"]], "blocks": [] },
+        "review": { "lede": "Revisión del inventario. Ninguna fila es una certificación.", "rows": [["Certificación", "No"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "permisos",
+      "path": "/permissions",
+      "group": "Trabajo",
+      "label": "Permisos",
+      "title": "Permisos",
+      "lede": "Pausa y revocación se explican aquí. El diálogo lo muestra el sistema.",
+      "note": "Estos controles no conceden MediaProjection, ScreenCaptureKit ni un portal.",
+      "actions": [{ "label": "Volver al inicio", "href": "/" }],
+      "rows": [["Captura", "Sin permiso"], ["Pausa", "Disponible en el diseño"], ["Revocación", "Disponible en el diseño"]],
+      "blocks": [{ "heading": "Sistema", "body": "Android usa su diálogo de proyección. iOS usa su selector. El escritorio usa el portal o el ajuste del sistema. Esta página no los imita." }],
+      "states": {
+        "loading": { "lede": "Leyendo el permiso de demostración.", "rows": [["Permiso", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay un permiso registrado.", "rows": [["Permisos", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. El permiso local no se sincroniza.", "rows": [["Sincronización", "No existe"]], "blocks": [] },
+        "error": { "lede": "No se pudo mostrar el permiso.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "Permiso no concedido. No hay captura.", "rows": [["Captura", "No concedida"]], "blocks": [] },
+        "limited": { "lede": "El permiso, si existiera, sería solo de esta sesión.", "rows": [["Alcance", "Sesión"]], "blocks": [] },
+        "revoked": { "lede": "El permiso fue revocado. No hay cobertura activa.", "rows": [["Permiso", "Revocado"]], "blocks": [] },
+        "review": { "lede": "Revisión: pausa y revocación están dibujadas, no ejecutadas en un sistema.", "rows": [["Ejecución", "No"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "recursos",
+      "path": "/resources",
+      "group": "Trabajo",
+      "label": "Recursos",
+      "title": "Recursos",
+      "lede": "No hay medición de batería ni de gasto en este esqueleto.",
+      "note": "Inferencias de pago en este fixture: 0.",
+      "actions": [{ "label": "Ver facturación", "href": "/enterprise/billing" }],
+      "rows": [["Inferencias de pago", "0"], ["Inferencias locales", "No medidas"], ["Batería", "Sin medición"]],
+      "blocks": [{ "heading": "Límite", "body": "No hay un presupuesto remoto que escalar. El costo que se puede afirmar es cero." }],
+      "states": {
+        "loading": { "lede": "Buscando mediciones. No hay una fuente.", "rows": [["Medición", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay uso que mostrar.", "rows": [["Uso", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. No se consulta un contador remoto.", "rows": [["Contador remoto", "No disponible"]], "blocks": [] },
+        "error": { "lede": "No se pudo mostrar el uso.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "Sin sensores no hay consumo de captura que atribuir.", "rows": [["Captura", "Sin consumo"]], "blocks": [] },
+        "limited": { "lede": "Solo se conoce el cero de las inferencias de pago.", "rows": [["Conocido", "0"]], "blocks": [] },
+        "revoked": { "lede": "No hay una sesión de uso que cerrar.", "rows": [["Sesión de uso", "Ninguna"]], "blocks": [] },
+        "review": { "lede": "Revisión del gasto. No aparece un precio ni una factura.", "rows": [["Precio", "No publicado"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "cuenta",
+      "path": "/account",
+      "group": "Persona",
+      "label": "Cuenta",
+      "title": "Cuenta",
+      "lede": "No hay una cuenta real. Esta vista no guarda capturas ni conversaciones.",
+      "note": "La cookie de demo no es una identidad.",
+      "actions": [{ "label": "Abrir ajustes", "href": "/settings" }],
+      "rows": [["Sesión", "Demostración"], ["Correo", "No pedido"], ["Capturas enviadas", "Ninguna"]],
+      "blocks": [{ "heading": "Separación", "body": "El sitio público no inicia esta sesión. La consola vive en otro origen." }],
+      "states": {
+        "loading": { "lede": "Leyendo la sesión de demostración.", "rows": [["Sesión", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay un perfil. No se inventa un nombre.", "rows": [["Perfil", "Ausente"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. La cookie local, si existe, no se sincroniza.", "rows": [["Sincronización", "No"]], "blocks": [] },
+        "error": { "lede": "No se pudo mostrar la sesión.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "La cuenta de demo no concede captura.", "rows": [["Captura", "No concedida"]], "blocks": [] },
+        "limited": { "lede": "Solo está la sesión sintética. No hay dispositivos ni factura.", "rows": [["Datos de cuenta", "Mínimos"]], "blocks": [] },
+        "revoked": { "lede": "Puedes cerrar la sesión demo desde la barra. Eso no borra una cuenta, porque no hay.", "rows": [["Cuenta", "No existe"]], "blocks": [] },
+        "review": { "lede": "Revisión: no hay datos personales que exportar.", "rows": [["Exportación", "Nada que exportar"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "ajustes",
+      "path": "/settings",
+      "group": "Persona",
+      "label": "Ajustes",
+      "title": "Ajustes",
+      "lede": "Preferencias de esta simulación. No se escriben en un servidor.",
+      "note": "Idioma, pausa y retención quedan en la pantalla.",
+      "actions": [{ "label": "Volver a la cuenta", "href": "/account" }],
+      "rows": [["Idioma", "es"], ["Retención", "Solo local"], ["Pausa", "Disponible"], ["Telemetría", "No hay"]],
+      "blocks": [{ "heading": "Qué no hay", "body": "No hay notificación push, ni tema forzado, ni una clave para cambiar." }],
+      "states": {
+        "loading": { "lede": "Cargando preferencias de demostración.", "rows": [["Preferencias", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay preferencias guardadas.", "rows": [["Guardadas", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. No existe un ajuste remoto que traer.", "rows": [["Remoto", "No"]], "blocks": [] },
+        "error": { "lede": "No se pudieron mostrar los ajustes.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "Los ajustes no piden el permiso de captura.", "rows": [["Captura", "Sin cambio"]], "blocks": [] },
+        "limited": { "lede": "Solo se muestran idioma, retención y pausa.", "rows": [["Visibles", "3"]], "blocks": [] },
+        "revoked": { "lede": "La pausa de diseño no revoca un permiso del sistema.", "rows": [["Sistema", "Sin cambio"]], "blocks": [] },
+        "review": { "lede": "Revisión: nada de esta lista se persistió.", "rows": [["Persistencia", "No"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "politicas",
+      "path": "/enterprise/policies",
+      "group": "Organización",
+      "label": "Políticas",
+      "title": "Políticas",
+      "lede": "No hay una política empresarial firmada. Esta vista no vigila personas.",
+      "note": "Sin chats privados ni perfiles de ánimo.",
+      "actions": [{ "label": "Ver agregados", "href": "/enterprise/aggregates" }],
+      "rows": [["Política", "No firmada"], ["Personas identificadas", "No"], ["Ánimo", "No se perfila"]],
+      "blocks": [{ "heading": "Límite", "body": "Una organización futura vería agregados con umbral, no el contenido de una persona." }],
+      "states": {
+        "loading": { "lede": "Buscando políticas. No hay un archivo.", "rows": [["Archivo", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay políticas. No se aplica una regla inventada.", "rows": [["Reglas", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. No hay un directorio de políticas remoto.", "rows": [["Directorio", "No"]], "blocks": [] },
+        "error": { "lede": "No se pudo mostrar la política.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "Ver políticas no concede captura sobre empleados.", "rows": [["Captura de personas", "No"]], "blocks": [] },
+        "limited": { "lede": "No hay texto jurídico que resumir.", "rows": [["Texto", "Ausente"]], "blocks": [] },
+        "revoked": { "lede": "No hay una política activa que retirar.", "rows": [["Activas", "0"]], "blocks": [] },
+        "review": { "lede": "Revisión: la prohibición de perfilar ánimo se mantiene.", "rows": [["Ánimo", "Prohibido"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "agregados",
+      "path": "/enterprise/aggregates",
+      "group": "Organización",
+      "label": "Agregados",
+      "title": "Agregados",
+      "lede": "No hay indicadores de una organización. Vacío no es vigilancia.",
+      "note": "Un agregado futuro tendría umbral de privacidad.",
+      "actions": [{ "label": "Ver integraciones", "href": "/enterprise/integrations" }],
+      "rows": [["Indicadores", "Ninguno"], ["Umbral", "No definido"], ["Personas", "No listadas"]],
+      "blocks": [{ "heading": "Qué no se muestra", "body": "No hay nombres, mensajes ni un ranking de personas." }],
+      "states": {
+        "loading": { "lede": "Calculando agregados de demostración. No hay datos.", "rows": [["Cálculo", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay agregados.", "rows": [["Series", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. No se pide un agregado remoto.", "rows": [["Remoto", "No"]], "blocks": [] },
+        "error": { "lede": "No se pudo mostrar el agregado.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "No hay permiso para observar a una plantilla.", "rows": [["Plantilla", "No observada"]], "blocks": [] },
+        "limited": { "lede": "Sin umbral definido no se publica una cifra.", "rows": [["Cifra", "No publicada"]], "blocks": [] },
+        "revoked": { "lede": "No hay un flujo de agregados que detener.", "rows": [["Flujos", "0"]], "blocks": [] },
+        "review": { "lede": "Revisión: la vista sigue sin personas identificables.", "rows": [["Identificables", "0"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "integraciones",
+      "path": "/enterprise/integrations",
+      "group": "Organización",
+      "label": "Integraciones",
+      "title": "Integraciones",
+      "lede": "No hay conectores activos.",
+      "note": "Ningún sistema está certificado.",
+      "actions": [{ "label": "Ver auditoría", "href": "/enterprise/audit" }],
+      "rows": [["Conectores", "0"], ["Proveedores", "No configurados"], ["Webhooks", "No"]],
+      "blocks": [{ "heading": "Estado", "body": "No hay una clave de integración, ni un directorio, ni un conector de correo." }],
+      "states": {
+        "loading": { "lede": "Buscando conectores.", "rows": [["Búsqueda", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay integraciones.", "rows": [["Activas", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. No se contacta a un proveedor.", "rows": [["Proveedor", "No contactado"]], "blocks": [] },
+        "error": { "lede": "No se pudo mostrar el listado.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "Una integración no sirve para saltarse un permiso del sistema.", "rows": [["Atajo", "No"]], "blocks": [] },
+        "limited": { "lede": "No hay un conector parcial que mostrar.", "rows": [["Parciales", "0"]], "blocks": [] },
+        "revoked": { "lede": "No hay una credencial que retirar.", "rows": [["Credenciales", "0"]], "blocks": [] },
+        "review": { "lede": "Revisión: el listado sigue vacío a propósito.", "rows": [["Publicadas", "0"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "auditoria",
+      "path": "/enterprise/audit",
+      "group": "Organización",
+      "label": "Auditoría",
+      "title": "Auditoría",
+      "lede": "No hay una bitácora exportable.",
+      "note": "Esta demostración no conserva un registro de acciones.",
+      "actions": [{ "label": "Ver facturación", "href": "/enterprise/billing" }],
+      "rows": [["Eventos de auditoría", "0"], ["Exportación", "No"], ["Retención", "No hay bitácora"]],
+      "blocks": [{ "heading": "Qué faltaría", "body": "Actor, acción, objeto y fecha. Hoy no hay filas porque no hay acciones reales." }],
+      "states": {
+        "loading": { "lede": "Leyendo la bitácora. Está vacía.", "rows": [["Lectura", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay eventos de auditoría.", "rows": [["Eventos", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. No hay una bitácora remota.", "rows": [["Remoto", "No"]], "blocks": [] },
+        "error": { "lede": "No se pudo abrir la bitácora.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "No hay un rol de auditor en esta demo.", "rows": [["Rol", "No definido"]], "blocks": [] },
+        "limited": { "lede": "Sin filas, no hay un recorte que mostrar.", "rows": [["Filas", "0"]], "blocks": [] },
+        "revoked": { "lede": "No hay un acceso de auditoría que revocar.", "rows": [["Accesos", "0"]], "blocks": [] },
+        "review": { "lede": "Revisión: no se fabrican entradas para llenar la tabla.", "rows": [["Fabricadas", "0"]], "blocks": [] }
+      }
+    },
+    {
+      "id": "facturacion",
+      "path": "/enterprise/billing",
+      "group": "Organización",
+      "label": "Facturación",
+      "title": "Facturación",
+      "lede": "No hay precios ni factura. El gasto remoto de esta simulación es cero.",
+      "note": "No se muestra un plan ni un botón de pago.",
+      "actions": [{ "label": "Volver al inicio", "href": "/" }],
+      "rows": [["Importe", "No publicado"], ["Plan", "No ofrecido"], ["Inferencias de pago", "0"]],
+      "blocks": [{ "heading": "Sitio público", "body": "La página de precios del sitio también dice que no hay cifras." }],
+      "states": {
+        "loading": { "lede": "Buscando una factura. No hay documentos.", "rows": [["Documentos", "En curso"]], "blocks": [] },
+        "empty": { "lede": "No hay facturas.", "rows": [["Facturas", "0"]], "blocks": [] },
+        "offline": { "lede": "Sin conexión. No se consulta un cobro.", "rows": [["Cobro", "No consultado"]], "blocks": [] },
+        "error": { "lede": "No se pudo mostrar la facturación.", "rows": [["Resultado", "Error"]], "blocks": [] },
+        "permission-denied": { "lede": "No hay un medio de pago que autorizar.", "rows": [["Pago", "No configurado"]], "blocks": [] },
+        "limited": { "lede": "Solo se puede afirmar el cero de las inferencias de pago.", "rows": [["Afirmable", "0"]], "blocks": [] },
+        "revoked": { "lede": "No hay una suscripción que cancelar.", "rows": [["Suscripción", "No existe"]], "blocks": [] },
+        "review": { "lede": "Revisión: sigue sin precios publicados.", "rows": [["Precios", "No publicados"]], "blocks": [] }
+      }
+    }
+  ]
+}
