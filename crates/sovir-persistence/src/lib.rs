@@ -118,6 +118,42 @@ impl ConsentRepository for PgStore {
             Ok(n)
         })
     }
+    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ConsentGrant>, PortError> {
+        block(async {
+            let rows = sqlx::query_as::<_, (String, String, String, i64, bool)>(
+                "SELECT grant_id, device_id, source_id, expires_at_ms, revoked
+                 FROM consent_grants WHERE principal_id = $1 ORDER BY grant_id",
+            )
+            .bind(principal_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(map_storage)?;
+            Ok(rows
+                .into_iter()
+                .map(
+                    |(grant_id, device_id, source_id, expires_at_ms, revoked)| ConsentGrant {
+                        grant_id,
+                        source_id,
+                        expires_at_ms: expires_at_ms as u64,
+                        revoked,
+                        principal_id: principal_id.to_string(),
+                        device_id,
+                    },
+                )
+                .collect())
+        })
+    }
+    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+        block(async {
+            let n = sqlx::query("DELETE FROM consent_grants WHERE principal_id = $1")
+                .bind(principal_id)
+                .execute(&self.pool)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+            Ok(n)
+        })
+    }
 }
 
 fn modality_str(m: Modality) -> &'static str {
@@ -186,6 +222,36 @@ fn platform_from(s: &str) -> Platform {
         _ => Platform::Windows,
     }
 }
+fn modality_from(s: &str) -> Modality {
+    match s {
+        "TEXT" => Modality::Text,
+        "UI_TREE" => Modality::UiTree,
+        "IMAGE_REGION" => Modality::ImageRegion,
+        "NOTIFICATION" => Modality::Notification,
+        _ => Modality::Url,
+    }
+}
+fn class_from(s: &str) -> SensitiveDataClass {
+    match s {
+        "PERSONAL" => SensitiveDataClass::Personal,
+        "SENSITIVE" => SensitiveDataClass::Sensitive,
+        "SECRET" => SensitiveDataClass::Secret,
+        _ => SensitiveDataClass::Public,
+    }
+}
+fn signal_from(s: &str) -> Option<RiskSignal> {
+    match s {
+        "CREDENTIAL_REQUEST" => Some(RiskSignal::CredentialRequest),
+        "PAYMENT_REQUEST" => Some(RiskSignal::PaymentRequest),
+        "URGENT_ACTION" => Some(RiskSignal::UrgentAction),
+        "IDENTITY_UNVERIFIED" => Some(RiskSignal::IdentityUnverified),
+        "TRACKING_OBSERVED" => Some(RiskSignal::TrackingObserved),
+        "HIDDEN_FEE_PATTERN" => Some(RiskSignal::HiddenFeePattern),
+        "CONSENT_DARK_PATTERN" => Some(RiskSignal::ConsentDarkPattern),
+        "USER_DEFINED_EXPOSURE_LIMIT" => Some(RiskSignal::UserDefinedExposureLimit),
+        _ => None,
+    }
+}
 fn kind_str(k: InterventionKind) -> &'static str {
     match k {
         InterventionKind::Notify => "notify",
@@ -246,6 +312,73 @@ impl EventRepository for PgStore {
             } else {
                 Ok(())
             }
+        })
+    }
+    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ObservedEvent>, PortError> {
+        block(async {
+            let rows = sqlx::query_as::<
+                _,
+                (
+                    String,
+                    String,
+                    String,
+                    String,
+                    i64,
+                    String,
+                    String,
+                    String,
+                    Vec<String>,
+                ),
+            >(
+                "SELECT event_id, device_id, source_id, consent_grant_id, observed_at_ms,
+                        modality, sensitive_data_class, content_digest, signals
+                 FROM observation_events WHERE principal_id = $1 ORDER BY observed_at_ms",
+            )
+            .bind(principal_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(map_storage)?;
+            Ok(rows
+                .into_iter()
+                .map(
+                    |(
+                        event_id,
+                        device_id,
+                        source_id,
+                        consent_grant_id,
+                        observed_at_ms,
+                        modality,
+                        data_class,
+                        content_digest,
+                        signals,
+                    )| {
+                        ObservedEvent {
+                            event_id,
+                            source_id,
+                            observed_at_ms: observed_at_ms as u64,
+                            modality: modality_from(&modality),
+                            content_digest,
+                            consent_grant_id,
+                            sensitive_data_class: class_from(&data_class),
+                            payload_ref: None,
+                            signals: signals.iter().filter_map(|s| signal_from(s)).collect(),
+                            principal_id: principal_id.to_string(),
+                            device_id,
+                        }
+                    },
+                )
+                .collect())
+        })
+    }
+    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+        block(async {
+            let n = sqlx::query("DELETE FROM observation_events WHERE principal_id = $1")
+                .bind(principal_id)
+                .execute(&self.pool)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+            Ok(n)
         })
     }
 }
@@ -320,6 +453,19 @@ impl SessionStore for PgStore {
                 "UPDATE sessions SET revoked = TRUE WHERE device_id = $1 AND NOT revoked",
             )
             .bind(device_id)
+            .execute(&self.pool)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n)
+        })
+    }
+    fn revoke_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+        block(async {
+            let n = sqlx::query(
+                "UPDATE sessions SET revoked = TRUE WHERE principal_id = $1 AND NOT revoked",
+            )
+            .bind(principal_id)
             .execute(&self.pool)
             .await
             .map_err(map_storage)?
@@ -559,6 +705,33 @@ impl InterventionSink for PgStore {
             .await
             .map_err(map_storage)?;
             Ok(())
+        })
+    }
+
+    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError> {
+        block(async {
+            let n = sqlx::query("DELETE FROM interventions WHERE principal_id = $1")
+                .bind(principal_id)
+                .execute(&self.pool)
+                .await
+                .map_err(map_storage)?
+                .rows_affected();
+            Ok(n)
+        })
+    }
+    fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError> {
+        block(async {
+            let q = format!(
+                "SELECT {INTERVENTION_COLS} FROM interventions
+                 WHERE device_id = $1 AND state IN ('pending','failed')
+                 ORDER BY created_at_ms"
+            );
+            let rows = sqlx::query_as::<_, InterventionRow>(&q)
+                .bind(device_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(map_storage)?;
+            rows.into_iter().map(row_to_intervention).collect()
         })
     }
 }

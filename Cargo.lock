@@ -1262,10 +1262,12 @@ dependencies = [
 name = "sovir-application"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "sovir-adapters",
  "sovir-domain",
  "sovir-ports",
  "thiserror",
+ "uuid",
 ]
 
 [[package]]
