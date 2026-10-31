@@ -4,6 +4,17 @@ Canonical matrix for every external provider decision. Each provider ADR
 references this file; a provider may not ship code until its row is
 filled and a human signs off.
 
+## Competition rule (Meta Global AI Developer Hackathon 2026)
+
+All inference API calls and token spend go to **Meta models only**.
+Development tooling (Claude, GPT, Devin, Cursor) builds infrastructure
+freely, but no request may leave this system toward a non-Meta model —
+including Baseten-hosted non-Meta slugs. Approved provider surfaces:
+`api.meta.ai` (Muse Spark hosted) and `inference.baseten.co` restricted
+to `meta-models/muse-spark-open-*` (Meta open-weights). Modal is
+compute-only (offline jobs, no model). Gemini, OpenAI, DeepSeek, GLM,
+Fireworks and any other third-party model are out of scope.
+
 ## Structural boundary (what egress CAN carry — schema-enforced)
 
 `inference-request.v0` may only contain:
