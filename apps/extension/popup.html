@@ -2,21 +2,23 @@
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <title>SOVIR</title>
     <link rel="stylesheet" href="extension.css" />
-    <script src="theme.js"></script>
+    <title>SOVIR</title>
   </head>
   <body>
-    <main>
-      <p class="brand-lockup"><span class="mark" aria-hidden="true"></span><span class="brand-name">SOVIR</span></p>
-      <div class="theme-switch" role="group" aria-label="Tema">
-        <button type="button" data-theme-choice="light">Claro</button>
-        <button type="button" data-theme-choice="dark">Oscuro</button>
-      </div>
-      <p class="note">Sin observación de sitios.</p>
-      <h1>Sin observación</h1>
-      <p id="status">No hay permiso de sitio. La extensión no lee páginas.</p>
-      <button id="pause" type="button">Pausar</button>
+    <main class="popup">
+      <p class="brand">SOVIR</p>
+      <p id="api" class="status">API: comprobando…</p>
+      <p id="site" class="status">Este sitio: sin observar</p>
+      <button id="observe" type="button">Observar este sitio</button>
+      <button id="pause" type="button" class="ghost">Pausar todo</button>
+      <ul id="granted" class="granted-list"></ul>
+      <p id="last" class="note"></p>
+      <p id="error" class="note error" role="alert"></p>
+      <p class="note">
+        La observación extrae señales tipadas (nunca contenido), corre solo en sitios concedidos y
+        persiste hasta que revocas el origen aquí o el grant en la consola.
+      </p>
     </main>
     <script src="popup.js"></script>
   </body>
