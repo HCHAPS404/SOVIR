@@ -1,0 +1,16 @@
+title = "SOVIR gitleaks configuration"
+
+# Start from gitleaks' default rules; add SOVIR-specific allowlists only.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic fixtures, documented placeholders and test values are not secrets."
+paths = [
+  '''\.env\.example$''',
+  '''tests/fixtures/synthetic_cases\.json$''',
+  '''tests/backend/fixtures/.*\.json$''',
+  '''packages/contracts/.*''',
+  '''pnpm-lock\.yaml$''',
+  '''Cargo\.lock$''',
+]
