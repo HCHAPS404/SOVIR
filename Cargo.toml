@@ -4,11 +4,13 @@ members = [
   "crates/sovir-domain",
   "crates/sovir-ports",
   "crates/sovir-application",
-  "crates/sovir-inference",
   "crates/sovir-adapters",
   "crates/sovir-persistence",
   "services/api",
   "services/migrations",
+  "services/observer",
+  "crates/sovir-edge-store",
+  "crates/sovir-edge-extract",
 ]
 
 [workspace.package]
@@ -25,3 +27,4 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }

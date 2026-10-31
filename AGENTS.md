@@ -61,4 +61,7 @@ Before changing UI read `docs/design/FRONTEND_MASTER_PLAN.md` and `FRONTEND_GOVE
 For work in `crates/`, `services/`, `infra/postgres/`, read
 `docs/backend/BACKEND_MASTER_PLAN.md` and ADR-0005. `make backend-check` must pass
 with Rust installed before a backend PR merges. The local demo cannot be deployed
-on the Internet. It has no tenant authentication, DB persistence or model access.
+on the Internet. Auth is dev-session-only (OIDC seam unconfigured), remote
+inference is unwired by default, and there is no real model — only the local
+heuristic. Postgres persistence exists behind `DATABASE_URL` (unverified
+without a live database).
