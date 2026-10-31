@@ -821,6 +821,10 @@ impl HttpEgress for ReqwestHttpEgress {
         let mut req = self
             .client
             .post(url)
+            // Inference calls to reasoning models need headroom the client-wide
+            // 5s cap can't give (muse-spark reasons ~10s before answering).
+            // Webhook fan-out keeps the short client timeout.
+            .timeout(std::time::Duration::from_secs(30))
             .body(body.to_string())
             .header(reqwest::header::CONTENT_TYPE, "application/json");
         for (k, v) in headers {
@@ -1508,7 +1512,9 @@ struct ChatChoice {
 }
 #[derive(serde::Deserialize)]
 struct ChatMessage {
-    content: String,
+    /// Null when the provider truncates on max_tokens before answering
+    /// (reasoning models) — treated as an error, never as a verdict.
+    content: Option<String>,
 }
 /// The verdict JSON the model is instructed to produce inside
 /// `choices[0].message.content`. model_id is NOT trusted from the model —
@@ -1565,7 +1571,10 @@ impl InferenceGateway for ChatCompletionInferenceGateway {
             ],
             "response_format": {"type": "json_object"},
             "temperature": 0,
-            "max_tokens": 300,
+            // Reasoning models (muse-spark) burn tokens thinking before
+            // emitting the JSON verdict — low caps starve them into
+            // finish_reason=length with null content.
+            "max_tokens": 1024,
         })
         .to_string();
         let headers = vec![
@@ -1584,8 +1593,8 @@ impl InferenceGateway for ChatCompletionInferenceGateway {
         let content = resp
             .choices
             .first()
-            .map(|c| c.message.content.as_str())
-            .ok_or(PortError::Storage)?;
+            .and_then(|c| c.message.content.as_deref())
+            .ok_or(PortError::Unavailable)?;
         let v: ChatVerdict =
             serde_json::from_str(strip_code_fence(content)).map_err(|_| PortError::Storage)?;
         if v.request_id != req.request_id {
