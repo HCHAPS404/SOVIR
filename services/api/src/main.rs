@@ -220,6 +220,9 @@ fn real_egress_enabled(allowlist: &[String], sovir_env: &str) -> bool {
 /// Remote inference gateway (ADR-0012): only wired when a real egress
 /// transport exists AND endpoint+key+model are all configured. Anything
 /// less => None => honest 503 provider_unavailable, never a fake verdict.
+/// `SOVIR_INFERENCE_API` picks the wire format: `openai-chat` for
+/// OpenAI-compatible chat/completions endpoints (Baseten, event LLMs),
+/// `sovir`/unset for endpoints speaking the native verdict schema.
 fn remote_inference_gateway(
     egress: &Arc<dyn sovir_ports::HttpEgress>,
     allowlist: &[String],
@@ -231,12 +234,20 @@ fn remote_inference_gateway(
     let url = env::var("SOVIR_INFERENCE_URL").ok()?;
     let key = env::var("SOVIR_INFERENCE_KEY").ok()?;
     let model = env::var("SOVIR_INFERENCE_MODEL").ok()?;
-    Some(Arc::new(sovir_adapters::RemoteInferenceGateway::new(
-        egress.clone(),
-        url,
-        key,
-        model,
-    )))
+    match env::var("SOVIR_INFERENCE_API")
+        .unwrap_or_else(|_| "sovir".into())
+        .as_str()
+    {
+        "openai-chat" => Some(Arc::new(
+            sovir_adapters::ChatCompletionInferenceGateway::new(egress.clone(), url, key, model),
+        )),
+        _ => Some(Arc::new(sovir_adapters::RemoteInferenceGateway::new(
+            egress.clone(),
+            url,
+            key,
+            model,
+        ))),
+    }
 }
 /// Inference composition (ADR-0012): `private` → local heuristic (zero
 /// egress, deterministic, provenance says heuristic); `standard` → remote
@@ -285,6 +296,24 @@ fn webhook_allowlist_env() -> Vec<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
+}
+/// Inference-provider hosts allowed at the transport layer
+/// (SOVIR_INFERENCE_ALLOWLIST). Unioned with the webhook list when building
+/// real egress — webhook *registration* still validates against the webhook
+/// list only, so an inference host can never become a webhook target.
+fn egress_allowlist_env(webhook_allowlist: &[String]) -> Vec<String> {
+    let mut hosts = webhook_allowlist.to_vec();
+    for h in env::var("SOVIR_INFERENCE_ALLOWLIST")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        if !hosts.contains(&h) {
+            hosts.push(h);
+        }
+    }
+    hosts
 }
 /// Intel source: a local JSON fixture when SOVIR_INTEL_FIXTURE is set,
 /// otherwise an empty in-memory source (pull returns nothing). Store
@@ -369,7 +398,8 @@ async fn compose_service(
         // Durable webhook registry (migration 0007).
         let pg_wh: std::sync::Arc<dyn sovir_ports::WebhookRegistry> =
             std::sync::Arc::new(pg.clone());
-        let egress = pick_egress(webhook_allowlist, sovir_env);
+        let transport_allowlist = egress_allowlist_env(webhook_allowlist);
+        let egress = pick_egress(&transport_allowlist, sovir_env);
         let service = SovirService::new(
             Arc::new(SystemClock),
             ServicePorts {
@@ -387,7 +417,7 @@ async fn compose_service(
                 receipts: Arc::new(pg.clone()),
                 idem: Arc::new(pg.clone()),
                 audit: Arc::new(pg.clone()),
-                inference: inference_gateway(&egress, webhook_allowlist, sovir_env),
+                inference: inference_gateway(&egress, &transport_allowlist, sovir_env),
                 budget: Arc::new(pg.clone()),
                 reservations: Arc::new(pg.clone()),
                 intel: intel_feed(Arc::new(pg.clone())),
@@ -400,7 +430,8 @@ async fn compose_service(
     }
     let registry: std::sync::Arc<dyn sovir_ports::WebhookRegistry> =
         std::sync::Arc::new(InMemoryWebhookRegistry::default());
-    let egress = pick_egress(webhook_allowlist, sovir_env);
+    let transport_allowlist = egress_allowlist_env(webhook_allowlist);
+    let egress = pick_egress(&transport_allowlist, sovir_env);
     (dev_service_with(Some((registry, egress))).0, None)
 }
 /// Builds the service; when a registry/egress pair is supplied the delivery
@@ -441,7 +472,7 @@ fn dev_service_with(
                 idem: Arc::new(InMemoryIdempotencyStore::default()),
                 audit: Arc::new(InMemoryAuditLog::default()),
                 inference: webhooks.as_ref().and_then(|(_, e)| {
-                    let allowlist = webhook_allowlist_env();
+                    let allowlist = egress_allowlist_env(&webhook_allowlist_env());
                     let sovir_env = env::var("SOVIR_ENV").unwrap_or_default();
                     inference_gateway(e, &allowlist, &sovir_env)
                 }),

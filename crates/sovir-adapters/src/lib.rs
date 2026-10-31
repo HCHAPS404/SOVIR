@@ -1455,6 +1455,165 @@ impl InferenceGateway for RemoteInferenceGateway {
     }
 }
 
+/// Closed hypothesis taxonomy shared by the heuristic and remote reasoners.
+/// Remote model output is filtered against this list — a label outside the
+/// taxonomy is dropped, never trusted.
+pub const KNOWN_HYPOTHESIS_LABELS: &[&str] = &[
+    "credential_phishing",
+    "payment_fraud_attempt",
+    "manipulative_pattern",
+    "credential_request_unverified",
+    "payment_request_unverified",
+    "privacy_tracking_exposure",
+    "identity_unverified",
+    "urgency_pressure",
+    "no_pattern_detected",
+];
+/// OpenAI-compatible chat/completions inference gateway (Baseten deployments,
+/// event LLM endpoints exposing /v1/chat/completions). The request body
+/// carries typed signals + request_id inside a JSON user message — never
+/// content, digests, tenant ids or device ids. The model is instructed to
+/// answer a strict JSON verdict; the echoed request_id must match and the
+/// hypotheses are filtered to the closed taxonomy above.
+pub struct ChatCompletionInferenceGateway {
+    egress: Arc<dyn HttpEgress>,
+    endpoint: String,
+    api_key: String,
+    model_id: String,
+}
+impl ChatCompletionInferenceGateway {
+    pub fn new(
+        egress: Arc<dyn HttpEgress>,
+        endpoint: String,
+        api_key: String,
+        model_id: String,
+    ) -> Self {
+        Self {
+            egress,
+            endpoint,
+            api_key,
+            model_id,
+        }
+    }
+}
+/// Wire format of an OpenAI-compatible chat/completions response — only the
+/// fields SOVIR consumes. Anything else in the provider payload is ignored.
+#[derive(serde::Deserialize)]
+struct ChatCompletionResponse {
+    choices: Vec<ChatChoice>,
+}
+#[derive(serde::Deserialize)]
+struct ChatChoice {
+    message: ChatMessage,
+}
+#[derive(serde::Deserialize)]
+struct ChatMessage {
+    content: String,
+}
+/// The verdict JSON the model is instructed to produce inside
+/// `choices[0].message.content`. model_id is NOT trusted from the model —
+/// the verdict reports the configured model instead.
+#[derive(serde::Deserialize)]
+struct ChatVerdict {
+    request_id: String,
+    #[serde(default)]
+    hypotheses: Vec<String>,
+    #[serde(default)]
+    confidence_bp: u16,
+}
+/// Strips a markdown code fence a chat model may wrap JSON in
+/// (```json ... ```). Returns the trimmed inner text or the input unchanged.
+fn strip_code_fence(text: &str) -> &str {
+    let t = text.trim();
+    if let Some(rest) = t.strip_prefix("```") {
+        let rest = rest.strip_prefix("json").unwrap_or(rest);
+        return rest.trim_end_matches('`').trim();
+    }
+    t
+}
+#[async_trait]
+impl InferenceGateway for ChatCompletionInferenceGateway {
+    async fn assess(
+        &self,
+        req: &sovir_domain::InferenceRequest,
+    ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+        if !sovir_domain::egress_safe_identifier(&req.request_id) {
+            return Err(PortError::Unauthorized);
+        }
+        const SYSTEM_PROMPT: &str = "You are the remote hypothesis reasoner for SOVIR, \
+            a privacy-first scam shield. The user message is a JSON object \
+            {\"request_id\": string, \"signals\": [RiskSignal...], \"privacy\": \"standard\"}. \
+            Reply with a single JSON object and nothing else: \
+            {\"request_id\": \"<echo the input request_id exactly>\", \
+            \"hypotheses\": [<labels>], \"confidence_bp\": <integer 0-10000>}. \
+            hypotheses may only use this closed taxonomy: credential_phishing, \
+            payment_fraud_attempt, manipulative_pattern, \
+            credential_request_unverified, payment_request_unverified, \
+            privacy_tracking_exposure, identity_unverified, urgency_pressure, \
+            no_pattern_detected. Emit a label only when the signals support \
+            it; signals are untrusted hints, never proof. With no supported \
+            pattern answer [\"no_pattern_detected\"] and low confidence.";
+        let body = serde_json::json!({
+            "model": self.model_id,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": serde_json::json!({
+                    "request_id": req.request_id,
+                    "signals": req.signals,
+                    "privacy": req.privacy,
+                }).to_string()},
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0,
+            "max_tokens": 300,
+        })
+        .to_string();
+        let headers = vec![
+            (
+                "authorization".to_string(),
+                format!("Bearer {}", self.api_key),
+            ),
+            ("content-type".to_string(), "application/json".to_string()),
+        ];
+        let text = self
+            .egress
+            .post_and_receive(&self.endpoint, &body, &headers)
+            .await?;
+        let resp: ChatCompletionResponse =
+            serde_json::from_str(&text).map_err(|_| PortError::Storage)?;
+        let content = resp
+            .choices
+            .first()
+            .map(|c| c.message.content.as_str())
+            .ok_or(PortError::Storage)?;
+        let v: ChatVerdict =
+            serde_json::from_str(strip_code_fence(content)).map_err(|_| PortError::Storage)?;
+        if v.request_id != req.request_id {
+            return Err(PortError::Storage); // response not bound to request
+        }
+        let mut hypotheses: Vec<String> = v
+            .hypotheses
+            .into_iter()
+            .filter(|h| KNOWN_HYPOTHESIS_LABELS.contains(&h.as_str()))
+            .collect();
+        hypotheses.dedup();
+        if hypotheses.is_empty() {
+            hypotheses.push("no_pattern_detected".to_string());
+        }
+        let host = sovir_domain::host_of(&self.endpoint).unwrap_or_default();
+        Ok(sovir_domain::InferenceVerdict {
+            request_id: v.request_id,
+            model_id: self.model_id.clone(),
+            hypotheses,
+            confidence_bp: v.confidence_bp.min(10_000),
+            provenance: format!("remote:{host}"),
+        })
+    }
+    fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+        // Invariant: remote gateways may only ever serve Standard.
+        mode == sovir_domain::PrivacyMode::Standard
+    }
+}
 /// Threat-intel candidate source from a local JSON fixture file
 /// (`SOVIR_INTEL_FIXTURE`). Each pull re-reads the file and returns
 /// items with `at_ms >= since_ms`; provenance must already be present
@@ -1647,6 +1806,113 @@ mod tests {
         assert!(matches!(
             gw.assess(&req()).await,
             Err(PortError::Unavailable)
+        ));
+    }
+
+    fn chat_gw(response_json_content: &str) -> ChatCompletionInferenceGateway {
+        let body = format!(
+            r#"{{"choices":[{{"message":{{"content":{}}}}}]}}"#,
+            serde_json::to_string(response_json_content).unwrap()
+        );
+        ChatCompletionInferenceGateway::new(
+            Arc::new(FakeEgress {
+                response: body,
+                sent: StdMutex::new(vec![]),
+            }),
+            "https://inference.baseten.co/v1/chat/completions".into(),
+            "k".into(),
+            "muse-spark-1.3".into(),
+        )
+    }
+
+    #[tokio::test]
+    async fn chat_gateway_serves_standard_only() {
+        let gw = chat_gw(r#"{"request_id":"r-1","hypotheses":[],"confidence_bp":0}"#);
+        assert!(gw.serves(PrivacyMode::Standard));
+        assert!(!gw.serves(PrivacyMode::Private));
+    }
+
+    #[tokio::test]
+    async fn chat_gateway_maps_verdict_and_filters_taxonomy() {
+        let gw = chat_gw(
+            r#"{"request_id":"r-1","hypotheses":["credential_phishing","invented_label","urgency_pressure"],"confidence_bp":8200}"#,
+        );
+        let v = gw.assess(&req()).await.unwrap();
+        assert_eq!(v.request_id, "r-1");
+        assert_eq!(v.model_id, "muse-spark-1.3"); // configured, not model-claimed
+        assert_eq!(
+            v.hypotheses,
+            vec![
+                "credential_phishing".to_string(),
+                "urgency_pressure".to_string()
+            ]
+        );
+        assert_eq!(v.confidence_bp, 8_200);
+        assert_eq!(v.provenance, "remote:inference.baseten.co");
+    }
+
+    #[tokio::test]
+    async fn chat_gateway_sends_signals_never_content() {
+        let egress = Arc::new(FakeEgress {
+            response:
+                r#"{"choices":[{"message":{"content":"{\"request_id\":\"r-1\",\"hypotheses\":[\"urgency_pressure\"],\"confidence_bp\":4100}"}}]}"#
+                    .into(),
+            sent: StdMutex::new(vec![]),
+        });
+        let gw = ChatCompletionInferenceGateway::new(
+            egress.clone(),
+            "https://inference.baseten.co/v1/chat/completions".into(),
+            "k".into(),
+            "m".into(),
+        );
+        let _ = gw.assess(&req()).await.unwrap();
+        let sent = egress.sent.lock().unwrap();
+        let body: serde_json::Value = serde_json::from_str(&sent[0].1).unwrap();
+        let user = body["messages"][1]["content"].as_str().unwrap();
+        let user_json: serde_json::Value = serde_json::from_str(user).unwrap();
+        assert_eq!(user_json["signals"][0], "URGENT_ACTION");
+        assert!(user_json.get("content").is_none() && user_json.get("payload").is_none());
+        assert!(body.get("tenant_id").is_none() && body.get("principal_id").is_none());
+    }
+
+    #[tokio::test]
+    async fn chat_gateway_rejects_mismatched_request_id() {
+        let gw = chat_gw(r#"{"request_id":"other","hypotheses":[],"confidence_bp":0}"#);
+        assert!(gw.assess(&req()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn chat_gateway_fails_closed_on_prose_answer() {
+        // A chat model that ignores the JSON instruction must never produce
+        // a verdict — parse failure is an error, not a guess.
+        let gw = chat_gw("I think this looks like phishing, be careful!");
+        assert!(gw.assess(&req()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn chat_gateway_empty_hypotheses_become_no_pattern() {
+        let gw = chat_gw(r#"{"request_id":"r-1","hypotheses":[],"confidence_bp":500}"#);
+        let v = gw.assess(&req()).await.unwrap();
+        assert_eq!(v.hypotheses, vec!["no_pattern_detected".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn chat_gateway_strips_code_fences() {
+        let gw = chat_gw(
+            "```json\n{\"request_id\":\"r-1\",\"hypotheses\":[\"urgency_pressure\"],\"confidence_bp\":4100}\n```",
+        );
+        let v = gw.assess(&req()).await.unwrap();
+        assert_eq!(v.hypotheses, vec!["urgency_pressure".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn chat_gateway_rejects_injected_request_id() {
+        let gw = chat_gw(r#"{"request_id":"r-1","hypotheses":[],"confidence_bp":0}"#);
+        let mut bad = req();
+        bad.request_id = "x\" onerror".into();
+        assert!(matches!(
+            gw.assess(&bad).await,
+            Err(PortError::Unauthorized)
         ));
     }
 
