@@ -19,9 +19,17 @@ pub trait ConsentRepository: Send + Sync {
     fn revoke(&self, grant_id: &str) -> Result<bool, PortError>;
     /// Revokes every grant bound to a device. Returns count revoked.
     fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError>;
+    /// Data governance: every grant owned by a principal (export) and hard
+    /// deletion of them (erasure). Returns count affected for delete.
+    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ConsentGrant>, PortError>;
+    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
 }
 pub trait EventRepository: Send + Sync {
     fn insert_once(&self, event: ObservedEvent) -> Result<(), PortError>;
+    /// Data governance export/erasure over the principal's stored events.
+    /// Stored events are metadata only (digests, classes) — never payloads.
+    fn list_by_principal(&self, principal_id: &str) -> Result<Vec<ObservedEvent>, PortError>;
+    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
 }
 pub trait RiskAnalyzer: Send + Sync {
     fn analyze(&self, event: &ObservedEvent) -> Assessment;
@@ -35,6 +43,8 @@ pub trait SessionStore: Send + Sync {
     fn revoke(&self, token: &str) -> Result<bool, PortError>;
     /// Revokes every live session bound to a device. Returns count revoked.
     fn revoke_by_device(&self, device_id: &str) -> Result<u64, PortError>;
+    /// Revokes every live session of a principal (used by erasure).
+    fn revoke_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
 }
 /// Device inventory scoped by principal. A device record is never
 /// self-declared proof of authorization; registration only records inventory.
@@ -54,6 +64,11 @@ pub trait InterventionSink: Send + Sync {
     fn due(&self, now_ms: u64, limit: usize) -> Result<Vec<Intervention>, PortError>;
     fn list(&self, principal_id: &str) -> Result<Vec<Intervention>, PortError>;
     fn update(&self, intervention: Intervention) -> Result<(), PortError>;
+    /// Data governance: hard deletion of the principal's intervention records.
+    fn delete_by_principal(&self, principal_id: &str) -> Result<u64, PortError>;
+    /// Pending/failed interventions bound to a device (used to expire them
+    /// when the device is revoked).
+    fn list_by_device(&self, device_id: &str) -> Result<Vec<Intervention>, PortError>;
 }
 /// The actual delivery surface (notification, banner, inbox). The dev
 /// adapter records attempts in memory; real channels are platform adapters.

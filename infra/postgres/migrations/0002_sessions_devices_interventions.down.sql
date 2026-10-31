@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS interventions;
+DROP TABLE IF EXISTS devices;
+DROP TABLE IF EXISTS sessions;
