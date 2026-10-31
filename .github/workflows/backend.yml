@@ -88,6 +88,62 @@ jobs:
         run: cargo run -p sovir-migrations -- revert
       - name: Re-apply migrations (idempotent forward path)
         run: cargo run -p sovir-migrations -- apply
+      - name: Verify tenant RLS denies cross-tenant access (sovir_app)
+        env:
+          APP_URL: postgres://sovir_app:sovir_app_dev_only@localhost:5432/sovir_dev
+        run: |
+          set -euo pipefail
+          # Seed two tenants as the migration owner (bypasses RLS).
+          psql "$DATABASE_URL" -c "
+            INSERT INTO consent_grants
+              (tenant_id, grant_id, principal_id, device_id, source_id, expires_at_ms, revoked)
+            VALUES
+              ('tenant-a','g-a','p-1','d-1','src',9999999999999,false),
+              ('tenant-b','g-b','p-2','d-2','src',9999999999999,false);"
+          # sovir_app with tenant-a sees only tenant-a rows.
+          test "$(psql "$APP_URL" -Atqc "SET app.tenant_id='tenant-a'; SELECT count(*) FROM consent_grants")" = "1"
+          # tenant-b sees only its own row.
+          test "$(psql "$APP_URL" -Atqc "SET app.tenant_id='tenant-b'; SELECT count(*) FROM consent_grants")" = "1"
+          # No tenant set => fail closed, zero rows.
+          test "$(psql "$APP_URL" -Atqc "SELECT count(*) FROM consent_grants")" = "0"
+          # Insert into another tenant is rejected by WITH CHECK.
+          if psql "$APP_URL" -qc "SET app.tenant_id='tenant-a';
+             INSERT INTO consent_grants (tenant_id, grant_id, principal_id, device_id, source_id, expires_at_ms, revoked)
+             VALUES ('tenant-b','g-evil','p-2','d-2','src',9999999999999,false);" 2>/dev/null; then
+            echo "RLS WITH CHECK did not reject cross-tenant insert"; exit 1
+          fi
+          # Phase-3 tables are subject to the same tenant_isolation policy:
+          # audit_events (0009), inference_budget + intel_indicators (0010).
+          psql "$DATABASE_URL" -qc "INSERT INTO audit_events
+              (audit_id, tenant_id, principal_id, action, detail, at_ms)
+              VALUES ('au-a','tenant-a','p-1','session_issued','',1),
+                     ('au-b','tenant-b','p-2','session_issued','',1);
+              INSERT INTO intel_indicators
+              (indicator_id, tenant_id, kind, value, confidence_bp, provenance, at_ms)
+              VALUES ('i-a','tenant-a','domain','a.example.com',9000,'fixture',1),
+                     ('i-b','tenant-b','domain','b.example.com',9000,'fixture',1);
+              INSERT INTO inference_budget (tenant_id, spent_micro_usd, cap_micro_usd)
+              VALUES ('tenant-a',0,1000),('tenant-b',0,1000);"
+          test "$(psql "$APP_URL" -Atqc "SET app.tenant_id='tenant-a'; SELECT count(*) FROM audit_events")" = "1"
+          test "$(psql "$APP_URL" -Atqc "SET app.tenant_id='tenant-a'; SELECT count(*) FROM intel_indicators")" = "1"
+          test "$(psql "$APP_URL" -Atqc "SET app.tenant_id='tenant-a'; SELECT count(*) FROM inference_budget")" = "1"
+          test "$(psql "$APP_URL" -Atqc "SELECT count(*) FROM audit_events")" = "0"
+          test "$(psql "$APP_URL" -Atqc "SELECT count(*) FROM intel_indicators")" = "0"
+          test "$(psql "$APP_URL" -Atqc "SELECT count(*) FROM inference_budget")" = "0"
+          # sovir_app WITHOUT app.tenant_id must see zero rows in EVERY
+          # tenant-scoped table — the RLS fail-closed invariant across the
+          # whole schema, not just the tables above (B21).
+          for t in consent_grants sessions devices observation_events \
+                   interventions webhook_endpoints idempotency_keys \
+                   deletion_receipts audit_events inference_budget \
+                   intel_indicators inference_reservations; do
+            if psql "$DATABASE_URL" -Atqc \
+               "SELECT 1 FROM pg_tables WHERE tablename='$t'" | grep -q 1; then
+              n="$(psql "$APP_URL" -Atqc "SELECT count(*) FROM $t")"
+              test "$n" = "0" || { echo "RLS leak: $t exposes $n rows without tenant"; exit 1; }
+            fi
+          done
+          echo "PASS: tenant RLS verified for sovir_app"
       - name: Durable-adapter smoke (Postgres-backed API)
         env:
           SOVIR_ENV: test
@@ -161,3 +217,46 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
           GITLEAKS_ENABLE_COMMENTS: 'false'
+
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-cyclonedx (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-cyclonedx
+      # Produces <crate>.cdx.json next to each member's Cargo.toml.
+      - name: Generate CycloneDX SBOM
+        run: cargo cyclonedx --format json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: "**/*.cdx.json"
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - name: Install cargo-llvm-cov (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Workspace coverage (lcov)
+        run: cargo llvm-cov --workspace --lcov --output-path coverage.lcov
+      # Gate calibrated to the 2026-10-30 baseline (total 58.69% lines):
+      # total floor 55% + per-crate floors; persistence/migrations are
+      # excluded (live-Postgres deferred toolchain), observer floor 25%
+      # (Windows-gated code cannot run on the Linux runner).
+      - name: Coverage summary + gate
+        run: |
+          cargo llvm-cov report --workspace --summary-only | tee coverage-summary.txt
+          python3 scripts/coverage_gate.py coverage-summary.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage.lcov
