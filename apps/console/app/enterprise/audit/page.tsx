@@ -2,11 +2,13 @@ import { ConsoleFrame, requireApiSession } from "../../../components/ConsoleFram
 import { listAudit } from "../../../lib/api";
 import { live } from "../../../lib/live";
 import { describeAudit } from "../../../lib/humanize";
+import { getView } from "../../../lib/view";
 
 export const metadata = { title: "Auditoría" };
 
 export default async function AuditPage() {
   await requireApiSession();
+  const view = await getView();
   const items = await live((t) => listAudit(t, 100));
   return (
     <ConsoleFrame current="/enterprise/audit">
@@ -39,7 +41,7 @@ export default async function AuditPage() {
                           {d.title} · {new Date(a.at_ms).toLocaleTimeString("es")}
                         </span>
                         {d.sub ? <span className="row-sub">{d.sub}</span> : null}
-                        <span className="row-tech">{a.detail}</span>
+                        {view === "dev" ? <span className="row-tech">{a.detail}</span> : null}
                       </span>
                     </li>
                   );

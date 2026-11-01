@@ -2,11 +2,13 @@ import { ConsoleFrame, requireApiSession } from "../../components/ConsoleFrame";
 import { listInterventions } from "../../lib/api";
 import { live } from "../../lib/live";
 import { describeIntervention } from "../../lib/humanize";
+import { getView } from "../../lib/view";
 
 export const metadata = { title: "Incidentes" };
 
 export default async function IncidentsPage() {
   await requireApiSession();
+  const view = await getView();
   const items = await live((t) => listInterventions(t, 100));
   return (
     <ConsoleFrame current="/incidents">
@@ -42,9 +44,11 @@ export default async function IncidentsPage() {
                         <span className="row-sub">
                           {d.what} {new Date(i.created_at_ms).toLocaleTimeString("es")}
                         </span>
-                        <span className="row-tech">
-                          {i.kind} · {i.event_id} · {i.intervention_id}
-                        </span>
+                        {view === "dev" ? (
+                          <span className="row-tech">
+                            {i.kind} · {i.event_id} · {i.intervention_id}
+                          </span>
+                        ) : null}
                       </span>
                       <strong>{d.state}</strong>
                     </li>

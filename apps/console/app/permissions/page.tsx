@@ -3,11 +3,13 @@ import { exportData } from "../../lib/api";
 import { live } from "../../lib/live";
 import { mintLabConsent } from "../../lib/actions";
 import { describeSource, grantStatus } from "../../lib/humanize";
+import { getView } from "../../lib/view";
 
 export const metadata = { title: "Permisos" };
 
 export default async function PermissionsPage() {
   await requireApiSession();
+  const view = await getView();
   const data = await live(exportData);
   const now = Date.now();
   return (
@@ -39,9 +41,11 @@ export default async function PermissionsPage() {
                       <span className="row-stack">
                         <span>{s.name}</span>
                         <span className="row-sub">Puede {s.does}.</span>
-                        <span className="row-tech">
-                          {g.source_id} · {g.grant_id}
-                        </span>
+                        {view === "dev" ? (
+                          <span className="row-tech">
+                            {g.source_id} · {g.grant_id}
+                          </span>
+                        ) : null}
                       </span>
                       <strong>{grantStatus(g, now)}</strong>
                     </li>

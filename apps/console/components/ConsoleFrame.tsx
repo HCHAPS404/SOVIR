@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { enterprise, operation } from "../lib/nav";
+import { toggleView } from "../lib/actions";
 import { RailNav } from "./RailNav";
 
 /// Presence check only — the token's validity is proven by the first
@@ -25,6 +26,7 @@ export async function ConsoleFrame({
 }) {
   const jar = await cookies();
   const principal = jar.get("sovir_api_principal")?.value ?? "desconocido";
+  const view = jar.get("sovir_console_view")?.value === "dev" ? "dev" : "user";
   return (
     <div className="console">
       <a className="skip" href="#contenido">
@@ -48,8 +50,13 @@ export async function ConsoleFrame({
           </span>
           <span className="rail-who">
             <strong>{principal}</strong>
-            <small>Sesión API dev</small>
+            <small>{view === "dev" ? "Vista desarrollador" : "Vista usuario"}</small>
           </span>
+          <form action={toggleView}>
+            <button className="secondary" type="submit">
+              {view === "dev" ? "Ver como usuario" : "Ver como desarrollador"}
+            </button>
+          </form>
           <form action="/api/session" method="post">
             <input type="hidden" name="intent" value="sign-out" />
             <button className="secondary" type="submit">

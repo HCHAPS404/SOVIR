@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Principal, PrincipalDataExport } from "../lib/api";
 import { emitSequencePair, emitUiTreeObservation, mintLabConsent } from "../lib/actions";
+import { getView } from "../lib/view";
 
 const nextSteps = [
   { href: "/devices", title: "Dispositivos", note: "Fuentes registradas vía API real." },
@@ -9,7 +10,7 @@ const nextSteps = [
   { href: "/enterprise/audit", title: "Auditoría", note: "Rastro de acciones sensibles de esta sesión." },
 ] as const;
 
-export function OverviewBoard({
+export async function OverviewBoard({
   me,
   data,
   version,
@@ -20,6 +21,8 @@ export function OverviewBoard({
   version: { version: string; contract: string; build_sha: string } | null;
   backendDown: boolean;
 }) {
+  const view = await getView();
+  const dev = view === "dev";
   return (
     <div className="desk">
       <header className="desk-head">
@@ -40,23 +43,27 @@ export function OverviewBoard({
             <h2>Esta sesión</h2>
             <ul className="rows">
               <li>
-                <span>Principal</span>
+                <span>Tú eres</span>
                 <strong>{me?.principal_id}</strong>
               </li>
-              <li>
-                <span>Tenant</span>
-                <strong>{me?.tenant_id}</strong>
-              </li>
-              <li>
-                <span>Permisos de sesión</span>
-                <strong>{me?.scopes.join(", ")}</strong>
-              </li>
-              <li>
-                <span>API</span>
-                <strong>
-                  v{version?.version} · {version?.contract}
-                </strong>
-              </li>
+              {dev ? (
+                <>
+                  <li>
+                    <span>Tenant</span>
+                    <strong>{me?.tenant_id}</strong>
+                  </li>
+                  <li>
+                    <span>Permisos de sesión</span>
+                    <strong>{me?.scopes.join(", ")}</strong>
+                  </li>
+                  <li>
+                    <span>API</span>
+                    <strong>
+                      v{version?.version} · {version?.contract}
+                    </strong>
+                  </li>
+                </>
+              ) : null}
             </ul>
           </section>
           <section className="panel">
@@ -90,26 +97,37 @@ export function OverviewBoard({
         </div>
       )}
       <section className="panel">
-        <h2>Laboratorio — probar el flujo API</h2>
+        <h2>{dev ? "Laboratorio — probar el flujo API" : "Prueba cómo te protege SOVIR"}</h2>
         <p>
-          Acciones reales contra el backend: consentimiento sintético, el par gancho→pago que produce
-          un <code>HookThenPayment</code> con decisión <code>warn</code>, y una observación{" "}
-          <code>UI_TREE</code> — el contrato exacto que usará un sensor de pantalla (ADR-0014).
+          {dev ? (
+            <>
+              Acciones reales contra el backend: consentimiento sintético, el par gancho→pago que
+              produce un <code>HookThenPayment</code> con decisión <code>warn</code>, y una
+              observación <code>UI_TREE</code> — el contrato exacto que usará un sensor de pantalla
+              (ADR-0014).
+            </>
+          ) : (
+            <>
+              Tres acciones de demostración: concede un permiso, simula una estafa típica
+              (presión→pago) para ver la alerta, y emite lo que vería un observador de pantalla.
+              Nada sale de tu máquina.
+            </>
+          )}
         </p>
         <div className="lab-actions" style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
           <form action={mintLabConsent}>
             <button className="secondary" type="submit">
-              Conceder consentimiento de laboratorio
+              {dev ? "Conceder consentimiento de laboratorio" : "Dar permiso de demostración"}
             </button>
           </form>
           <form action={emitSequencePair}>
             <button className="secondary" type="submit">
-              Emitir par gancho→pago
+              {dev ? "Emitir par gancho→pago" : "Simular una estafa (presión→pago)"}
             </button>
           </form>
           <form action={emitUiTreeObservation}>
             <button className="secondary" type="submit">
-              Emitir observación UI_TREE
+              {dev ? "Emitir observación UI_TREE" : "Simular observador de pantalla"}
             </button>
           </form>
         </div>

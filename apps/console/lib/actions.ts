@@ -120,6 +120,19 @@ export async function emitUiTreeObservation(): Promise<void> {
   revalidatePath("/enterprise/audit");
 }
 
+// View toggle: user (plain language only) <-> dev (shows technical ids).
+export async function toggleView(): Promise<void> {
+  const jar = await cookies();
+  const next = jar.get("sovir_console_view")?.value === "dev" ? "user" : "dev";
+  jar.set("sovir_console_view", next, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: false,
+    path: "/",
+  });
+  revalidatePath("/", "layout");
+}
+
 export async function registerDeviceAction(formData: FormData): Promise<void> {
   const token = await tokenOrRedirect();
   const label = String(formData.get("label") ?? "").trim() || "Consola web";
