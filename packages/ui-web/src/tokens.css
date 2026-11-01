@@ -917,7 +917,7 @@ a.button.secondary:hover {
 }
 
 .console {
-  --console-rail: var(--bg);
+  --console-rail: color-mix(in srgb, var(--surface) 42%, var(--bg));
   display: grid;
   grid-template-columns: 15rem minmax(0, 1fr);
   min-height: 100vh;
@@ -998,11 +998,34 @@ a.button.secondary:hover {
 .rail-empty { margin: 0.4rem 0.55rem; color: var(--text-muted); font-size: 0.8rem; }
 .console .rail-foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   margin-top: auto;
   padding: 0.65rem 0.35rem 0.15rem;
   border-top: 1px solid var(--border);
+}
+.console .rail-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-basis: 100%;
+  margin-top: 0.15rem;
+}
+.console .rail-actions form { flex: 1; }
+.console .rail-actions button {
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.72rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.console .rail-actions button:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+  background: var(--surface);
 }
 .rail-avatar {
   display: grid;
@@ -1015,8 +1038,14 @@ a.button.secondary:hover {
   border: 1px solid var(--border);
 }
 .rail-avatar .mark { width: 0.95rem; height: 0.72rem; }
-.rail-who { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
-.rail-who strong { font-size: 0.78rem; font-weight: 500; }
+.rail-who { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; flex: 1; }
+.rail-who strong {
+  font-size: 0.78rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .rail-who small { color: var(--text-muted); font-size: 0.68rem; }
 .console .rail-foot form { margin-left: auto; }
 .console .workspace { min-width: 0; display: flex; flex-direction: column; }
@@ -1499,7 +1528,9 @@ a.button.secondary:hover {
 .desk-head p { color: var(--text-muted); max-width: var(--measure); margin: 0; }
 /* Status chips — semantic state at a glance, readable in both themes. */
 .chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.78rem;
   font-weight: 500;
   padding: 0.18rem 0.6rem;
@@ -1507,6 +1538,7 @@ a.button.secondary:hover {
   border: 1px solid transparent;
   white-space: nowrap;
 }
+.chip .dot { flex: none; }
 .chip--success { color: var(--success); border-color: var(--success); }
 .chip--warning { color: var(--warning); border-color: var(--warning); }
 .chip--danger { color: var(--danger); border-color: var(--danger); }
@@ -1573,15 +1605,26 @@ a.button.secondary:hover {
 .dot--warning { background: var(--warning); }
 .dot--danger { background: var(--danger); }
 .dot--unknown { background: var(--unknown); }
+.dot--brand { background: var(--brand); }
 /* Rail: grouped nav with a marked active item, like the references. */
 .console .rail-group h2 {
   font-size: 0.66rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.console .rail nav a[aria-current="page"] {
-  box-shadow: inset 2px 0 0 var(--brand);
+.console .rail nav a { position: relative; }
+.console .rail nav a[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: -0.6rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 1.1rem;
+  border-radius: 999px;
+  background: var(--brand);
 }
+.console .rail nav a[aria-current="page"] svg { color: var(--brand); }
 /* Buttons inside elevated cards keep a quiet outline. */
 .console .panel .secondary,
 .console .stat-card .secondary {
@@ -1692,6 +1735,102 @@ a.button.secondary:hover {
 .console .tips summary { cursor: pointer; font-weight: 600; padding: 0.3rem 0; }
 .console .tips summary:hover { color: var(--brand); }
 .console .tips p { margin: 0.2rem 0 0.6rem; color: var(--text-muted); font-size: 0.85rem; }
+/* Entity cards — devices, grants: icon + stacked body + status/action side. */
+.cards { list-style: none; margin: 0.4rem 0 0.3rem; padding: 0; display: grid; gap: 0.6rem; }
+.console .card {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 70%, var(--bg));
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+.console .card:hover { border-color: color-mix(in srgb, var(--text-muted) 60%, var(--border)); }
+.card-icon {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  padding: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+.card-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.card-body strong { font-size: 0.9rem; font-weight: 600; }
+.card-sub { color: var(--text-muted); font-size: 0.8rem; }
+.card-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+/* Ghost button — quiet destructive/secondary action inside cards. */
+.ghost {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.ghost:hover { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+/* Console form fields — match the elevated card language. */
+.console input:not([type="hidden"]),
+.console select {
+  height: 2.2rem;
+  padding: 0 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+.console input::placeholder { color: var(--text-muted); }
+.console input:focus-visible,
+.console select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-color: var(--focus);
+}
+.form-row { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 0.35rem; }
+.form-row input { flex: 1 1 14rem; }
+/* Audit timeline — left rail with semantic dots, time on the right. */
+.timeline { list-style: none; margin: 0.3rem 0 0.4rem; padding: 0; position: relative; }
+.timeline::before {
+  content: "";
+  position: absolute;
+  left: 0.24rem;
+  top: 0.7rem;
+  bottom: 0.7rem;
+  width: 1px;
+  background: var(--border);
+}
+.timeline li {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  padding: 0.48rem 0.15rem 0.48rem 0.9rem;
+  font-size: 0.85rem;
+}
+.timeline .dot {
+  position: absolute;
+  left: 0;
+  top: 0.85em;
+  width: 0.5rem;
+  height: 0.5rem;
+  outline: 3px solid var(--surface);
+}
+.tl-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.08rem; }
+.tl-sub { color: var(--text-muted); font-size: 0.78rem; }
+.timeline time { flex: none; color: var(--text-muted); font-size: 0.75rem; }
 @media (prefers-reduced-motion: reduce) {
   .console *,
   .console *::before,
@@ -1711,7 +1850,14 @@ a.button.secondary:hover {
   }
   .console .rail nav { flex-direction: row; flex-wrap: wrap; }
   .console .rail nav a span:last-child { display: none; }
-  .console .rail nav a[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--brand); }
+  .console .rail nav a[aria-current="page"]::before {
+    left: 50%;
+    top: auto;
+    bottom: -1px;
+    transform: translateX(-50%);
+    width: 1.1rem;
+    height: 3px;
+  }
   .console .rail-group h2, .console .rail-find { display: none; }
   .console .main { padding: 1rem 1rem 2.4rem; }
   .stat-hero { flex-direction: column; align-items: flex-start; }

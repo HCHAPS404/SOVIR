@@ -99,3 +99,13 @@ export function describeAudit(a: { action: string; detail: string }): {
   const sub = [grantLabel, decisionLabel, deviceLabel].filter(Boolean).join(" · ");
   return { title, sub };
 }
+
+// Timeline dot tone per audit action — semantic, matches the chip palette.
+export function auditTone(action: string): "success" | "warning" | "danger" | "brand" | "unknown" {
+  if (action === "consent_granted" || action === "device_registered") return "success";
+  if (action === "intervention_dispatched") return "warning";
+  if (action === "consent_revoked" || action === "device_revoked" || action === "data_purged")
+    return "danger";
+  if (action === "event_ingested") return "brand";
+  return "unknown";
+}

@@ -59,17 +59,17 @@ export async function ConsoleFrame({
             <strong>{principal}</strong>
             <small>{view === "dev" ? "Vista desarrollador" : "Vista usuario"}</small>
           </span>
-          <form action={toggleView}>
-            <button className="secondary" type="submit">
-              {view === "dev" ? "Ver como usuario" : "Ver como desarrollador"}
-            </button>
-          </form>
-          <form action="/api/session" method="post">
-            <input type="hidden" name="intent" value="sign-out" />
-            <button className="secondary" type="submit">
-              Salir
-            </button>
-          </form>
+          <div className="rail-actions">
+            <form action={toggleView}>
+              <button type="submit">
+                {view === "dev" ? "Vista usuario" : "Vista dev"}
+              </button>
+            </form>
+            <form action="/api/session" method="post">
+              <input type="hidden" name="intent" value="sign-out" />
+              <button type="submit">Salir</button>
+            </form>
+          </div>
         </div>
       </aside>
       <div className="workspace">

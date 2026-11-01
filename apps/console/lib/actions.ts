@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { grantConsent, ingestEvent, registerDevice } from "./api";
+import { grantConsent, ingestEvent, registerDevice, revokeConsent, revokeDevice } from "./api";
 import { ApiDown, ApiUnauthorized } from "./api";
 
 const LAB_GRANT = "console-lab-grant";
@@ -145,4 +145,34 @@ export async function registerDeviceAction(formData: FormData): Promise<void> {
     throw e;
   }
   revalidatePath("/devices");
+}
+
+export async function revokeDeviceAction(formData: FormData): Promise<void> {
+  const token = await tokenOrRedirect();
+  const deviceId = String(formData.get("device_id") ?? "").trim();
+  if (!deviceId) redirect("/devices");
+  try {
+    await revokeDevice(token, deviceId);
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/devices?error=backend");
+    throw e;
+  }
+  revalidatePath("/devices");
+  revalidatePath("/");
+}
+
+export async function revokeConsentAction(formData: FormData): Promise<void> {
+  const token = await tokenOrRedirect();
+  const grantId = String(formData.get("grant_id") ?? "").trim();
+  if (!grantId) redirect("/permissions");
+  try {
+    await revokeConsent(token, grantId);
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/permissions?error=backend");
+    throw e;
+  }
+  revalidatePath("/permissions");
+  revalidatePath("/");
 }

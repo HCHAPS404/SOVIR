@@ -165,6 +165,12 @@ export const grantConsent = (t: string, grantId: string, sourceId: string, ttlMs
     body: JSON.stringify({ grant_id: grantId, source_id: sourceId, expires_at_ms: Date.now() + ttlMs }),
   });
 
+export const revokeConsent = (t: string, grantId: string) =>
+  call<void>(`/v1/consents/${encodeURIComponent(grantId)}/revoke`, t, { method: "POST" });
+
+export const revokeDevice = (t: string, deviceId: string) =>
+  call<void>(`/v1/devices/${encodeURIComponent(deviceId)}/revoke`, t, { method: "POST" });
+
 export const ingestEvent = (t: string, event: ObservedEvent, idemKey: string) =>
   call<unknown>("/v1/events", t, {
     method: "POST",

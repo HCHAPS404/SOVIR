@@ -34,15 +34,35 @@ export default async function IncidentsPage() {
                 y por qué. Puedes probarlo desde <a href="/">Inicio</a>.
               </p>
             ) : (
-              <ul className="rows">
+              <ul className="cards">
                 {items.map((i) => {
                   const d = describeIntervention(i);
+                  const tone =
+                    i.state === "pending"
+                      ? "warning"
+                      : i.state === "delivered"
+                        ? "success"
+                        : i.state === "failed"
+                          ? "danger"
+                          : "unknown";
+                  const at = new Date(i.created_at_ms);
                   return (
-                    <li key={i.intervention_id}>
-                      <span className="row-stack">
-                        <span>{d.title}</span>
-                        <span className="row-sub">
-                          {d.what} {new Date(i.created_at_ms).toLocaleTimeString("es")}
+                    <li className="card" key={i.intervention_id}>
+                      <svg className="card-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M12 8v5M12 16.5h.01M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16Z"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                      <span className="card-body">
+                        <strong>{d.title}</strong>
+                        <span className="card-sub">
+                          {d.what} · {at.toLocaleDateString("es", { day: "numeric", month: "short" })}{" "}
+                          {at.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}
                         </span>
                         {view === "dev" ? (
                           <span className="row-tech">
@@ -50,18 +70,11 @@ export default async function IncidentsPage() {
                           </span>
                         ) : null}
                       </span>
-                      <span
-                        className={`chip chip--${
-                          i.state === "pending"
-                            ? "warning"
-                            : i.state === "delivered"
-                              ? "success"
-                              : i.state === "failed"
-                                ? "danger"
-                                : "unknown"
-                        }`}
-                      >
-                        {d.state}
+                      <span className="card-side">
+                        <span className={`chip chip--${tone}`}>
+                          <i className={`dot dot--${tone}`} />
+                          {d.state}
+                        </span>
                       </span>
                     </li>
                   );

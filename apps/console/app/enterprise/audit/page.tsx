@@ -1,7 +1,7 @@
 import { ConsoleFrame, requireApiSession } from "../../../components/ConsoleFrame";
 import { listAudit } from "../../../lib/api";
 import { live } from "../../../lib/live";
-import { describeAudit } from "../../../lib/humanize";
+import { auditTone, describeAudit } from "../../../lib/humanize";
 import { getView } from "../../../lib/view";
 
 export const metadata = { title: "Auditoría" };
@@ -29,24 +29,31 @@ export default async function AuditPage() {
           <section className="panel">
             <h2>Eventos de auditoría ({items.length})</h2>
             {items.length === 0 ? (
-              <p>Sin acciones registradas todavía.</p>
+              <p className="empty">
+                <strong>Sin acciones registradas todavía.</strong> Cada sesión, permiso y señal
+                quedará aquí en orden.
+              </p>
             ) : (
-              <ul className="rows">
+              <ol className="timeline">
                 {items.map((a) => {
                   const d = describeAudit(a);
+                  const at = new Date(a.at_ms);
                   return (
                     <li key={a.audit_id}>
-                      <span className="row-stack">
-                        <span>
-                          {d.title} · {new Date(a.at_ms).toLocaleTimeString("es")}
-                        </span>
-                        {d.sub ? <span className="row-sub">{d.sub}</span> : null}
+                      <i className={`dot dot--${auditTone(a.action)}`} aria-hidden="true" />
+                      <span className="tl-body">
+                        <strong>{d.title}</strong>
+                        {d.sub ? <span className="tl-sub">{d.sub}</span> : null}
                         {view === "dev" ? <span className="row-tech">{a.detail}</span> : null}
                       </span>
+                      <time dateTime={at.toISOString()}>
+                        {at.toLocaleDateString("es", { day: "numeric", month: "short" })} ·{" "}
+                        {at.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}
+                      </time>
                     </li>
                   );
                 })}
-              </ul>
+              </ol>
             )}
           </section>
         )}
