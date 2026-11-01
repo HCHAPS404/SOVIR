@@ -67,7 +67,11 @@ export async function ConsoleFrame({
       </aside>
       <div className="workspace">
         <header className="console-top">
-          <p className="banner">API dev local · datos sintéticos, sin contenido privado.</p>
+          <p className="banner">
+            {view === "dev"
+              ? "API dev local · datos sintéticos, sin contenido privado."
+              : "Modo demostración — todo es simulado y nada sale de tu máquina."}
+          </p>
           <ThemeSwitch />
         </header>
         <div className="main" id="contenido">

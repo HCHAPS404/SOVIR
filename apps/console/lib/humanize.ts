@@ -49,6 +49,19 @@ export function describeIntervention(i: {
   return { title, what, state };
 }
 
+const PLATFORM_NAMES: Record<string, string> = {
+  ANDROID: "Android",
+  IOS: "iPhone / iPad",
+  WINDOWS: "Windows",
+  MACOS: "Mac",
+  LINUX: "Linux",
+  BROWSER_EXTENSION: "Extensión de navegador",
+};
+
+export function describePlatform(p: string): string {
+  return PLATFORM_NAMES[p] ?? p;
+}
+
 const ACTION_TITLES: Record<string, string> = {
   session_issued: "Inicio de sesión",
   session_revoked: "Cierre de sesión",
