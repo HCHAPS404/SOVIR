@@ -1,0 +1,27 @@
+#!/bin/sh
+# commit-msg hook — rejects agent/tool attribution in commit messages.
+# Blocks co-author trailers and "generated with" lines naming bots or AI tools.
+# Ordinary prose mentions (e.g. "responsables Devin ChatGPT") are allowed —
+# only attribution contexts are rejected.
+msg_file="$1"
+
+# Co-authored-by lines naming an agent, bot, or AI vendor account.
+if grep -iE "co-authored-by:.*(devin|claude|anthropic|openai|codex|cursor|copilot|\[bot\]|noreply)" "$msg_file" >/dev/null 2>&1; then
+  echo "commit-msg: rejected — Co-Authored-By trailer names an agent/bot." >&2
+  echo "Remove agent attribution per AGENTS.md (commits carry maintainer identity only)." >&2
+  exit 1
+fi
+
+# "Generated with <tool>" marketing lines.
+if grep -iE "generated with.*(devin|claude|anthropic|openai|codex|cursor|copilot|chatgpt)" "$msg_file" >/dev/null 2>&1; then
+  echo "commit-msg: rejected — 'Generated with' attribution line found." >&2
+  exit 1
+fi
+
+# Known bot emails / integration accounts anywhere in the message.
+if grep -iE "(devin-ai-integration|@anthropic\.com|@openai\.com|@github\.copilot|bot@)" "$msg_file" >/dev/null 2>&1; then
+  echo "commit-msg: rejected — agent account email/integration reference found." >&2
+  exit 1
+fi
+
+exit 0
