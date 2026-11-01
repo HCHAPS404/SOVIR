@@ -3,12 +3,8 @@ export const metadata = { title: "Entrar", robots: { index: false, follow: false
 const errors: Record<string, string> = {
   backend: "La API dev no responde en 127.0.0.1:8787 — arranca cargo run -p sovir-api.",
   session: "La sesión no es válida o expiró — entra de nuevo.",
+  name: "Ese nombre no es válido — usa letras, números, punto, guion o guion bajo.",
 };
-
-const profiles = [
-  { intent: "synthetic", label: "Sesión demo", note: "principal console-demo" },
-  { intent: "developer", label: "Sesión desarrollador", note: "principal console-dev" },
-] as const;
 
 export default async function SignInPage({
   searchParams,
@@ -30,19 +26,28 @@ export default async function SignInPage({
           La consola local autentica contra la API dev (<code>POST /v1/auth/dev-session</code>). El
           token queda en una cookie <code>httpOnly</code>: el navegador nunca lo toca.
         </p>
-        <div className="register-options">
-          {profiles.map((p) => (
-            <form key={p.intent} className="dev-profile" action="/api/session" method="post">
-              <input type="hidden" name="intent" value={p.intent} />
-              <button className="register-option" type="submit">
-                {p.label} · {p.note}
-              </button>
-            </form>
-          ))}
-        </div>
+        <form className="register-email" action="/api/session" method="post">
+          <label>
+            Nombre de usuario
+            <input
+              name="principal"
+              type="text"
+              required
+              minLength={1}
+              maxLength={40}
+              pattern="[A-Za-z0-9._\-]+"
+              placeholder="p. ej. ana"
+              autoComplete="username"
+            />
+          </label>
+          <button className="button" type="submit">
+            Entrar
+          </button>
+        </form>
         <p className="register-note">
-          Autenticación sintética de desarrollo — no hay registro ni proveedores externos en la API
-          local.
+          Cada nombre es un principal aislado: sus consents, eventos y auditoría son propios y
+          persisten entre sesiones. Autenticación sintética de desarrollo — no hay contraseñas ni
+          proveedores externos en la API local.
         </p>
       </div>
     </main>
