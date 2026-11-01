@@ -1587,6 +1587,137 @@ a.button.secondary:hover {
 .console .stat-card .secondary {
   border-radius: 10px;
 }
+/* Live status strip — thin ticker under the page head. */
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.4rem;
+  margin: -0.4rem 0 1rem;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.strip span { display: inline-flex; align-items: center; gap: 0.45rem; }
+.strip .dot { flex: none; }
+/* Trend chips — week-over-week deltas on stat cards. */
+.trend {
+  display: inline-block;
+  margin-top: 0.55rem;
+  padding: 0.16rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.trend--up {
+  border-color: color-mix(in srgb, var(--warning) 55%, transparent);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+}
+.trend--down {
+  border-color: color-mix(in srgb, var(--success) 55%, transparent);
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 9%, transparent);
+}
+.trend--new {
+  border-color: color-mix(in srgb, var(--brand) 55%, transparent);
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 9%, transparent);
+}
+/* Category bars — visual weight per threat class, real counts. */
+.bars { list-style: none; margin: 0.4rem 0 0.3rem; padding: 0; display: grid; gap: 0.62rem; }
+.bars li {
+  display: grid;
+  grid-template-columns: minmax(0, 11rem) 1fr 2rem;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 0.85rem;
+}
+.bars-track {
+  height: 0.42rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+  overflow: hidden;
+}
+.bars-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brand), color-mix(in srgb, var(--brand) 62%, var(--warning)));
+}
+.bars-count { font-family: var(--display); font-size: 1.05rem; text-align: right; }
+/* Activity feed — dotted rows with human summaries. */
+.feed { list-style: none; margin: 0.25rem 0 0.35rem; padding: 0; }
+.feed li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.5rem 0.15rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  font-size: 0.85rem;
+}
+.feed li:last-child { border-bottom: 0; }
+.feed .dot { flex: none; transform: translateY(-1px); }
+.feed-body { flex: 1; min-width: 0; }
+.feed-body strong { font-weight: 600; }
+.feed-body span { color: var(--text-muted); margin-left: 0.4rem; }
+.feed time { flex: none; color: var(--text-muted); font-size: 0.75rem; }
+/* Interactive polish — subtle hover, strong focus, no motion sickness. */
+.console .rows li,
+.console .feed li {
+  transition: background-color 120ms ease;
+}
+.console .rows li:hover,
+.console .feed li:hover {
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+.console .stat-card {
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.console .stat-card:hover {
+  transform: translateY(-1px);
+}
+.console .secondary {
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.console :focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.console .tips summary { cursor: pointer; font-weight: 600; padding: 0.3rem 0; }
+.console .tips summary:hover { color: var(--brand); }
+.console .tips p { margin: 0.2rem 0 0.6rem; color: var(--text-muted); font-size: 0.85rem; }
+@media (prefers-reduced-motion: reduce) {
+  .console *,
+  .console *::before,
+  .console *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+  .console .stat-card:hover { transform: none; }
+}
+/* Narrow screens — the rail collapses to a top strip. */
+@media (max-width: 46rem) {
+  .console { grid-template-columns: 1fr; }
+  .console .rail {
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .console .rail nav { flex-direction: row; flex-wrap: wrap; }
+  .console .rail nav a span:last-child { display: none; }
+  .console .rail nav a[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--brand); }
+  .console .rail-group h2, .console .rail-find { display: none; }
+  .console .main { padding: 1rem 1rem 2.4rem; }
+  .stat-hero { flex-direction: column; align-items: flex-start; }
+  .strip { border-radius: var(--radius-lg); }
+  .bars li { grid-template-columns: minmax(0, 8.5rem) 1fr 1.6rem; }
+}
 .tips { list-style: none; margin: 0; padding: 0; }
 .tips li { border-bottom: 1px solid var(--border); }
 .tips li:last-child { border-bottom: 0; }

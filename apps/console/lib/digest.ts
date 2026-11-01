@@ -18,15 +18,25 @@ const SIGNAL_LABELS: Record<string, string> = {
 export interface WeeklyDigest {
   protectedCount: number;
   signalCount: number;
+  prevProtectedCount: number;
+  prevSignalCount: number;
   categories: { label: string; count: number }[];
   lastAlertAt: number | null;
+  lastActivityAt: number | null;
   status: "quiet" | "protected" | "empty";
 }
 
 export function weeklyDigest(data: PrincipalDataExport, now = Date.now()): WeeklyDigest {
   const since = now - WEEK_MS;
+  const prevSince = since - WEEK_MS;
   const weekEvents = data.events.filter((e) => e.observed_at_ms >= since);
   const weekAlerts = data.interventions.filter((i) => i.created_at_ms >= since);
+  const prevEvents = data.events.filter(
+    (e) => e.observed_at_ms >= prevSince && e.observed_at_ms < since,
+  );
+  const prevAlerts = data.interventions.filter(
+    (i) => i.created_at_ms >= prevSince && i.created_at_ms < since,
+  );
 
   const counts = new Map<string, number>();
   for (const e of weekEvents) {
@@ -45,14 +55,73 @@ export function weeklyDigest(data: PrincipalDataExport, now = Date.now()): Weekl
   const lastAlertAt = weekAlerts.length
     ? Math.max(...weekAlerts.map((i) => i.created_at_ms))
     : null;
+  const allTimes = data.events
+    .map((e) => e.observed_at_ms)
+    .concat(data.interventions.map((i) => i.created_at_ms));
+  const lastActivityAt = allTimes.length ? Math.max(...allTimes) : null;
 
   return {
     protectedCount: weekAlerts.length,
     signalCount: weekEvents.length,
+    prevProtectedCount: prevAlerts.length,
+    prevSignalCount: prevEvents.length,
     categories,
     lastAlertAt,
+    lastActivityAt,
     status: weekAlerts.length > 0 ? "protected" : weekEvents.length > 0 ? "quiet" : "empty",
   };
+}
+
+// Week-over-week delta chip — honest labels, no fake percentages.
+export function trendDelta(cur: number, prev: number): { label: string; tone: string } | null {
+  if (cur === prev) return cur === 0 ? null : { label: "igual que la semana pasada", tone: "flat" };
+  if (prev === 0) return { label: "nueva actividad", tone: "new" };
+  const diff = cur - prev;
+  return {
+    label: `${diff > 0 ? "+" : "−"}${Math.abs(diff)} vs semana pasada`,
+    tone: diff > 0 ? "up" : "down",
+  };
+}
+
+// Merged recent activity — interventions + observed signals, newest first.
+// Human-language titles via the same vocabulary the incident page uses.
+export interface FeedItem {
+  at: number;
+  kind: "alert" | "signal";
+  title: string;
+  note: string;
+}
+
+export function recentActivity(data: PrincipalDataExport, limit = 6): FeedItem[] {
+  const items: FeedItem[] = [];
+  for (const i of data.interventions) {
+    const prefix = i.event_id.split("-")[0];
+    items.push({
+      at: i.created_at_ms,
+      kind: "alert",
+      title: "Alerta de protección",
+      note:
+        prefix === "pay"
+          ? "pago solicitado tras presión de urgencia"
+          : prefix === "uit"
+            ? "diseño engañoso detectado por el observador"
+            : "señal de riesgo interceptada",
+    });
+  }
+  for (const e of data.events) {
+    const names = e.signals
+      .map((s) => SIGNAL_LABELS[s])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(" · ");
+    items.push({
+      at: e.observed_at_ms,
+      kind: "signal",
+      title: "Señal observada",
+      note: names || "actividad registrada sin señales de riesgo",
+    });
+  }
+  return items.sort((a, b) => b.at - a.at).slice(0, limit);
 }
 
 // Daily counts for the last `days` days, oldest first — feeds the hero

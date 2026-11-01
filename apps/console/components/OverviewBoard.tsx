@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Principal, PrincipalDataExport } from "../lib/api";
 import { emitSequencePair, emitUiTreeObservation, mintLabConsent } from "../lib/actions";
 import { getView } from "../lib/view";
-import { dailyBuckets, timeAgo, weeklyDigest } from "../lib/digest";
+import { dailyBuckets, recentActivity, timeAgo, trendDelta, weeklyDigest } from "../lib/digest";
 import { Sparkline } from "./Sparkline";
 
 const tips = [
@@ -45,17 +45,44 @@ export async function OverviewBoard({
   const view = await getView();
   const dev = view === "dev";
   const digest = data ? weeklyDigest(data) : null;
+  const feed = data ? recentActivity(data) : [];
+  const activityTrend = digest
+    ? trendDelta(
+        digest.protectedCount + digest.signalCount,
+        digest.prevProtectedCount + digest.prevSignalCount,
+      )
+    : null;
   const nick = me?.principal_id.replace(/^console-/, "") ?? "…";
+  const today = new Date().toLocaleDateString("es-ES", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
   return (
     <div className="desk">
       <header className="desk-head">
-        <h1>{dev ? "Inicio" : `Hola, ${nick}`}</h1>
+        <h1>{dev ? "Inicio" : `Hola de nuevo, ${nick}`}</h1>
         <p>
           {dev
             ? "Estado real de la sesión contra la API dev local. Nada aquí es maqueta."
-            : "Así va tu protección — en palabras normales."}
+            : `${today} — así va tu protección, en palabras normales.`}
         </p>
       </header>
+      {!dev && !backendDown ? (
+        <div className="strip" role="status" aria-label="Estado de la protección">
+          <span>
+            <i className="dot dot--success" aria-hidden="true" /> Protección activa
+          </span>
+          <span>
+            <i className="dot dot--unknown" aria-hidden="true" /> Todo queda en tu máquina
+          </span>
+          <span>
+            {digest?.lastActivityAt
+              ? `Última actividad ${timeAgo(digest.lastActivityAt)}`
+              : "Sin actividad todavía"}
+          </span>
+        </div>
+      ) : null}
       {backendDown ? (
         <section className="panel" aria-label="Sin conexión">
           <h2>Sin conexión</h2>
@@ -94,6 +121,11 @@ export async function OverviewBoard({
                     </p>
                   </>
                 )}
+                {activityTrend ? (
+                  <span className={`trend trend--${activityTrend.tone}`}>
+                    {activityTrend.label}
+                  </span>
+                ) : null}
               </div>
               <Sparkline
                 values={dailyBuckets(
@@ -105,8 +137,8 @@ export async function OverviewBoard({
             </section>
             <section className="stat-card">
               <p className="kicker">Señales observadas</p>
-              <p className="stat-num">{data.events.length}</p>
-              <p className="stat-note">eventos analizados en total</p>
+              <p className="stat-num">{digest.signalCount}</p>
+              <p className="stat-note">esta semana · {data.events.length} en total</p>
             </section>
             <section className="stat-card">
               <p className="kicker">Permisos activos</p>
@@ -123,11 +155,22 @@ export async function OverviewBoard({
             <section className="panel">
               <h2>Qué se detectó esta semana</h2>
               {digest.categories.length > 0 ? (
-                <ul className="rows">
+                <ul className="bars">
                   {digest.categories.map((c) => (
                     <li key={c.label}>
-                      <span>{c.label}</span>
-                      <strong>{c.count}</strong>
+                      <span className="bars-label">{c.label}</span>
+                      <span className="bars-track" aria-hidden="true">
+                        <span
+                          className="bars-fill"
+                          style={{
+                            width: `${Math.max(
+                              8,
+                              Math.round((c.count / digest.categories[0].count) * 100),
+                            )}%`,
+                          }}
+                        />
+                      </span>
+                      <strong className="bars-count">{c.count}</strong>
                     </li>
                   ))}
                 </ul>
@@ -138,19 +181,43 @@ export async function OverviewBoard({
               )}
             </section>
             <section className="panel">
-              <h2>Aprende a reconocer amenazas</h2>
-              <ul className="tips">
-                {tips.map((t) => (
-                  <li key={t.q}>
-                    <details>
-                      <summary>{t.q}</summary>
-                      <p>{t.a}</p>
-                    </details>
-                  </li>
-                ))}
-              </ul>
+              <h2>Actividad reciente</h2>
+              {feed.length > 0 ? (
+                <ul className="feed">
+                  {feed.map((f, idx) => (
+                    <li key={idx}>
+                      <i
+                        className={`dot ${f.kind === "alert" ? "dot--warning" : "dot--unknown"}`}
+                        aria-hidden="true"
+                      />
+                      <span className="feed-body">
+                        <strong>{f.title}</strong>
+                        <span>{f.note}</span>
+                      </span>
+                      <time>{timeAgo(f.at)}</time>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty">
+                  Sin movimiento aún — las señales y alertas aparecerán aquí con su hora.
+                </p>
+              )}
             </section>
           </div>
+          <section className="panel">
+            <h2>Aprende a reconocer amenazas</h2>
+            <ul className="tips">
+              {tips.map((t) => (
+                <li key={t.q}>
+                  <details>
+                    <summary>{t.q}</summary>
+                    <p>{t.a}</p>
+                  </details>
+                </li>
+              ))}
+            </ul>
+          </section>
         </>
       ) : (
         <div className="desk-grid">
