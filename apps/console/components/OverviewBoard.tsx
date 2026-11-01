@@ -2,6 +2,26 @@ import Link from "next/link";
 import type { Principal, PrincipalDataExport } from "../lib/api";
 import { emitSequencePair, emitUiTreeObservation, mintLabConsent } from "../lib/actions";
 import { getView } from "../lib/view";
+import { timeAgo, weeklyDigest } from "../lib/digest";
+
+const tips = [
+  {
+    q: "Si algo exige que actúes YA",
+    a: "Cuenta bloqueada, premio, multa, paquete retenido — la prisa fabricada es la herramienta favorita del estafador. Párate y verifica por otro canal.",
+  },
+  {
+    q: "Primero el miedo, después el cobro",
+    a: "El patrón clásico de la estafa: te presionan con urgencia y justo después aparece la solicitud de pago. SOVIR detecta esa secuencia como gancho→pago.",
+  },
+  {
+    q: "Verifica quién te pide",
+    a: "Los impostores usan nombres parecidos a tu banco o servicios reales. Un permiso concedido al observador no autoriza a nadie más a pedirte datos.",
+  },
+  {
+    q: "Diseños que empujan a equivocarte",
+    a: "Botones que esconden el “rechazar”, colores que destacan el “aceptar”, casillas premarcadas. SOVIR los detecta como patrones oscuros de consentimiento.",
+  },
+] as const;
 
 const nextSteps = [
   { href: "/devices", title: "Dispositivos", note: "Fuentes registradas vía API real." },
@@ -23,11 +43,17 @@ export async function OverviewBoard({
 }) {
   const view = await getView();
   const dev = view === "dev";
+  const digest = data ? weeklyDigest(data) : null;
+  const nick = me?.principal_id.replace(/^console-/, "") ?? "…";
   return (
     <div className="desk">
       <header className="desk-head">
-        <h1>Inicio</h1>
-        <p>Estado real de la sesión contra la API dev local. Nada aquí es maqueta.</p>
+        <h1>{dev ? "Inicio" : `Hola, ${nick}`}</h1>
+        <p>
+          {dev
+            ? "Estado real de la sesión contra la API dev local. Nada aquí es maqueta."
+            : "Así va tu protección — en palabras normales."}
+        </p>
       </header>
       {backendDown ? (
         <section className="panel" aria-label="Sin conexión">
@@ -37,6 +63,56 @@ export async function OverviewBoard({
             <code>127.0.0.1:8787</code>). Arranca <code>cargo run -p sovir-api</code> y recarga.
           </p>
         </section>
+      ) : !dev && digest ? (
+        <div className="desk-grid">
+          <section className="panel digest-hero">
+            <h2>Tu semana en seguridad</h2>
+            {digest.status === "protected" ? (
+              <p className="digest-line">
+                SOVIR te protegió <strong>{digest.protectedCount}</strong>{" "}
+                {digest.protectedCount === 1 ? "vez" : "veces"} esta semana
+                {digest.lastAlertAt ? ` · última alerta ${timeAgo(digest.lastAlertAt)}` : ""}
+              </p>
+            ) : digest.status === "quiet" ? (
+              <p className="digest-line">
+                Semana tranquila — SOVIR observó <strong>{digest.signalCount}</strong>{" "}
+                {digest.signalCount === 1 ? "señal" : "señales"} sin necesidad de alertarte.
+              </p>
+            ) : (
+              <p className="digest-line">
+                Aún sin actividad — cuando algo intente engañarte, aparecerá aquí.
+              </p>
+            )}
+            {digest.categories.length > 0 ? (
+              <>
+                <p className="row-sub" style={{ marginTop: "0.8rem" }}>
+                  Qué se detectó:
+                </p>
+                <ul className="rows">
+                  {digest.categories.map((c) => (
+                    <li key={c.label}>
+                      <span>{c.label}</span>
+                      <strong>{c.count}</strong>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+          </section>
+          <section className="panel">
+            <h2>Aprende a reconocer amenazas</h2>
+            <ul className="tips">
+              {tips.map((t) => (
+                <li key={t.q}>
+                  <details>
+                    <summary>{t.q}</summary>
+                    <p>{t.a}</p>
+                  </details>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
       ) : (
         <div className="desk-grid">
           <section className="panel" aria-label="Esta sesión">

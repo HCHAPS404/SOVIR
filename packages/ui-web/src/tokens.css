@@ -1483,6 +1483,14 @@ a.button.secondary:hover {
 .row-stack { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
 .row-sub { color: var(--text-muted); font-size: 0.85rem; }
 .row-tech { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.72rem; color: var(--text-muted); opacity: 0.65; }
+.digest-hero .digest-line { font-size: 1.25rem; line-height: 1.4; }
+.digest-hero .digest-line strong { font-size: 1.9rem; }
+.tips { list-style: none; margin: 0; padding: 0; }
+.tips li { border-bottom: 1px solid var(--border); }
+.tips li:last-child { border-bottom: 0; }
+.tips details { padding: 0.65rem 0; }
+.tips summary { cursor: pointer; }
+.tips details p { color: var(--text-muted); margin: 0.45rem 0 0.1rem; }
 .main h1 { font-size: clamp(1.8rem, 3vw, 2.6rem); max-width: none; }
 
 @media (max-width: 768px) {
