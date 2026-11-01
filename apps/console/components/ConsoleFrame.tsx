@@ -9,7 +9,16 @@ import { live } from "../lib/live";
 import { enterprise, operation } from "../lib/nav";
 import { RailNav } from "./RailNav";
 
-const PAGE_NAMES: Record<string, string> = {
+const USER_PAGE_NAMES: Record<string, string> = {
+  "/": "Resumen",
+  "/incidents": "Avisos de seguridad",
+  "/investigations": "Diagnóstico avanzado",
+  "/devices": "Mis dispositivos",
+  "/permissions": "Privacidad y permisos",
+  "/enterprise/audit": "Historial de actividad",
+};
+
+const DEV_PAGE_NAMES: Record<string, string> = {
   "/": "Panel general",
   "/incidents": "Incidentes e intervenciones",
   "/investigations": "Investigaciones e inferencia",
@@ -37,7 +46,9 @@ export async function ConsoleFrame({
 }) {
   const jar = await cookies();
   const principal = jar.get("sovir_api_principal")?.value ?? "desconocido";
+  const nick = principal.replace(/^console-/, "");
   const view = jar.get("sovir_console_view")?.value === "dev" ? "dev" : "user";
+  const dev = view === "dev";
   const data = await live(exportData);
   const now = Date.now();
 
@@ -52,7 +63,20 @@ export async function ConsoleFrame({
   const totalEvents = data ? data.events.length : 0;
   const totalAudit = data ? data.audit_events.length : 0;
 
-  const badgeFor = (href: string): number | string | undefined => {
+  // In simple user view, only show the 4 everyday sections with friendly labels.
+  const userItems = [
+    { href: "/", label: "Resumen" },
+    {
+      href: "/incidents",
+      label: "Avisos de seguridad",
+      badge: totalInterventions > 0 ? totalInterventions : undefined,
+    },
+    { href: "/devices", label: "Mis dispositivos" },
+    { href: "/permissions", label: "Privacidad y permisos" },
+  ];
+
+  // In technical dev view, expose all operational and diagnostic surfaces.
+  const devBadgeFor = (href: string): number | string | undefined => {
     if (!data) return undefined;
     if (href === "/incidents") return totalInterventions;
     if (href === "/investigations") return "LAB";
@@ -62,8 +86,8 @@ export async function ConsoleFrame({
     return undefined;
   };
 
-  const opItems = operation.map((item) => ({ ...item, badge: badgeFor(item.href) }));
-  const entItems = enterprise.map((item) => ({ ...item, badge: badgeFor(item.href) }));
+  const opItems = operation.map((item) => ({ ...item, badge: devBadgeFor(item.href) }));
+  const entItems = enterprise.map((item) => ({ ...item, badge: devBadgeFor(item.href) }));
 
   return (
     <div className="console">
@@ -77,87 +101,92 @@ export async function ConsoleFrame({
           </span>
           <span className="rail-brand-text">
             <strong>SOVIR</strong>
-            <small>{view === "dev" ? "Control Center · Dev" : "Centro de Protección"}</small>
+            <small>{dev ? "Control Center · Dev" : "Tu protección personal"}</small>
           </span>
           <i
             className={`dot dot--${data ? "success" : "danger"}`}
             style={{ marginLeft: "auto" }}
-            title={data ? "Motor local conectado" : "API sin conexión"}
+            title={data ? "Protección activa" : "Sin conexión"}
           />
         </Link>
+
         <RailNav
           current={current}
           groups={
-            view === "dev"
+            dev
               ? [
                   { label: "Operación", items: opItems },
                   { label: "Gobernanza", items: entItems },
                 ]
-              : [
-                  { label: "Tu protección", items: opItems },
-                  { label: "Tu cuenta", items: entItems },
-                ]
+              : [{ label: "Menú principal", items: userItems }]
           }
         />
-        <div className="rail-group">
-          <h2>{view === "dev" ? "Estado epistémico" : "Resumen en vivo"}</h2>
-          <ul className="rail-cats">
-            <li>
-              <i className="cat-sq cat-sq--amber" aria-hidden="true" />
-              <span>Alertas pendientes</span>
-              <code>{pendingInterventions}</code>
-            </li>
-            <li>
-              <i className="cat-sq cat-sq--slate" aria-hidden="true" />
-              <span>Señales observadas</span>
-              <code>{totalEvents}</code>
-            </li>
-            <li>
-              <i className="cat-sq cat-sq--sage" aria-hidden="true" />
-              <span>Permisos vigentes</span>
-              <code>{activeGrants}</code>
-            </li>
-            <li>
-              <i className="cat-sq cat-sq--brand" aria-hidden="true" />
-              <span>Inferencia</span>
-              <code>LOCAL</code>
-            </li>
-          </ul>
-        </div>
+
+        {dev ? (
+          <div className="rail-group">
+            <h2>Estado epistémico</h2>
+            <ul className="rail-cats">
+              <li>
+                <i className="cat-sq cat-sq--amber" aria-hidden="true" />
+                <span>Alertas pendientes</span>
+                <code>{pendingInterventions}</code>
+              </li>
+              <li>
+                <i className="cat-sq cat-sq--slate" aria-hidden="true" />
+                <span>Señales observadas</span>
+                <code>{totalEvents}</code>
+              </li>
+              <li>
+                <i className="cat-sq cat-sq--sage" aria-hidden="true" />
+                <span>Permisos vigentes</span>
+                <code>{activeGrants}</code>
+              </li>
+              <li>
+                <i className="cat-sq cat-sq--brand" aria-hidden="true" />
+                <span>Inferencia</span>
+                <code>LOCAL</code>
+              </li>
+            </ul>
+          </div>
+        ) : null}
+
         <div className="rail-callout">
           <div className="rail-callout-head">
             <span>
-              <i className="dot dot--success" aria-hidden="true" /> Modo privado activo
+              <i className="dot dot--success" aria-hidden="true" />{" "}
+              {dev ? "Modo privado activo" : "¿Para qué sirve SOVIR?"}
             </span>
-            <span className="ep-badge">$0 egress</span>
+            {dev ? <span className="ep-badge">$0 egress</span> : null}
           </div>
           <p>
-            Todo el análisis ocurre en tu equipo. Puedes lanzar una estafa simulada para verificar
-            la respuesta en tiempo real.
+            {dev
+              ? "Todo el análisis ocurre en tu equipo. Lanza una secuencia de prueba para verificar el motor."
+              : "Te avisa cuando una página o mensaje intenta apurarte para pagar o robarte datos — sin espiar tus chats."}
           </p>
           <form action={emitSequencePair}>
-            <button type="submit">+ Simular estafa (gancho→pago)</button>
+            <button type="submit">
+              {dev ? "+ Simular estafa (gancho→pago)" : "Probar con un ejemplo"}
+            </button>
           </form>
         </div>
+
         <div className="rail-foot">
           <span className="rail-avatar" aria-hidden="true">
             <span className="mark" />
           </span>
           <span className="rail-who">
-            <strong>{principal}</strong>
-            <small>{view === "dev" ? "Vista desarrollador" : "Vista usuario"}</small>
+            <strong>{dev ? principal : nick}</strong>
+            <small>{dev ? "Modo técnico" : "Cuenta personal"}</small>
           </span>
-          <div className="rail-actions">
-            <form action={toggleView}>
-              <button type="submit">{view === "dev" ? "Modo usuario" : "Modo dev"}</button>
-            </form>
-            <form action="/api/session" method="post">
-              <input type="hidden" name="intent" value="sign-out" />
-              <button type="submit">Salir</button>
-            </form>
-          </div>
+          <form action="/api/session" method="post">
+            <input type="hidden" name="intent" value="sign-out" />
+            <button className="ghost" type="submit">
+              Salir
+            </button>
+          </form>
         </div>
       </aside>
+
       <div className="workspace">
         <header className="console-top">
           <div className="top-crumb">
@@ -173,51 +202,57 @@ export async function ConsoleFrame({
             </svg>
             <span>SOVIR</span>
             <span className="sep">/</span>
-            <span>{view === "dev" ? "Operación" : "Protección"}</span>
-            <span className="sep">/</span>
-            <strong>{PAGE_NAMES[current] ?? "Consola"}</strong>
+            <strong>
+              {dev
+                ? (DEV_PAGE_NAMES[current] ?? "Consola")
+                : (USER_PAGE_NAMES[current] ?? "Resumen")}
+            </strong>
           </div>
           <div className="top-tools">
-            <form action={toggleView} className="seg-pill" aria-label="Cambiar modo de vista">
-              <button type="submit" className={view === "user" ? "is-active" : ""}>
-                Usuario
+            <form action={toggleView} className="seg-pill" aria-label="Cambiar nivel de detalle">
+              <button type="submit" className={!dev ? "is-active" : ""}>
+                Vista sencilla
               </button>
-              <button type="submit" className={view === "dev" ? "is-active" : ""}>
-                Desarrollador
+              <button type="submit" className={dev ? "is-active" : ""}>
+                Modo técnico
               </button>
             </form>
             <ThemeSwitch />
           </div>
         </header>
-        <div className="ticker-strip" role="status" aria-label="Telemetría operativa">
-          <span className="ticker-item">
-            <i className={`dot dot--${data ? "success" : "danger"}`} aria-hidden="true" />
-            <b>Motor</b>
-            <strong>{data ? "Política dev-1 activa" : "API desconectada"}</strong>
-          </span>
-          <span className="ticker-div" aria-hidden="true" />
-          <span className="ticker-item">
-            <b>Egress HTTP</b>
-            <strong>Bloqueado (record · $0.00)</strong>
-          </span>
-          <span className="ticker-div" aria-hidden="true" />
-          <span className="ticker-item">
-            <b>Inferencia</b>
-            <strong>sovir-heuristic-local-0.2</strong>
-          </span>
-          <span className="ticker-div" aria-hidden="true" />
-          <span className="ticker-item">
-            <b>Permisos</b>
-            <strong>{activeGrants} vigentes</strong>
-          </span>
-          <span className="ticker-div" aria-hidden="true" />
-          <span className="ticker-item">
-            <b>Alertas</b>
-            <strong>
-              {totalInterventions} ({pendingInterventions} pendientes)
-            </strong>
-          </span>
-        </div>
+
+        {dev ? (
+          <div className="ticker-strip" role="status" aria-label="Telemetría operativa">
+            <span className="ticker-item">
+              <i className={`dot dot--${data ? "success" : "danger"}`} aria-hidden="true" />
+              <b>Motor</b>
+              <strong>{data ? "Política dev-1 activa" : "API desconectada"}</strong>
+            </span>
+            <span className="ticker-div" aria-hidden="true" />
+            <span className="ticker-item">
+              <b>Egress HTTP</b>
+              <strong>Bloqueado (record · $0.00)</strong>
+            </span>
+            <span className="ticker-div" aria-hidden="true" />
+            <span className="ticker-item">
+              <b>Inferencia</b>
+              <strong>sovir-heuristic-local-0.2</strong>
+            </span>
+            <span className="ticker-div" aria-hidden="true" />
+            <span className="ticker-item">
+              <b>Permisos</b>
+              <strong>{activeGrants} vigentes</strong>
+            </span>
+            <span className="ticker-div" aria-hidden="true" />
+            <span className="ticker-item">
+              <b>Alertas</b>
+              <strong>
+                {totalInterventions} ({pendingInterventions} pendientes)
+              </strong>
+            </span>
+          </div>
+        ) : null}
+
         <div className="main" id="contenido">
           {children}
         </div>

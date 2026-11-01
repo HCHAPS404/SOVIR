@@ -9,7 +9,7 @@ import { describePlatform } from "../../lib/humanize";
 import { live } from "../../lib/live";
 import { getView } from "../../lib/view";
 
-export const metadata = { title: "Dispositivos" };
+export const metadata = { title: "Mis dispositivos" };
 
 const PLATFORM_MATRIX = [
   {
@@ -56,24 +56,6 @@ const PLATFORM_MATRIX = [
   },
 ] as const;
 
-function SegBar({
-  active,
-  total = 6,
-  tone = "sage",
-}: {
-  active: number;
-  total?: number;
-  tone?: "amber" | "sage" | "copper" | "brand";
-}) {
-  return (
-    <span className={`seg-bar seg-bar--${tone}`} aria-hidden="true">
-      {Array.from({ length: total }).map((_, i) => (
-        <i key={i} className={i < active ? "is-on" : ""} />
-      ))}
-    </span>
-  );
-}
-
 export default async function DevicesPage() {
   await requireApiSession();
   const view = await getView();
@@ -81,8 +63,122 @@ export default async function DevicesPage() {
   const [devices, me] = await Promise.all([live(listDevices), live(whoami)]);
 
   const activeDevices = devices?.filter((d) => !d.revoked_at_ms) ?? [];
-  const revokedDevices = devices?.filter((d) => Boolean(d.revoked_at_ms)) ?? [];
 
+  if (devices === null) {
+    return (
+      <ConsoleFrame current="/devices">
+        <div className="desk">
+          <section className="panel">
+            <h2>Sin conexión</h2>
+            <p>No pudimos conectar con el servicio local de SOVIR en 127.0.0.1:8787.</p>
+          </section>
+        </div>
+      </ConsoleFrame>
+    );
+  }
+
+  // =========================================================================
+  // VISTA SENCILLA (CLIENTE) — Solo tus equipos reales, sin tablas de ingeniería
+  // =========================================================================
+  if (!dev) {
+    return (
+      <ConsoleFrame current="/devices">
+        <div className="desk">
+          <header className="page-head">
+            <div className="page-head-title">
+              <p className="live-kicker">
+                <i
+                  className={`dot dot--${activeDevices.length > 0 ? "success" : "warning"}`}
+                  aria-hidden="true"
+                />
+                {activeDevices.length > 0
+                  ? `${activeDevices.length} ${activeDevices.length === 1 ? "dispositivo conectado" : "dispositivos conectados"} a tu cuenta`
+                  : "Aún no has vinculado ningún dispositivo"}
+              </p>
+              <h1>Mis dispositivos</h1>
+              <p className="page-head-sub">
+                Aquí aparecen tus navegadores, teléfonos o computadoras cuando inicias sesión en
+                ellos. Si ya no usas alguno, puedes desconectarlo con un clic.
+              </p>
+            </div>
+            <div className="head-actions">
+              <form action={connectThisDeviceAction}>
+                <button className="btn-op btn-op--primary" type="submit">
+                  + Conectar este navegador
+                </button>
+              </form>
+            </div>
+          </header>
+
+          {devices.length === 0 ? (
+            <section className="user-hero">
+              <div>
+                <span className="chip chip--warning">
+                  <i className="dot dot--warning" />
+                  Ningún equipo vinculado todavía
+                </span>
+                <h2>Conecta este navegador para empezar</h2>
+                <p>
+                  No necesitas escribir nombres técnicos ni configurar nada a mano: cuando abres
+                  SOVIR en un equipo o navegador y entras a tu cuenta, queda vinculado
+                  automáticamente.
+                </p>
+              </div>
+              <div>
+                <form action={connectThisDeviceAction}>
+                  <button className="btn-op btn-op--primary" type="submit">
+                    Conectar este navegador ahora
+                  </button>
+                </form>
+              </div>
+            </section>
+          ) : (
+            <div className="entity-grid">
+              {devices.map((d) => {
+                const active = !d.revoked_at_ms;
+                return (
+                  <article className="entity-card" key={d.device_id}>
+                    <div className="entity-card-head">
+                      <div>
+                        <span className="panel-kicker">{describePlatform(d.platform)}</span>
+                        <h3>{d.label || describePlatform(d.platform)}</h3>
+                        <p>
+                          {active
+                            ? "Conectado a tu cuenta y listo para avisarte ante estafas."
+                            : "Desconectado — ya no envía información a tu cuenta."}
+                        </p>
+                      </div>
+                      <span className={`chip chip--${active ? "success" : "unknown"}`}>
+                        <i className={`dot dot--${active ? "success" : "unknown"}`} />
+                        {active ? "conectado" : "desconectado"}
+                      </span>
+                    </div>
+                    {active ? (
+                      <div className="entity-card-foot">
+                        <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                          ¿Ya no usas este equipo?
+                        </span>
+                        <form action={revokeDeviceAction}>
+                          <input type="hidden" name="device_id" value={d.device_id} />
+                          <button className="btn-op btn-op--danger" type="submit">
+                            Desconectar
+                          </button>
+                        </form>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </ConsoleFrame>
+    );
+  }
+
+  // =========================================================================
+  // MODO TÉCNICO (DESARROLLADOR) — Tarjetas + Matriz multiplataforma + Simulador
+  // =========================================================================
   return (
     <ConsoleFrame current="/devices">
       <div className="desk">
@@ -93,297 +189,155 @@ export default async function DevicesPage() {
                 className={`dot dot--${activeDevices.length > 0 ? "success" : "warning"}`}
                 aria-hidden="true"
               />
-              {activeDevices.length > 0
-                ? `${activeDevices.length} ${activeDevices.length === 1 ? "equipo vinculado" : "equipos vinculados"} a tu sesión`
-                : "Sesión web activa · ningún sensor externo vinculado aún"}
+              Principal: {me?.principal_id} · Tenant: {me?.tenant_id}
             </p>
-            <h1>Dispositivos y Superficies</h1>
+            <h1>Dispositivos y Superficies (Modo técnico)</h1>
             <p className="page-head-sub">
-              Tus equipos aparecen aquí automáticamente cuando se autentican con tu sesión. Si
-              revocas un dispositivo, el motor rechaza sus señales al instante.
+              Registro de clientes autenticados (<code>POST /v1/devices</code>) y matriz de
+              adaptadores de plataforma.
             </p>
           </div>
           <div className="head-actions">
             <form action={connectThisDeviceAction}>
               <button className="btn-op btn-op--primary" type="submit">
-                + Vincular este navegador a mi sesión
+                + Vincular este navegador
               </button>
             </form>
           </div>
         </header>
 
-        {devices === null ? (
-          <section className="panel">
-            <h2>Sin conexión</h2>
-            <p>La API dev no responde en 127.0.0.1:8787.</p>
-          </section>
-        ) : (
-          <>
-            {/* Row 1 — 4 KPI Cards */}
-            <div className="kpi-grid">
-              <section className="kpi-card kpi-card--sage">
-                <div className="kpi-top">
-                  <span className="kpi-titles">
-                    <small>Conectados</small>
-                    <strong>Equipos activos</strong>
-                  </span>
-                  <span className="ep-badge ep-badge--verified">Autenticado</span>
-                </div>
-                <div className="kpi-mid">
-                  <p className="kpi-num">{activeDevices.length}</p>
-                  <SegBar active={Math.min(6, Math.max(1, activeDevices.length * 2))} tone="sage" />
-                </div>
-                <div className="kpi-foot">
-                  <span>Autorizados a enviar señales con permiso</span>
-                </div>
-              </section>
-
-              <section className="kpi-card kpi-card--copper">
-                <div className="kpi-top">
-                  <span className="kpi-titles">
-                    <small>Bloqueados</small>
-                    <strong>Equipos revocados</strong>
-                  </span>
-                  <span className="ep-badge">Corte inmediato</span>
-                </div>
-                <div className="kpi-mid">
-                  <p className="kpi-num">{revokedDevices.length}</p>
-                  <span className="ep-badge">{devices.length} total</span>
-                </div>
-                <div className="kpi-foot">
-                  <span>Rechazados en validación de ingesta</span>
-                </div>
-              </section>
-
-              <section className="kpi-card kpi-card--slate">
-                <div className="kpi-top">
-                  <span className="kpi-titles">
-                    <small>Sesión actual</small>
-                    <strong>Consola Web</strong>
-                  </span>
-                  <span className="ep-badge ep-badge--observed">Cookie httpOnly</span>
-                </div>
-                <div className="kpi-mid">
-                  <p className="kpi-num">1</p>
-                  <span className="ep-badge">{me?.device_id ?? "console-web"}</span>
-                </div>
-                <div className="kpi-foot">
-                  <span>El token nunca se expone al JS del navegador</span>
-                </div>
-              </section>
-
-              <section className="kpi-card">
-                <div className="kpi-top">
-                  <span className="kpi-titles">
-                    <small>Aislamiento</small>
-                    <strong>Espacio del principal</strong>
-                  </span>
-                  <span className="ep-badge ep-badge--policy">Tenant: {me?.tenant_id ?? "dev"}</span>
-                </div>
-                <div className="kpi-mid">
-                  <p className="kpi-num" style={{ fontSize: "1.45rem" }}>
-                    {me?.principal_id ?? "—"}
-                  </p>
-                </div>
-                <div className="kpi-foot">
-                  <span>Particionado por tenant + principal</span>
-                </div>
-              </section>
-            </div>
-
-            {/* Row 2 — 2-Column Bento: Connected Device Cards + Platform Coverage Matrix */}
-            <div className="bento-asym">
-              <section className="panel" aria-label="Equipos vinculados">
-                <div className="panel-head">
-                  <div>
-                    <p className="panel-kicker">Vinculación por autenticación</p>
-                    <h2>Equipos registrados bajo tu identidad ({devices.length})</h2>
-                    <p>
-                      Cada cliente que inicia sesión queda sellado a tu principal y puede revocarse
-                      individualmente.
-                    </p>
-                  </div>
-                </div>
-
-                {devices.length === 0 ? (
-                  <div className="entity-card">
-                    <div className="entity-card-head">
-                      <div>
-                        <span className="panel-kicker">Primer acceso</span>
-                        <h3>Aún no hay equipos vinculados a tu cuenta</h3>
-                        <p>
-                          Cuando abres la extensión del navegador o la aplicación de escritorio e
-                          inicias sesión, el equipo se emparenta automáticamente aquí. Puedes
-                          vincular este navegador ahora mismo para probar el flujo completo.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="entity-card-foot">
-                      <span className="ep-badge">Autovinculación por sesión</span>
-                      <form action={connectThisDeviceAction}>
-                        <button className="btn-op btn-op--primary" type="submit">
-                          Vincular este navegador
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="entity-grid">
-                    {devices.map((d) => {
-                      const active = !d.revoked_at_ms;
-                      return (
-                        <article className="entity-card" key={d.device_id}>
-                          <div className="entity-card-head">
-                            <div>
-                              <span className="panel-kicker">{describePlatform(d.platform)}</span>
-                              <h3>{d.label || describePlatform(d.platform)}</h3>
-                            </div>
-                            <span className={`chip chip--${active ? "success" : "unknown"}`}>
-                              <i className={`dot dot--${active ? "success" : "unknown"}`} />
-                              {active ? "activo" : "revocado"}
-                            </span>
-                          </div>
-                          <ul className="kv-list">
-                            <li>
-                              <span>Plataforma</span>
-                              <strong>{describePlatform(d.platform)}</strong>
-                            </li>
-                            <li>
-                              <span>Origen de registro</span>
-                              <strong>Sesión autenticada</strong>
-                            </li>
-                            <li>
-                              <span>Estado de ingesta</span>
-                              <strong>
-                                {active ? "Permitido con consentimiento" : "Bloqueado"}
-                              </strong>
-                            </li>
-                            {dev ? (
-                              <li>
-                                <span>Device ID</span>
-                                <strong>{d.device_id}</strong>
-                              </li>
-                            ) : null}
-                          </ul>
-                          <div className="entity-card-foot">
-                            <SegBar active={active ? 6 : 0} total={6} tone={active ? "sage" : "copper"} />
-                            {active ? (
-                              <form action={revokeDeviceAction}>
-                                <input type="hidden" name="device_id" value={d.device_id} />
-                                <button className="btn-op btn-op--danger" type="submit">
-                                  Revocar equipo
-                                </button>
-                              </form>
-                            ) : (
-                              <span className="ep-badge">Desconectado</span>
-                            )}
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-
-              <div className="bento-stack">
-                <section className="panel" aria-label="Matriz de plataformas">
-                  <div className="panel-head">
-                    <div>
-                      <p className="panel-kicker">Arquitectura multiplataforma</p>
-                      <h2>Cómo se emparentan las superficies de SOVIR</h2>
-                      <p>
-                        Ningún dispositivo captura en oculto: cada plataforma exige autenticación y
-                        permiso explícito del sistema operativo.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="op-table-wrap">
-                    <table className="op-table">
-                      <thead>
-                        <tr>
-                          <th>Superficie</th>
-                          <th>Mecanismo de permiso</th>
-                          <th>En tu sesión</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {PLATFORM_MATRIX.map((pm) => {
-                          const linkedCount = activeDevices.filter(
-                            (d) => d.platform === pm.code,
-                          ).length;
-                          return (
-                            <tr key={pm.code}>
-                              <td>
-                                <div className="op-cell-stack">
-                                  <strong>{pm.name}</strong>
-                                  <small>{pm.auth}</small>
-                                </div>
-                              </td>
-                              <td>
-                                <div className="op-cell-stack">
-                                  <span>{pm.sensor}</span>
-                                  <small>{pm.stage}</small>
-                                </div>
-                              </td>
-                              <td>
-                                {linkedCount > 0 ? (
-                                  <span className="chip chip--success">
-                                    <i className="dot dot--success" />
-                                    {linkedCount} activo{linkedCount > 1 ? "s" : ""}
-                                  </span>
-                                ) : (
-                                  <span className="ep-badge">No vinculado</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-
-                {dev ? (
-                  <section className="panel" aria-label="Simulador de dispositivos para desarrollo">
-                    <div className="panel-head">
-                      <div>
-                        <p className="panel-kicker">Solo en vista desarrollador</p>
-                        <h2>Simular conexión de otra plataforma</h2>
-                        <p>
-                          Permite probar el contrato <code>POST /v1/devices</code> para cualquiera
-                          de las 6 plataformas del esquema.
-                        </p>
-                      </div>
-                    </div>
-                    <form action={registerDeviceAction} className="form-row">
-                      <input
-                        name="label"
-                        placeholder="Etiqueta de prueba (p. ej. Desktop Win11)"
-                        aria-label="nombre del equipo"
-                      />
-                      <select
-                        name="platform"
-                        defaultValue="WINDOWS"
-                        aria-label="tipo de equipo"
-                      >
-                        {["WINDOWS", "MACOS", "LINUX", "ANDROID", "IOS", "BROWSER_EXTENSION"].map(
-                          (p) => (
-                            <option key={p} value={p}>
-                              {describePlatform(p)}
-                            </option>
-                          ),
-                        )}
-                      </select>
-                      <button className="btn-op" type="submit">
-                        Simular vinculación
-                      </button>
-                    </form>
-                  </section>
-                ) : null}
+        <div className="bento-asym">
+          <section className="panel" aria-label="Equipos vinculados">
+            <div className="panel-head">
+              <div>
+                <p className="panel-kicker">GET /v1/devices</p>
+                <h2>Equipos registrados ({devices.length})</h2>
               </div>
             </div>
-          </>
-        )}
+            {devices.length === 0 ? (
+              <p className="empty">Ningún dispositivo registrado aún para este principal.</p>
+            ) : (
+              <div className="entity-grid">
+                {devices.map((d) => {
+                  const active = !d.revoked_at_ms;
+                  return (
+                    <article className="entity-card" key={d.device_id}>
+                      <div className="entity-card-head">
+                        <div>
+                          <span className="panel-kicker">{d.platform}</span>
+                          <h3>{d.label || describePlatform(d.platform)}</h3>
+                        </div>
+                        <span className={`chip chip--${active ? "success" : "unknown"}`}>
+                          <i className={`dot dot--${active ? "success" : "unknown"}`} />
+                          {active ? "activo" : "revocado"}
+                        </span>
+                      </div>
+                      <ul className="kv-list">
+                        <li>
+                          <span>Device ID</span>
+                          <strong>{d.device_id}</strong>
+                        </li>
+                        <li>
+                          <span>Plataforma</span>
+                          <strong>{describePlatform(d.platform)}</strong>
+                        </li>
+                      </ul>
+                      {active ? (
+                        <div className="entity-card-foot">
+                          <span className="ep-badge">Activo</span>
+                          <form action={revokeDeviceAction}>
+                            <input type="hidden" name="device_id" value={d.device_id} />
+                            <button className="btn-op btn-op--danger" type="submit">
+                              Revocar
+                            </button>
+                          </form>
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <div className="bento-stack">
+            <section className="panel" aria-label="Matriz de plataformas">
+              <div className="panel-head">
+                <div>
+                  <p className="panel-kicker">Arquitectura multiplataforma</p>
+                  <h2>Estado de adaptadores por SO</h2>
+                </div>
+              </div>
+              <div className="op-table-wrap">
+                <table className="op-table">
+                  <thead>
+                    <tr>
+                      <th>Superficie</th>
+                      <th>Permiso / Contrato</th>
+                      <th>En sesión</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {PLATFORM_MATRIX.map((pm) => {
+                      const linkedCount = activeDevices.filter(
+                        (d) => d.platform === pm.code,
+                      ).length;
+                      return (
+                        <tr key={pm.code}>
+                          <td>
+                            <div className="op-cell-stack">
+                              <strong>{pm.name}</strong>
+                              <small>{pm.auth}</small>
+                            </div>
+                          </td>
+                          <td>
+                            <div className="op-cell-stack">
+                              <span>{pm.sensor}</span>
+                              <small>{pm.stage}</small>
+                            </div>
+                          </td>
+                          <td>
+                            {linkedCount > 0 ? (
+                              <span className="chip chip--success">{linkedCount} activo</span>
+                            ) : (
+                              <span className="ep-badge">0</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="panel" aria-label="Simulador de dispositivos">
+              <div className="panel-head">
+                <div>
+                  <p className="panel-kicker">Harness de prueba</p>
+                  <h2>Simular registro por plataforma</h2>
+                </div>
+              </div>
+              <form action={registerDeviceAction} className="form-row">
+                <input
+                  name="label"
+                  placeholder="Etiqueta (p. ej. Desktop Win11)"
+                  aria-label="nombre del equipo"
+                />
+                <select name="platform" defaultValue="WINDOWS" aria-label="tipo de equipo">
+                  {["WINDOWS", "MACOS", "LINUX", "ANDROID", "IOS", "BROWSER_EXTENSION"].map((p) => (
+                    <option key={p} value={p}>
+                      {describePlatform(p)}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn-op" type="submit">
+                  Registrar
+                </button>
+              </form>
+            </section>
+          </div>
+        </div>
       </div>
     </ConsoleFrame>
   );

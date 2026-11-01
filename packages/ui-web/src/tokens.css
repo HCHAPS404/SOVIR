@@ -2788,6 +2788,73 @@ a.button.secondary:hover {
   border-top: 1px solid var(--border-subtle);
 }
 
+/* User-Friendly Simple View Cards — calm, spacious, zero jargon */
+.user-hero {
+  padding: 1.35rem 1.5rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-top-color: var(--border-highlight);
+  background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.user-hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.user-hero h2 {
+  font-family: var(--display);
+  font-size: clamp(1.45rem, 2vw, 1.85rem);
+  font-weight: 500;
+  margin: 0.2rem 0 0.35rem;
+  line-height: 1.18;
+}
+.user-hero p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  max-width: 58ch;
+}
+.how-list {
+  list-style: none;
+  margin: 0.25rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.how-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.how-list li .dot {
+  margin-top: 0.35rem;
+  flex: none;
+}
+.how-list strong {
+  display: block;
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: 0.1rem;
+}
+.how-list span {
+  color: var(--text-muted);
+}
+
 /* Responsive Breakpoints */
 @media (max-width: 72rem) {
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
