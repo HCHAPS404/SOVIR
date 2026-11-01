@@ -22,6 +22,7 @@ Antes de cualquier trabajo, lee `README.md` y ADRs aplicables en `docs/adr/`. Es
 - Si un test no está implementado, repórtalo como `NOT_IMPLEMENTED`, nunca como `PASS`.
 - Si cambias arquitectura, abre ADR antes de hacerlo.
 - PR sin secretos, capturas reales ni cambios irreversibles. Merge solo con revisión del humano maintainer.
+- Commits sin atribución de agente: nada de `Co-Authored-By`, `Generated with`, trailers, emojis de bot ni menciones a Devin/Claude/Codex/Cursor como autor o coautor en mensajes o metadatos. Autor y committer = identidad del maintainer humano. `scripts/install-hooks` instala un `commit-msg` que lo refuerza.
 
 ## Responsabilidades
 
