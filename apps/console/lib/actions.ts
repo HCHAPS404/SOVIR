@@ -3,61 +3,108 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { grantConsent, ingestEvent, registerDevice, revokeConsent, revokeDevice } from "./api";
-import { ApiDown, ApiUnauthorized } from "./api";
+import {
+  ApiDown,
+  ApiUnauthorized,
+  assessInference,
+  dispatchInterventions,
+  enforceRetention,
+  exportData,
+  grantConsent,
+  ingestEvent,
+  type PrivacyMode,
+  purgeData,
+  registerDevice,
+  revokeConsent,
+  revokeDevice,
+  runInvestigation,
+} from "./api";
 
-const LAB_GRANT = "console-lab-grant";
 const LAB_SOURCE = "console-lab";
-const SIM_GRANT = "sim-observer-grant";
 const SIM_SOURCE = "screen-observer:sim";
 
-async function tokenOrRedirect() {
+async function sessionOrRedirect() {
   const jar = await cookies();
   const token = jar.get("sovir_api_token")?.value;
+  const principal = jar.get("sovir_api_principal")?.value ?? "console-user";
   if (!token) redirect("/sign-in");
-  return token;
+  return { token, principal, jar };
 }
 
 function rid(prefix: string) {
-  return `${prefix}-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  return `${prefix}-${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
 }
 
-// Lab action: mints the shared synthetic consent grant (idempotent — the
-// grant_id is stable so repeated clicks don't multiply grants).
+async function activeGrantForSource(token: string, sourceId: string): Promise<string | null> {
+  const data = await exportData(token);
+  const now = Date.now();
+  const active = data.grants.find(
+    (g) => g.source_id === sourceId && !g.revoked && g.expires_at_ms > now,
+  );
+  return active?.grant_id ?? null;
+}
+
+// Lab action: ensures an active consent grant for `console-lab` owned by this principal.
 export async function mintLabConsent(): Promise<void> {
-  const token = await tokenOrRedirect();
+  const { token, principal } = await sessionOrRedirect();
   try {
-    await grantConsent(token, LAB_GRANT, LAB_SOURCE, 24 * 60 * 60 * 1000);
-  } catch (e) {
-    // The grant_id is stable → the API's duplicate_event means the lab
-    // consent already exists: safe idempotent success, not a failure.
-    if (e instanceof Error && e.message === "duplicate_event") {
-      revalidatePath("/");
-      revalidatePath("/permissions");
-      return;
+    const existing = await activeGrantForSource(token, LAB_SOURCE);
+    if (!existing) {
+      await grantConsent(
+        token,
+        `lab-${principal}-${crypto.randomUUID().slice(0, 6)}`,
+        LAB_SOURCE,
+        24 * 60 * 60 * 1000,
+      );
     }
+  } catch (e) {
     if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
     if (e instanceof ApiDown) redirect("/?error=backend");
     throw e;
   }
-  revalidatePath("/");
-  revalidatePath("/permissions");
+  revalidatePath("/", "layout");
+}
+
+// Mints an active consent grant for `screen-observer:sim` owned by this principal.
+export async function mintObserverConsentAction(): Promise<void> {
+  const { token, principal } = await sessionOrRedirect();
+  try {
+    const existing = await activeGrantForSource(token, SIM_SOURCE);
+    if (!existing) {
+      await grantConsent(
+        token,
+        `sim-${principal}-${crypto.randomUUID().slice(0, 6)}`,
+        SIM_SOURCE,
+        24 * 60 * 60 * 1000,
+      );
+    }
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/permissions?error=backend");
+    throw e;
+  }
+  revalidatePath("/", "layout");
 }
 
 // Lab action: emits the canonical hook→payment pair 1000ms apart — the
 // deterministic path to a HookThenPayment sequence finding and a `warn`
-// intervention. This is the full API loop exercisable from the browser.
+// intervention. Ensures an active lab grant exists for the current principal.
 export async function emitSequencePair(): Promise<void> {
-  const token = await tokenOrRedirect();
+  const { token, principal } = await sessionOrRedirect();
   const now = Date.now();
-  const base = {
-    source_id: LAB_SOURCE,
-    modality: "NOTIFICATION",
-    content_digest: "sha256:console-lab",
-    consent_grant_id: LAB_GRANT,
-    sensitive_data_class: "PUBLIC",
-  };
   try {
+    let grantId = await activeGrantForSource(token, LAB_SOURCE);
+    if (!grantId) {
+      grantId = `lab-${principal}-${crypto.randomUUID().slice(0, 6)}`;
+      await grantConsent(token, grantId, LAB_SOURCE, 24 * 60 * 60 * 1000);
+    }
+    const base = {
+      source_id: LAB_SOURCE,
+      modality: "NOTIFICATION",
+      content_digest: "sha256:console-lab",
+      consent_grant_id: grantId,
+      sensitive_data_class: "PUBLIC",
+    };
     await ingestEvent(
       token,
       { ...base, event_id: rid("hook"), observed_at_ms: now - 1000, signals: ["URGENT_ACTION"] },
@@ -78,23 +125,19 @@ export async function emitSequencePair(): Promise<void> {
     if (e instanceof ApiDown) redirect("/?error=backend");
     throw e;
   }
-  revalidatePath("/");
-  revalidatePath("/incidents");
-  revalidatePath("/enterprise/audit");
+  revalidatePath("/", "layout");
 }
 
 // Lab action: exercises the screen-observer contract (ADR-0014) — a
-// UI_TREE modality event carrying typed signals, exactly what a real
-// sensor will emit. Consent + class + audit enforced identically.
+// UI_TREE modality event carrying typed signals.
 export async function emitUiTreeObservation(): Promise<void> {
-  const token = await tokenOrRedirect();
+  const { token, principal } = await sessionOrRedirect();
   try {
-    // Per-source consent is enforced: validate_consent requires
-    // grant.source_id == event.source_id, so the sim observer needs its
-    // own grant (idempotent — duplicate_event means it already exists).
-    await grantConsent(token, SIM_GRANT, SIM_SOURCE, 24 * 60 * 60 * 1000).catch((e) => {
-      if (!(e instanceof Error && e.message === "duplicate_event")) throw e;
-    });
+    let grantId = await activeGrantForSource(token, SIM_SOURCE);
+    if (!grantId) {
+      grantId = `sim-${principal}-${crypto.randomUUID().slice(0, 6)}`;
+      await grantConsent(token, grantId, SIM_SOURCE, 24 * 60 * 60 * 1000);
+    }
     await ingestEvent(
       token,
       {
@@ -103,7 +146,7 @@ export async function emitUiTreeObservation(): Promise<void> {
         observed_at_ms: Date.now(),
         modality: "UI_TREE",
         content_digest: "sha256:sim-ui-tree",
-        consent_grant_id: SIM_GRANT,
+        consent_grant_id: grantId,
         sensitive_data_class: "PUBLIC",
         signals: ["CONSENT_DARK_PATTERN", "IDENTITY_UNVERIFIED"],
       },
@@ -114,10 +157,7 @@ export async function emitUiTreeObservation(): Promise<void> {
     if (e instanceof ApiDown) redirect("/?error=backend");
     throw e;
   }
-  revalidatePath("/");
-  revalidatePath("/incidents");
-  revalidatePath("/permissions");
-  revalidatePath("/enterprise/audit");
+  revalidatePath("/", "layout");
 }
 
 // View toggle: user (plain language only) <-> dev (shows technical ids).
@@ -134,7 +174,7 @@ export async function toggleView(): Promise<void> {
 }
 
 export async function registerDeviceAction(formData: FormData): Promise<void> {
-  const token = await tokenOrRedirect();
+  const { token } = await sessionOrRedirect();
   const label = String(formData.get("label") ?? "").trim() || "Consola web";
   const platform = String(formData.get("platform") ?? "BROWSER_EXTENSION").trim();
   try {
@@ -144,12 +184,12 @@ export async function registerDeviceAction(formData: FormData): Promise<void> {
     if (e instanceof ApiDown) redirect("/devices?error=backend");
     throw e;
   }
-  revalidatePath("/devices");
+  revalidatePath("/", "layout");
 }
 
 // What a real client does on first run: registers itself under the session.
 export async function connectThisDeviceAction(): Promise<void> {
-  const token = await tokenOrRedirect();
+  const { token } = await sessionOrRedirect();
   try {
     await registerDevice(token, "BROWSER_EXTENSION", "Este navegador");
   } catch (e) {
@@ -157,12 +197,11 @@ export async function connectThisDeviceAction(): Promise<void> {
     if (e instanceof ApiDown) redirect("/devices?error=backend");
     throw e;
   }
-  revalidatePath("/devices");
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function revokeDeviceAction(formData: FormData): Promise<void> {
-  const token = await tokenOrRedirect();
+  const { token } = await sessionOrRedirect();
   const deviceId = String(formData.get("device_id") ?? "").trim();
   if (!deviceId) redirect("/devices");
   try {
@@ -172,12 +211,11 @@ export async function revokeDeviceAction(formData: FormData): Promise<void> {
     if (e instanceof ApiDown) redirect("/devices?error=backend");
     throw e;
   }
-  revalidatePath("/devices");
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function revokeConsentAction(formData: FormData): Promise<void> {
-  const token = await tokenOrRedirect();
+  const { token } = await sessionOrRedirect();
   const grantId = String(formData.get("grant_id") ?? "").trim();
   if (!grantId) redirect("/permissions");
   try {
@@ -187,6 +225,104 @@ export async function revokeConsentAction(formData: FormData): Promise<void> {
     if (e instanceof ApiDown) redirect("/permissions?error=backend");
     throw e;
   }
-  revalidatePath("/permissions");
-  revalidatePath("/");
+  revalidatePath("/", "layout");
+}
+
+// Dispatches due pending interventions (`POST /v1/interventions/dispatch`).
+export async function dispatchInterventionsAction(): Promise<void> {
+  const { token } = await sessionOrRedirect();
+  try {
+    await dispatchInterventions(token);
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/incidents?error=backend");
+    throw e;
+  }
+  revalidatePath("/", "layout");
+}
+
+// Runs a deterministic investigation sweep (`POST /v1/investigations`).
+export async function runInvestigationAction(formData: FormData): Promise<void> {
+  const { token } = await sessionOrRedirect();
+  const rawWindow = Number(formData.get("window_ms") ?? 60 * 60 * 1000);
+  const windowMs = Number.isFinite(rawWindow) && rawWindow > 0 ? rawWindow : 60 * 60 * 1000;
+  try {
+    await runInvestigation(token, windowMs);
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/investigations?error=backend");
+    throw e;
+  }
+  revalidatePath("/", "layout");
+}
+
+// Evaluates risk signals via `/v1/inference/assess` in Private (local heuristic)
+// or Standard (remote Meta gateway, fail-closed in record mode).
+export async function assessInferenceAction(formData: FormData): Promise<void> {
+  const { token, jar } = await sessionOrRedirect();
+  const privacyRaw = String(formData.get("privacy") ?? "private");
+  const privacy: PrivacyMode = privacyRaw === "standard" ? "standard" : "private";
+  const preset = String(formData.get("preset") ?? "phishing");
+  const signals =
+    preset === "dark_pattern"
+      ? ["CONSENT_DARK_PATTERN", "HIDDEN_FEE_PATTERN", "TRACKING_OBSERVED"]
+      : preset === "payment_scam"
+        ? ["URGENT_ACTION", "PAYMENT_REQUEST", "IDENTITY_UNVERIFIED"]
+        : ["CREDENTIAL_REQUEST", "URGENT_ACTION", "IDENTITY_UNVERIFIED"];
+  const reqId = rid("inf");
+  try {
+    const verdict = await assessInference(token, reqId, signals, privacy);
+    jar.set(
+      "sovir_last_inference",
+      JSON.stringify({
+        ok: true,
+        privacy,
+        signals,
+        at_ms: Date.now(),
+        verdict,
+      }),
+      { httpOnly: true, sameSite: "lax", secure: false, path: "/" },
+    );
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/investigations?error=backend");
+    const code = e instanceof Error ? e.message : "provider_unavailable";
+    jar.set(
+      "sovir_last_inference",
+      JSON.stringify({
+        ok: false,
+        privacy,
+        signals,
+        at_ms: Date.now(),
+        error: code,
+      }),
+      { httpOnly: true, sameSite: "lax", secure: false, path: "/" },
+    );
+  }
+  revalidatePath("/investigations");
+  revalidatePath("/", "layout");
+}
+
+export async function enforceRetentionAction(): Promise<void> {
+  const { token } = await sessionOrRedirect();
+  try {
+    await enforceRetention(token);
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/permissions?error=backend");
+    throw e;
+  }
+  revalidatePath("/", "layout");
+}
+
+export async function purgeDataAction(): Promise<void> {
+  const { token } = await sessionOrRedirect();
+  try {
+    await purgeData(token);
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/permissions?error=backend");
+    throw e;
+  }
+  revalidatePath("/", "layout");
 }

@@ -137,6 +137,37 @@ export function dailyBuckets(timestamps: number[], days = 7, now = Date.now()): 
   return buckets;
 }
 
+const SHORT_DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"] as const;
+
+export interface LabeledDayBucket {
+  label: string;
+  count: number;
+  heightPct: number;
+  isPeak: boolean;
+}
+
+export function dailyLabeledBuckets(
+  timestamps: number[],
+  days = 7,
+  now = Date.now(),
+): LabeledDayBucket[] {
+  const counts = dailyBuckets(timestamps, days, now);
+  const max = Math.max(...counts, 1);
+  const peakIdx = counts.reduce((best, c, i) => (c >= counts[best] ? i : best), counts.length - 1);
+  const dayMs = 24 * 60 * 60 * 1000;
+  return counts.map((count, i) => {
+    const dayDate = new Date(now - (days - 1 - i) * dayMs);
+    const label = SHORT_DAYS[dayDate.getDay()] ?? `D${i + 1}`;
+    const heightPct = count === 0 ? 12 : Math.max(18, Math.round((count / max) * 100));
+    return {
+      label,
+      count,
+      heightPct,
+      isPeak: i === peakIdx && count > 0,
+    };
+  });
+}
+
 export function timeAgo(ms: number, now = Date.now()): string {
   const mins = Math.round((now - ms) / 60_000);
   if (mins < 1) return "ahora mismo";
