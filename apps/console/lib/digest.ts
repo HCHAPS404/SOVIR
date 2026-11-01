@@ -55,6 +55,19 @@ export function weeklyDigest(data: PrincipalDataExport, now = Date.now()): Weekl
   };
 }
 
+// Daily counts for the last `days` days, oldest first — feeds the hero
+// sparkline. Real timestamps only; empty days count as zero.
+export function dailyBuckets(timestamps: number[], days = 7, now = Date.now()): number[] {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const buckets = new Array(days).fill(0);
+  const start = Math.floor(now / dayMs) - (days - 1);
+  for (const ts of timestamps) {
+    const idx = Math.floor(ts / dayMs) - start;
+    if (idx >= 0 && idx < days) buckets[idx] += 1;
+  }
+  return buckets;
+}
+
 export function timeAgo(ms: number, now = Date.now()): string {
   const mins = Math.round((now - ms) / 60_000);
   if (mins < 1) return "ahora mismo";

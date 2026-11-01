@@ -39,10 +39,17 @@ export async function ConsoleFrame({
         </Link>
         <RailNav
           current={current}
-          groups={[
-            { label: "Operación", items: operation },
-            { label: "Organización", items: enterprise },
-          ]}
+          groups={
+            view === "dev"
+              ? [
+                  { label: "Operación", items: operation },
+                  { label: "Organización", items: enterprise },
+                ]
+              : [
+                  { label: "Tu protección", items: operation },
+                  { label: "Tu cuenta", items: enterprise },
+                ]
+          }
         />
         <div className="rail-foot">
           <span className="rail-avatar" aria-hidden="true">

@@ -16,6 +16,8 @@
   --mono: var(--font-mono, "Cascadia Mono"), ui-monospace, monospace;
   --space: 1.25rem;
   --measure: 68ch;
+  --shadow: 0 1px 2px rgb(26 23 20 / 0.05), 0 6px 16px rgb(26 23 20 / 0.06);
+  --radius-lg: 14px;
 }
 
 :root[data-theme="dark"] {
@@ -31,6 +33,7 @@
   --warning: #e7c48a;
   --danger: #f0b2ac;
   --unknown: #c5ced6;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 22px rgb(0 0 0 / 0.32);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -1009,6 +1012,7 @@ a.button.secondary:hover {
   flex: none;
   border-radius: 999px;
   background: var(--surface);
+  border: 1px solid var(--border);
 }
 .rail-avatar .mark { width: 0.95rem; height: 0.72rem; }
 .rail-who { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
@@ -1483,12 +1487,6 @@ a.button.secondary:hover {
 .row-stack { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
 .row-sub { color: var(--text-muted); font-size: 0.85rem; }
 .row-tech { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.72rem; color: var(--text-muted); opacity: 0.65; }
-.digest-hero .digest-line { font-size: 1.25rem; line-height: 1.4; }
-.digest-hero .digest-line strong {
-  font-family: var(--display);
-  font-size: 2rem;
-  font-weight: 500;
-}
 /* Editorial voice: page titles and register card in the display serif. */
 .desk-head h1,
 .register-card h1 {
@@ -1516,6 +1514,79 @@ a.button.secondary:hover {
 /* Empty states: guide, don't just say "nothing". */
 .empty { color: var(--text-muted); max-width: var(--measure); }
 .empty strong { color: var(--text); }
+/* Dashboard elevation — reference-style cards adapted to the warm palette. */
+.console .workspace {
+  background:
+    radial-gradient(62rem 24rem at 16% -8%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 62%),
+    var(--bg);
+}
+.console .main { padding: 1.6rem 1.8rem 3.2rem; }
+.console .panel {
+  border-radius: var(--radius-lg);
+  padding: 1.1rem 1.25rem 0.9rem;
+  box-shadow: var(--shadow);
+}
+.console .panel h2 { font-size: 1rem; font-weight: 600; }
+/* Stat cards: kicker + display-serif numeral + note + optional sparkline. */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+.stat-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 1rem 1.1rem 0.9rem;
+  box-shadow: var(--shadow);
+}
+.stat-card .kicker {
+  margin: 0 0 0.45rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.stat-card .stat-num {
+  font-family: var(--display);
+  font-size: 2.3rem;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+.stat-card .stat-note { margin: 0.4rem 0 0; color: var(--text-muted); font-size: 0.82rem; }
+.stat-hero {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.2rem;
+}
+.stat-hero .stat-num { font-size: 3rem; }
+.spark { display: block; flex: none; }
+.spark .line { fill: none; stroke: var(--brand); stroke-width: 1.6; }
+.spark .area { fill: var(--brand); opacity: 0.12; }
+/* Inline status dots (Online/Offline language). */
+.dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 999px; }
+.dot--success { background: var(--success); }
+.dot--warning { background: var(--warning); }
+.dot--danger { background: var(--danger); }
+.dot--unknown { background: var(--unknown); }
+/* Rail: grouped nav with a marked active item, like the references. */
+.console .rail-group h2 {
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.console .rail nav a[aria-current="page"] {
+  box-shadow: inset 2px 0 0 var(--brand);
+}
+/* Buttons inside elevated cards keep a quiet outline. */
+.console .panel .secondary,
+.console .stat-card .secondary {
+  border-radius: 10px;
+}
 .tips { list-style: none; margin: 0; padding: 0; }
 .tips li { border-bottom: 1px solid var(--border); }
 .tips li:last-child { border-bottom: 0; }

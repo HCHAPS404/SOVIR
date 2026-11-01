@@ -2,7 +2,8 @@ import Link from "next/link";
 import type { Principal, PrincipalDataExport } from "../lib/api";
 import { emitSequencePair, emitUiTreeObservation, mintLabConsent } from "../lib/actions";
 import { getView } from "../lib/view";
-import { timeAgo, weeklyDigest } from "../lib/digest";
+import { dailyBuckets, timeAgo, weeklyDigest } from "../lib/digest";
+import { Sparkline } from "./Sparkline";
 
 const tips = [
   {
@@ -63,31 +64,65 @@ export async function OverviewBoard({
             <code>127.0.0.1:8787</code>). Arranca <code>cargo run -p sovir-api</code> y recarga.
           </p>
         </section>
-      ) : !dev && digest ? (
-        <div className="desk-grid">
-          <section className="panel digest-hero">
-            <h2>Tu semana en seguridad</h2>
-            {digest.status === "protected" ? (
-              <p className="digest-line">
-                SOVIR te protegió <strong>{digest.protectedCount}</strong>{" "}
-                {digest.protectedCount === 1 ? "vez" : "veces"} esta semana
-                {digest.lastAlertAt ? ` · última alerta ${timeAgo(digest.lastAlertAt)}` : ""}
-              </p>
-            ) : digest.status === "quiet" ? (
-              <p className="digest-line">
-                Semana tranquila — SOVIR observó <strong>{digest.signalCount}</strong>{" "}
-                {digest.signalCount === 1 ? "señal" : "señales"} sin necesidad de alertarte.
-              </p>
-            ) : (
-              <p className="digest-line">
-                Aún sin actividad — cuando algo intente engañarte, aparecerá aquí.
-              </p>
-            )}
-            {digest.categories.length > 0 ? (
-              <>
-                <p className="row-sub" style={{ marginTop: "0.8rem" }}>
-                  Qué se detectó:
-                </p>
+      ) : !dev && digest && data ? (
+        <>
+          <div className="stat-grid">
+            <section className="stat-card stat-hero">
+              <div>
+                <p className="kicker">Tu semana en seguridad</p>
+                {digest.status === "protected" ? (
+                  <>
+                    <p className="stat-num">{digest.protectedCount}</p>
+                    <p className="stat-note">
+                      {digest.protectedCount === 1 ? "alerta de protección" : "alertas de protección"}
+                      {digest.lastAlertAt ? ` — la última ${timeAgo(digest.lastAlertAt)}` : ""}
+                    </p>
+                  </>
+                ) : digest.status === "quiet" ? (
+                  <>
+                    <p className="stat-num">{digest.signalCount}</p>
+                    <p className="stat-note">
+                      {digest.signalCount === 1 ? "señal observada" : "señales observadas"} — semana
+                      tranquila, sin necesidad de alertarte
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="stat-num">0</p>
+                    <p className="stat-note">
+                      Aún sin actividad — cuando algo intente engañarte, aparecerá aquí
+                    </p>
+                  </>
+                )}
+              </div>
+              <Sparkline
+                values={dailyBuckets(
+                  data.events.map((e) => e.observed_at_ms).concat(
+                    data.interventions.map((i) => i.created_at_ms),
+                  ),
+                )}
+              />
+            </section>
+            <section className="stat-card">
+              <p className="kicker">Señales observadas</p>
+              <p className="stat-num">{data.events.length}</p>
+              <p className="stat-note">eventos analizados en total</p>
+            </section>
+            <section className="stat-card">
+              <p className="kicker">Permisos activos</p>
+              <p className="stat-num">{data.grants.filter((g) => !g.revoked).length}</p>
+              <p className="stat-note">fuentes autorizadas a observarte</p>
+            </section>
+            <section className="stat-card">
+              <p className="kicker">Dispositivos</p>
+              <p className="stat-num">{data.devices.length}</p>
+              <p className="stat-note">equipos registrados</p>
+            </section>
+          </div>
+          <div className="desk-grid">
+            <section className="panel">
+              <h2>Qué se detectó esta semana</h2>
+              {digest.categories.length > 0 ? (
                 <ul className="rows">
                   {digest.categories.map((c) => (
                     <li key={c.label}>
@@ -96,23 +131,27 @@ export async function OverviewBoard({
                     </li>
                   ))}
                 </ul>
-              </>
-            ) : null}
-          </section>
-          <section className="panel">
-            <h2>Aprende a reconocer amenazas</h2>
-            <ul className="tips">
-              {tips.map((t) => (
-                <li key={t.q}>
-                  <details>
-                    <summary>{t.q}</summary>
-                    <p>{t.a}</p>
-                  </details>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
+              ) : (
+                <p className="empty">
+                  Nada detectado todavía — aquí aparecerá el desglose por tipo de amenaza.
+                </p>
+              )}
+            </section>
+            <section className="panel">
+              <h2>Aprende a reconocer amenazas</h2>
+              <ul className="tips">
+                {tips.map((t) => (
+                  <li key={t.q}>
+                    <details>
+                      <summary>{t.q}</summary>
+                      <p>{t.a}</p>
+                    </details>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
+        </>
       ) : (
         <div className="desk-grid">
           <section className="panel" aria-label="Esta sesión">
