@@ -31,23 +31,35 @@ export default async function PermissionsPage() {
           <section className="panel">
             <h2>Permisos activos ({data.grants.length})</h2>
             {data.grants.length === 0 ? (
-              <p>Ningún permiso concedido — nada puede observarte todavía.</p>
+              <p className="empty">
+                <strong>Ningún permiso concedido.</strong> Nada puede observarte todavía — concede
+                uno solo si quieres probar la protección.
+              </p>
             ) : (
               <ul className="rows">
                 {data.grants.map((g) => {
                   const s = describeSource(g.source_id);
+                  const state = g.revoked ? "revoked" : g.expires_at_ms <= now ? "expired" : "active";
                   return (
                     <li key={g.grant_id}>
                       <span className="row-stack">
                         <span>{s.name}</span>
-                        <span className="row-sub">Puede {s.does}.</span>
+                        <span className="row-sub">
+                          Puede {s.does} · {grantStatus(g, now)}
+                        </span>
                         {view === "dev" ? (
                           <span className="row-tech">
                             {g.source_id} · {g.grant_id}
                           </span>
                         ) : null}
                       </span>
-                      <strong>{grantStatus(g, now)}</strong>
+                      <span
+                        className={`chip chip--${
+                          state === "active" ? "success" : state === "revoked" ? "danger" : "unknown"
+                        }`}
+                      >
+                        {state === "active" ? "activo" : state === "revoked" ? "revocado" : "expirado"}
+                      </span>
                     </li>
                   );
                 })}

@@ -30,7 +30,10 @@ export default async function DevicesPage() {
           <section className="panel">
             <h2>Registrados ({devices.length})</h2>
             {devices.length === 0 ? (
-              <p>Sin dispositivos. Vacío no significa protegido.</p>
+              <p className="empty">
+                <strong>Sin dispositivos registrados.</strong> Registra este equipo o la extensión
+                del navegador para que puedan enviar señales.
+              </p>
             ) : (
               <ul className="rows">
                 {devices.map((d) => (
@@ -40,7 +43,9 @@ export default async function DevicesPage() {
                       <span className="row-sub">{describePlatform(d.platform)}</span>
                       {view === "dev" ? <span className="row-tech">{d.device_id}</span> : null}
                     </span>
-                    <strong>{d.revoked_at_ms ? "inactivo" : "activo"}</strong>
+                    <span className={`chip chip--${d.revoked_at_ms ? "unknown" : "success"}`}>
+                      {d.revoked_at_ms ? "inactivo" : "activo"}
+                    </span>
                   </li>
                 ))}
               </ul>

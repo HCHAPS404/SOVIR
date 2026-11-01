@@ -1484,7 +1484,38 @@ a.button.secondary:hover {
 .row-sub { color: var(--text-muted); font-size: 0.85rem; }
 .row-tech { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.72rem; color: var(--text-muted); opacity: 0.65; }
 .digest-hero .digest-line { font-size: 1.25rem; line-height: 1.4; }
-.digest-hero .digest-line strong { font-size: 1.9rem; }
+.digest-hero .digest-line strong {
+  font-family: var(--display);
+  font-size: 2rem;
+  font-weight: 500;
+}
+/* Editorial voice: page titles and register card in the display serif. */
+.desk-head h1,
+.register-card h1 {
+  font-family: var(--display);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.desk-head { margin-bottom: 1.6rem; }
+.desk-head h1 { font-size: 2.1rem; margin: 0 0 0.35rem; }
+.desk-head p { color: var(--text-muted); max-width: var(--measure); margin: 0; }
+/* Status chips — semantic state at a glance, readable in both themes. */
+.chip {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.chip--success { color: var(--success); border-color: var(--success); }
+.chip--warning { color: var(--warning); border-color: var(--warning); }
+.chip--danger { color: var(--danger); border-color: var(--danger); }
+.chip--unknown { color: var(--unknown); border-color: var(--unknown); }
+/* Empty states: guide, don't just say "nothing". */
+.empty { color: var(--text-muted); max-width: var(--measure); }
+.empty strong { color: var(--text); }
 .tips { list-style: none; margin: 0; padding: 0; }
 .tips li { border-bottom: 1px solid var(--border); }
 .tips li:last-child { border-bottom: 0; }

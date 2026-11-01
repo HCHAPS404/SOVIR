@@ -29,9 +29,9 @@ export default async function IncidentsPage() {
           <section className="panel">
             <h2>Intervenciones ({items.length})</h2>
             {items.length === 0 ? (
-              <p>
-                Sin intervenciones. Emite el par gancho→pago desde{" "}
-                <a href="/">Inicio → Laboratorio</a> para ver una decisión <code>warn</code> real.
+              <p className="empty">
+                Aún no te ha protegido de nada — cuando SOVIR intervenga aparecerá aquí qué detectó
+                y por qué. Puedes probarlo desde <a href="/">Inicio</a>.
               </p>
             ) : (
               <ul className="rows">
@@ -50,7 +50,19 @@ export default async function IncidentsPage() {
                           </span>
                         ) : null}
                       </span>
-                      <strong>{d.state}</strong>
+                      <span
+                        className={`chip chip--${
+                          i.state === "pending"
+                            ? "warning"
+                            : i.state === "delivered"
+                              ? "success"
+                              : i.state === "failed"
+                                ? "danger"
+                                : "unknown"
+                        }`}
+                      >
+                        {d.state}
+                      </span>
                     </li>
                   );
                 })}
