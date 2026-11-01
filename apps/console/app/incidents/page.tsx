@@ -47,7 +47,7 @@ export default async function IncidentsPage() {
                           : "unknown";
                   const at = new Date(i.created_at_ms);
                   return (
-                    <li className="card" key={i.intervention_id}>
+                    <li className="card-item" key={i.intervention_id}>
                       <svg className="card-icon" viewBox="0 0 24 24" aria-hidden="true">
                         <path
                           d="M12 8v5M12 16.5h.01M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16Z"

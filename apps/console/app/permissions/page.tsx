@@ -61,7 +61,7 @@ export default async function PermissionsPage() {
                         ? "expired"
                         : "active";
                     return (
-                      <li className="card" key={g.grant_id}>
+                      <li className="card-item" key={g.grant_id}>
                         <LockIcon />
                         <span className="card-body">
                           <strong>{s.name}</strong>
@@ -114,12 +114,14 @@ export default async function PermissionsPage() {
                 </ul>
               )}
             </section>
-            <section className="panel">
-              <h2>Conceder un permiso</h2>
-              <p className="row-sub" style={{ marginBottom: "0.75rem" }}>
-                En la demo solo existe la fuente de laboratorio — emite señales de prueba durante 24
-                horas.
-              </p>
+            <section className="panel panel--row">
+              <div>
+                <h2>Conceder un permiso</h2>
+                <p className="row-sub">
+                  En la demo solo existe la fuente de laboratorio — emite señales de prueba durante
+                  24 horas.
+                </p>
+              </div>
               <form action={mintLabConsent}>
                 <button className="secondary" type="submit">
                   Conceder consentimiento de laboratorio

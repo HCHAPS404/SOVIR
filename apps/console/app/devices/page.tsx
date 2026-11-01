@@ -1,7 +1,7 @@
 import { ConsoleFrame, requireApiSession } from "../../components/ConsoleFrame";
 import { listDevices } from "../../lib/api";
 import { live } from "../../lib/live";
-import { registerDeviceAction, revokeDeviceAction } from "../../lib/actions";
+import { connectThisDeviceAction, registerDeviceAction, revokeDeviceAction } from "../../lib/actions";
 import { describePlatform } from "../../lib/humanize";
 import { getView } from "../../lib/view";
 
@@ -47,8 +47,9 @@ export default async function DevicesPage() {
         <header className="desk-head">
           <h1>Dispositivos</h1>
           <p>
-            Los equipos y extensiones que pueden enviar señales a tu nombre. Si revocas uno, deja de
-            contar para SOVIR al instante.
+            {view === "dev"
+              ? "Los equipos y extensiones registrados bajo tu sesión. Si revocas uno, deja de contar para SOVIR al instante."
+              : "Tus equipos aparecen aquí cuando se conectan con tu sesión — la extensión del navegador o la app se registran solas. Si revocas uno, deja de contar para SOVIR al instante."}
           </p>
         </header>
         {devices === null ? (
@@ -70,7 +71,7 @@ export default async function DevicesPage() {
                   {devices.map((d) => {
                     const active = !d.revoked_at_ms;
                     return (
-                      <li className="card" key={d.device_id}>
+                      <li className="card-item" key={d.device_id}>
                         <DeviceIcon platform={d.platform} />
                         <span className="card-body">
                           <strong>{d.label || describePlatform(d.platform)}</strong>
@@ -99,9 +100,10 @@ export default async function DevicesPage() {
                 </ul>
               )}
             </section>
-            <section className="panel">
-              <h2>Registrar un equipo</h2>
-              <form action={registerDeviceAction} className="form-row">
+            {view === "dev" ? (
+              <section className="panel">
+                <h2>Registrar un equipo (manual)</h2>
+                <form action={registerDeviceAction} className="form-row">
                 <input
                   name="label"
                   placeholder="Nombre (p. ej. Mi laptop)"
@@ -118,7 +120,23 @@ export default async function DevicesPage() {
                   Registrar
                 </button>
               </form>
-            </section>
+              </section>
+            ) : (
+              <section className="panel panel--row">
+                <div>
+                  <h2>Conectar un equipo</h2>
+                  <p className="row-sub">
+                    Los dispositivos se vinculan solos cuando se conectan con tu sesión — aquí
+                    puedes simularlo vinculando este navegador.
+                  </p>
+                </div>
+                <form action={connectThisDeviceAction}>
+                  <button className="secondary" type="submit">
+                    Vincular este navegador
+                  </button>
+                </form>
+              </section>
+            )}
           </>
         )}
       </div>

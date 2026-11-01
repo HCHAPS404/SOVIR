@@ -147,6 +147,20 @@ export async function registerDeviceAction(formData: FormData): Promise<void> {
   revalidatePath("/devices");
 }
 
+// What a real client does on first run: registers itself under the session.
+export async function connectThisDeviceAction(): Promise<void> {
+  const token = await tokenOrRedirect();
+  try {
+    await registerDevice(token, "BROWSER_EXTENSION", "Este navegador");
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/devices?error=backend");
+    throw e;
+  }
+  revalidatePath("/devices");
+  revalidatePath("/");
+}
+
 export async function revokeDeviceAction(formData: FormData): Promise<void> {
   const token = await tokenOrRedirect();
   const deviceId = String(formData.get("device_id") ?? "").trim();
