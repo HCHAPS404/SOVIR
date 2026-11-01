@@ -1,6 +1,7 @@
 import { ConsoleFrame, requireApiSession } from "../../../components/ConsoleFrame";
 import { listAudit } from "../../../lib/api";
 import { live } from "../../../lib/live";
+import { describeAudit } from "../../../lib/humanize";
 
 export const metadata = { title: "Auditoría" };
 
@@ -13,8 +14,8 @@ export default async function AuditPage() {
         <header className="desk-head">
           <h1>Auditoría</h1>
           <p>
-            Rastro unificado de acciones sensibles del principal actual (tombstones de metadatos —
-            sobreviven al borrado por diseño).
+            Todo lo que pasó con tus datos, en orden — quién entró, qué permiso se dio o se quitó,
+            qué señal se observó y qué decidió el motor. Nada se edita ni se borra del rastro.
           </p>
         </header>
         {items === null ? (
@@ -29,14 +30,20 @@ export default async function AuditPage() {
               <p>Sin acciones registradas todavía.</p>
             ) : (
               <ul className="rows">
-                {items.map((a) => (
-                  <li key={a.audit_id}>
-                    <span>
-                      <code>{a.action}</code> · {new Date(a.at_ms).toLocaleTimeString("es")}
-                    </span>
-                    <strong>{a.detail}</strong>
-                  </li>
-                ))}
+                {items.map((a) => {
+                  const d = describeAudit(a);
+                  return (
+                    <li key={a.audit_id}>
+                      <span className="row-stack">
+                        <span>
+                          {d.title} · {new Date(a.at_ms).toLocaleTimeString("es")}
+                        </span>
+                        {d.sub ? <span className="row-sub">{d.sub}</span> : null}
+                        <span className="row-tech">{a.detail}</span>
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>

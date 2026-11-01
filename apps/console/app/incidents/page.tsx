@@ -1,6 +1,7 @@
 import { ConsoleFrame, requireApiSession } from "../../components/ConsoleFrame";
 import { listInterventions } from "../../lib/api";
 import { live } from "../../lib/live";
+import { describeIntervention } from "../../lib/humanize";
 
 export const metadata = { title: "Incidentes" };
 
@@ -13,8 +14,8 @@ export default async function IncidentsPage() {
         <header className="desk-head">
           <h1>Incidentes</h1>
           <p>
-            Intervenciones decididas por el motor de políticas. La decisión y{" "}
-            <code>policy_version</code> de cada evento quedan en el audit trail.
+            Cada vez que SOVIR decide protegerte de algo queda aquí — qué detectó, qué significó
+            para ti y si el aviso llegó a mostrarse.
           </p>
         </header>
         {items === null ? (
@@ -32,17 +33,23 @@ export default async function IncidentsPage() {
               </p>
             ) : (
               <ul className="rows">
-                {items.map((i) => (
-                  <li key={i.intervention_id}>
-                    <span>
-                      {i.kind} · {new Date(i.created_at_ms).toLocaleTimeString("es")} ·{" "}
-                      <code>{i.event_id.slice(0, 16)}</code>
-                    </span>
-                    <strong>
-                      {i.state} · {i.intervention_id.slice(0, 12)}
-                    </strong>
-                  </li>
-                ))}
+                {items.map((i) => {
+                  const d = describeIntervention(i);
+                  return (
+                    <li key={i.intervention_id}>
+                      <span className="row-stack">
+                        <span>{d.title}</span>
+                        <span className="row-sub">
+                          {d.what} {new Date(i.created_at_ms).toLocaleTimeString("es")}
+                        </span>
+                        <span className="row-tech">
+                          {i.kind} · {i.event_id} · {i.intervention_id}
+                        </span>
+                      </span>
+                      <strong>{d.state}</strong>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>

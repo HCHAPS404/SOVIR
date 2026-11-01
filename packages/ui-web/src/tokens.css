@@ -1480,6 +1480,9 @@ a.button.secondary:hover {
 .blocks h2 { font-size: 1.25rem; margin: 0 0 0.35rem; }
 .rows { list-style: none; margin: 0; padding: 0; max-width: 640px; }
 .rows li { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--border); padding: 0.7rem 0; }
+.row-stack { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.row-sub { color: var(--text-muted); font-size: 0.85rem; }
+.row-tech { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.72rem; color: var(--text-muted); opacity: 0.65; }
 .main h1 { font-size: clamp(1.8rem, 3vw, 2.6rem); max-width: none; }
 
 @media (max-width: 768px) {

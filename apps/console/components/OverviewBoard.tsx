@@ -48,7 +48,7 @@ export function OverviewBoard({
                 <strong>{me?.tenant_id}</strong>
               </li>
               <li>
-                <span>Scopes</span>
+                <span>Permisos de sesión</span>
                 <strong>{me?.scopes.join(", ")}</strong>
               </li>
               <li>
@@ -63,11 +63,11 @@ export function OverviewBoard({
             <h2>Datos del principal</h2>
             <ul className="rows">
               <li>
-                <span>Consent grants</span>
+                <span>Permisos activos</span>
                 <strong>{data?.grants.length ?? 0}</strong>
               </li>
               <li>
-                <span>Eventos</span>
+                <span>Señales observadas</span>
                 <strong>{data?.events.length ?? 0}</strong>
               </li>
               <li>
@@ -75,11 +75,11 @@ export function OverviewBoard({
                 <strong>{data?.devices.length ?? 0}</strong>
               </li>
               <li>
-                <span>Intervenciones</span>
+                <span>Alertas de protección</span>
                 <strong>{data?.interventions.length ?? 0}</strong>
               </li>
               <li>
-                <span>Audit trail</span>
+                <span>Registro de actividad</span>
                 <strong>{data?.audit_events.length ?? 0}</strong>
               </li>
             </ul>

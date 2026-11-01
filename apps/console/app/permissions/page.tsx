@@ -2,6 +2,7 @@ import { ConsoleFrame, requireApiSession } from "../../components/ConsoleFrame";
 import { exportData } from "../../lib/api";
 import { live } from "../../lib/live";
 import { mintLabConsent } from "../../lib/actions";
+import { describeSource, grantStatus } from "../../lib/humanize";
 
 export const metadata = { title: "Permisos" };
 
@@ -15,8 +16,8 @@ export default async function PermissionsPage() {
         <header className="desk-head">
           <h1>Permisos</h1>
           <p>
-            Consent grants vivos del principal. Cada uno es específico, acotado y revocable — el
-            backend los exige antes de aceptar un evento.
+            Quién puede observar tu actividad, qué puede hacer exactamente y hasta cuándo. Nada
+            entra sin uno de estos permisos — y todos son revocables.
           </p>
         </header>
         {data === null ? (
@@ -26,25 +27,26 @@ export default async function PermissionsPage() {
           </section>
         ) : (
           <section className="panel">
-            <h2>Consent grants ({data.grants.length})</h2>
+            <h2>Permisos activos ({data.grants.length})</h2>
             {data.grants.length === 0 ? (
-              <p>Sin grants. Concede el consentimiento de laboratorio desde aquí o desde Inicio.</p>
+              <p>Ningún permiso concedido — nada puede observarte todavía.</p>
             ) : (
               <ul className="rows">
-                {data.grants.map((g) => (
-                  <li key={g.grant_id}>
-                    <span>
-                      {g.source_id} · <code>{g.grant_id}</code>
-                    </span>
-                    <strong>
-                      {g.revoked
-                        ? "revocado"
-                        : g.expires_at_ms <= now
-                          ? "expirado"
-                          : `vigente hasta ${new Date(g.expires_at_ms).toLocaleString("es")}`}
-                    </strong>
-                  </li>
-                ))}
+                {data.grants.map((g) => {
+                  const s = describeSource(g.source_id);
+                  return (
+                    <li key={g.grant_id}>
+                      <span className="row-stack">
+                        <span>{s.name}</span>
+                        <span className="row-sub">Puede {s.does}.</span>
+                        <span className="row-tech">
+                          {g.source_id} · {g.grant_id}
+                        </span>
+                      </span>
+                      <strong>{grantStatus(g, now)}</strong>
+                    </li>
+                  );
+                })}
               </ul>
             )}
             <form action={mintLabConsent} style={{ marginTop: "1rem" }}>
