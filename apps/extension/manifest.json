@@ -15,7 +15,7 @@
     "page": "options.html",
     "open_in_tab": true
   },
-  "permissions": ["storage", "scripting"],
+  "permissions": ["storage", "scripting", "activeTab"],
   "host_permissions": ["http://127.0.0.1:8787/*"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
