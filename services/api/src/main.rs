@@ -1242,13 +1242,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr: SocketAddr = env::var("SOVIR_API_BIND")
         .unwrap_or_else(|_| "127.0.0.1:8787".into())
         .parse()?;
-    if !addr.ip().is_loopback() {
-        return Err("dev API must bind only to loopback".into());
+    // ADR-0023: non-loopback bind requires BOTH envs — an explicit deploy
+    // mode and an explicit address. Absent either, loopback is enforced.
+    let deploy_mode = env::var("SOVIR_DEPLOY").unwrap_or_default();
+    let private_overlay = deploy_mode == "private-overlay";
+    if !addr.ip().is_loopback() && !private_overlay {
+        return Err("dev API must bind only to loopback (set SOVIR_DEPLOY=private-overlay to override)".into());
     }
     // Dev sessions are the only auth path; they must never exist outside
-    // local/test. Any other SOVIR_ENV disables the endpoint entirely.
+    // local/test — and private-overlay deploy mode always disables them
+    // (OIDC becomes the only auth path on a reachable interface).
     let sovir_env = env::var("SOVIR_ENV").unwrap_or_else(|_| "local".into());
-    let dev_session_enabled = matches!(sovir_env.as_str(), "local" | "test");
+    let dev_session_enabled =
+        matches!(sovir_env.as_str(), "local" | "test") && !private_overlay;
     if env::var("SOVIR_ALLOW_REMOTE_INFERENCE").unwrap_or_default() == "true" {
         return Err("remote inference not implemented; disable it (fail closed)".into());
     }
@@ -1399,7 +1405,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         counters: std::sync::Arc::new(Counters::default()),
     };
     let app = build_router(state);
-    tracing::info!(addr = %addr, env = %sovir_env, "starting loopback-only SOVIR development API");
+    tracing::info!(addr = %addr, env = %sovir_env, deploy = %deploy_mode, dev_session = dev_session_enabled, "starting SOVIR development API");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     // Graceful shutdown: in-flight requests finish on Ctrl+C/SIGTERM
     // instead of dying mid-transaction (tenant_tx commits or rolls back).
