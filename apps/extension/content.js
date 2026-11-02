@@ -13,7 +13,8 @@
 
   async function report() {
     if (typeof globalThis.sovirExtractSignals !== "function") return;
-    const signals = globalThis.sovirExtractSignals(document, location);
+    const hintBlocks = [];
+    const signals = globalThis.sovirExtractSignals(document, location, hintBlocks);
     if (signals.length === 0) return;
     // Digest binds host + signal set only — no page content.
     const digest = `sha256:${await sha256(`${location.host}|${signals.join(",")}`)}`;
@@ -23,6 +24,10 @@
       type: "observation",
       signals,
       digest,
+      // Bounded pattern-matched copy for the LOCAL ONNX text voter only
+      // (≤1.5KB). Ephemeral: the worker forwards it to the local assess
+      // endpoint; it is never stored in the event nor sent to Meta.
+      text_hint: hintBlocks.join("\n").slice(0, 1500),
       observed_at_ms: Date.now(),
     });
     // Cheap nudge — the worker decides whether the opt-in visual scan

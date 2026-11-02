@@ -261,7 +261,7 @@
     return (re.latin && re.latin.test(t)) || (re.cjk && re.cjk.test(t));
   }
 
-  function sovirExtractSignals(doc, loc) {
+  function sovirExtractSignals(doc, loc, collect) {
     const signals = new Set();
 
     const hasPassword = !!doc.querySelector('input[type="password"]');
@@ -322,9 +322,19 @@
       if (++scanned > 1200) break;
       const t = el.textContent;
       if (!t || t.length > 800) continue;
+      let matched = false;
       for (const p of TEXT_PATTERNS) {
         if (signals.has(p.signal)) continue;
-        if (testBoth(p, t)) signals.add(p.signal);
+        if (testBoth(p, t)) {
+          signals.add(p.signal);
+          matched = true;
+        }
+      }
+      // text_hint: only blocks that fired a pattern, each ≤200c, total
+      // bounded in content.js — the scam-relevant span stays local for
+      // the ONNX text voter; it is never persisted nor sent remotely.
+      if (matched && Array.isArray(collect) && collect.join(" ").length < 1500) {
+        collect.push(t.trim().replace(/\s+/g, " ").slice(0, 200));
       }
       // Case 12: romance bait spans separate chat bubbles — love cues and
       // money asks tracked across blocks and joined after the scan.

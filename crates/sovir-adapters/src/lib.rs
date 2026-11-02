@@ -3647,4 +3647,68 @@ mod tests {
             sovir_ports::ReserveOutcome::BudgetExceeded
         ));
     }
+
+    /// ADR-0024/0025 eval gate for the onnx-text voter: runs the synthetic
+    /// es/en corpus (ml/datasets/eval-onnx-text.v1.json) through the REAL
+    /// artifact and reports per-class recall. Skips cleanly when
+    /// SOVIR_ONNX_TEXT_DIR is unset — the binary artifact is gitignored,
+    /// so this is a developer-machine gate, not a CI guarantee.
+    #[cfg(feature = "onnx")]
+    #[tokio::test]
+    async fn onnx_text_voter_eval_corpus() {
+        if std::env::var("SOVIR_ONNX_TEXT_DIR").is_err() {
+            eprintln!("SKIP onnx-text eval: SOVIR_ONNX_TEXT_DIR unset (artifact not installed)");
+            return;
+        }
+        let corpus_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../ml/datasets/eval-onnx-text.v1.json"
+        );
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(corpus_path).unwrap()).unwrap();
+        let voter = OnnxTextVoter::from_env();
+        assert!(
+            voter.serves(PrivacyMode::Standard),
+            "artifact present but serves()=false"
+        );
+        let mut per_class: std::collections::HashMap<String, (u32, u32)> =
+            std::collections::HashMap::new();
+        let mut misses: Vec<String> = Vec::new();
+        for case in v["cases"].as_array().unwrap() {
+            let id = case["id"].as_str().unwrap();
+            let expected = case["expected"].as_str().unwrap();
+            let mut req = inf_req_id(id);
+            req.text_hint = Some(case["text"].as_str().unwrap().to_string());
+            let verdict = voter.assess(&req).await.unwrap();
+            let got = match verdict.hypotheses.first().map(String::as_str) {
+                Some("text_classifier_fraud") => "fraud",
+                Some("text_classifier_spam") => "spam",
+                _ => "legitimate",
+            };
+            let e = per_class.entry(expected.to_string()).or_default();
+            e.1 += 1;
+            if got == expected {
+                e.0 += 1;
+            } else {
+                misses.push(format!(
+                    "{id}: expected {expected}, got {got} ({})",
+                    verdict.confidence_bp
+                ));
+            }
+        }
+        for (cls, (hit, tot)) in &per_class {
+            eprintln!("onnx-text eval {cls}: {hit}/{tot} recall");
+        }
+        for m in &misses {
+            eprintln!("  miss {m}");
+        }
+        // Synthetic-corpus gate (not a real-world claim): the voter must
+        // not regress below 2/3 on our own fixture set.
+        let total_hit: u32 = per_class.values().map(|(h, _)| h).sum();
+        let total: u32 = per_class.values().map(|(_, t)| t).sum();
+        assert!(
+            total_hit * 3 >= total * 2,
+            "onnx-text eval below gate: {total_hit}/{total} ({misses:?})"
+        );
+    }
 }

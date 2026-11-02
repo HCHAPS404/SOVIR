@@ -1,0 +1,8 @@
+{
+  "version": "v1-draft",
+  "status": "SKELETON — populated by ml/pipelines/build_vision_corpus.py after the Phishpedia download",
+  "purpose": "Eval split for the onnx-visual council voter (ADR-0024 gate). Cases reference downsampled screenshots from Phishpedia (CC0-1.0) — never real user screenshots.",
+  "model": "sovir-onnx-visual (candidate: MobileNetV3-Small int8, NOT_APPROVED)",
+  "labels": ["phish", "benign"],
+  "cases": []
+}

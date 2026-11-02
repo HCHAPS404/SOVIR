@@ -295,6 +295,25 @@ async function emitEvent(tabId, { signals, digest, observed_at_ms, modality = "T
   return { ok: true, event_id: eventId };
 }
 
+// Local council assess with the ephemeral text_hint (ADR-0025): feeds the
+// ONNX text voter so real observations get a classifier vote, not just the
+// heuristic. STANDARD privacy is safe here — the hint never reaches the
+// remote envelope (field-by-field build, proven by adapter tests). The
+// verdict is kept in worker state for the popup; nothing text-like persists.
+async function assessWithHint(st, message) {
+  const verdict = await api("/v1/inference/assess", {
+    token: st.token,
+    method: "POST",
+    body: {
+      request_id: `ext-assess-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`,
+      signals: message.signals,
+      privacy: "STANDARD",
+      text_hint: message.text_hint,
+    },
+  });
+  await setState({ lastVerdict: verdict });
+}
+
 // ---------------------------------------------------------------------------
 // Vision path (ADR-0020 v0): captureVisibleTab → bounded downsample →
 // pure finder scan → IMAGE_REGION event with enums + frame digest only.
@@ -430,6 +449,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     getState()
       .then((st) => {
         if (st.paused) return { ok: true, paused: true };
+        // Ephemeral text_hint → local council only. The event itself
+        // stays signal-only; the hint is never persisted or egressed.
+        if (typeof message.text_hint === "string" && message.text_hint.length > 0) {
+          assessWithHint(st, message).catch(() => {});
+        }
         return emitEvent(sender.tab?.id ?? 0, message);
       })
       .then(sendResponse)
