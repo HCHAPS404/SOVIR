@@ -14,14 +14,49 @@ import java.util.UUID
  * Dev-only: talks cleartext to SOVIR_API_BASE on the local network.
  */
 class ObserverApi(
-    private val base: String = "http://10.0.2.2:8787", // emulator loopback alias
+    private val base: String = "http://127.0.0.1:8787", // adb reverse tcp:8787
+    private val oidcTokenUrl: String = "http://127.0.0.1:8080/realms/sovir/protocol/openid-connect/token",
+    private val oidcClientId: String = "sovir-extension",
+    private val oidcUser: String = "jesui",
+    private val oidcPass: String = "local_only",
     private val sourceId: String = "screen-observer:android",
     private val grantId: String = "android-observer-grant",
     private val deviceId: String = "android-device",
 ) {
     private var token: String? = null
 
+    /** Real OIDC login (private-overlay deploy disables dev-session). */
+    fun connectOidc() {
+        val form = "grant_type=password&client_id=$oidcClientId&username=$oidcUser&password=$oidcPass"
+        val conn = (URL(oidcTokenUrl).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            setRequestProperty("content-type", "application/x-www-form-urlencoded")
+            doOutput = true
+            connectTimeout = 5_000
+            readTimeout = 5_000
+        }
+        conn.outputStream.use { it.write(form.toByteArray()) }
+        if (conn.responseCode !in 200..299) throw java.io.IOException("oidc_http_${conn.responseCode}")
+        token = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+            .getString("access_token")
+        // 409s/duplicates mean "already exists" — idempotent by design.
+        runCatching {
+            post("/v1/devices", JSONObject().put("platform", "ANDROID").put("label", "Observador Android"))
+        }
+        runCatching {
+            post(
+                "/v1/consents",
+                JSONObject()
+                    .put("grant_id", grantId)
+                    .put("source_id", sourceId)
+                    .put("expires_at_ms", System.currentTimeMillis() + 86_400_000L),
+            )
+        }
+    }
+
     fun connect() {
+        runCatching { connectOidc() }.onSuccess { return }
+        // Local dev-session path — only when the API runs in local/test mode.
         val session = JSONObject(
             post(
                 "/v1/auth/dev-session",

@@ -28,9 +28,11 @@ class SovirAccessibilityService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
         ) return
         val pkg = event.packageName?.toString() ?: return
+        android.util.Log.d("SovirObserver", "event type=${event.eventType} pkg=$pkg")
         val root = rootInActiveWindow ?: return
         val signals = SignalExtractor.extract(root)
         if (signals.isEmpty()) return
+        android.util.Log.i("SovirObserver", "signals $pkg -> $signals")
         val key = signals.sorted().joinToString(",")
         val now = System.currentTimeMillis()
         val last = lastDigestByPackage[pkg]
@@ -38,6 +40,7 @@ class SovirAccessibilityService : AccessibilityService() {
         lastDigestByPackage[pkg] = key to now
         executor.execute {
             runCatching { api.emit(pkg, signals) }
+                .onFailure { android.util.Log.w("SovirObserver", "emit failed", it) }
         }
     }
 

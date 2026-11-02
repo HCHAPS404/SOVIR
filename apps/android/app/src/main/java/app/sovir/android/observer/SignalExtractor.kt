@@ -13,11 +13,17 @@ import android.view.accessibility.AccessibilityNodeInfo
 object SignalExtractor {
 
     private val URGENCY = Regex(
-        "(urgente|verifica|suspendida|bloqueada|expira|último aviso|verify|suspended|locked|immediately)",
+        "(urgente|verifica|suspendida|bloqueada|expira|último aviso|última oportunidad|actúa ahora|actua ahora|plazo|48 horas|verify|suspended|locked|immediately|last chance)",
         RegexOption.IGNORE_CASE,
     )
     private val PAYMENT = Regex(
-        "(card|tarjeta|cvv|iban|pago|payment|checkout|billing)",
+        "(card|tarjeta|cvv|iban|pagos?|payment|checkout|billing|transferencia)",
+        RegexOption.IGNORE_CASE,
+    )
+    // Coercion vocabulary — threat + conditional demand in one window is
+    // the extortion shape the classifier expects.
+    private val EXTORTION = Regex(
+        "(si no pagas|publicaremos|tus contactos|tenemos tus|te grabamos|grabamos|chantaje|amenaza|recorded you|your contacts|we will publish|pay or)",
         RegexOption.IGNORE_CASE,
     )
 
@@ -34,6 +40,7 @@ object SignalExtractor {
         if (text.isNotEmpty()) {
             if (URGENCY.containsMatchIn(text)) signals += "URGENT_ACTION"
             if (PAYMENT.containsMatchIn(text)) signals += "PAYMENT_REQUEST"
+            if (EXTORTION.containsMatchIn(text)) signals += "EXTORTION_LANGUAGE"
         }
         // A pre-checked checkbox inside a dialog is the classic consent
         // dark pattern (GDPR requires unticked by default).

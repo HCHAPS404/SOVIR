@@ -214,7 +214,7 @@ fun PermissionsPage(onBack: () -> Unit) {
         Spacer(Modifier.height(12.dp))
         Body(Copy.permissionsBody)
         Spacer(Modifier.height(20.dp))
-        Fact(Copy.capture, Copy.noPermission)
+        ObserverPermissionCard()
         Fact(Copy.pause, Copy.pauseValue)
         Fact(Copy.revoke, Copy.revokeValue)
     }

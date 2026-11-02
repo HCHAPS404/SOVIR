@@ -23,6 +23,7 @@ fun IndexPage(kicker: String, title: String, lede: String, rows: List<Pair<Strin
         Spacer(Modifier.height(12.dp))
         Body(lede, emphasis = true)
         Spacer(Modifier.height(16.dp))
+        ObserverPermissionCard()
         rows.forEach { (id, label) ->
             val value = rowsValue(id)
             Fact(label, value) { onOpen(id) }
