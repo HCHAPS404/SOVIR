@@ -23,3 +23,8 @@ jsonwebtoken = "=9.3.1"
 
 [dev-dependencies]
 uuid.workspace = true
+
+[features]
+default = []
+# ADR-0025: builds the ONNX voters (downloads ORT binaries at build).
+onnx = ["sovir-adapters/onnx"]

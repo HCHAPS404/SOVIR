@@ -531,6 +531,7 @@ fn infer_req(cost: u64) -> InferenceRequest {
         signals: vec![RiskSignal::UrgentAction],
         privacy: PrivacyMode::Private,
         est_cost_micro_usd: cost,
+        text_hint: None,
     }
 }
 

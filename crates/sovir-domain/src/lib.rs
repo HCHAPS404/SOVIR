@@ -264,6 +264,13 @@ pub struct InferenceRequest {
     /// input — the server prices every request itself (ADR-0012).
     #[serde(default)]
     pub est_cost_micro_usd: u64,
+    /// LOCAL-ONLY raw text for local model voters (ADR-0025): the short
+    /// observed message/snippet a text classifier scores. NEVER egresses —
+    /// the remote gateway builds its wire envelope field-by-field and
+    /// does not include it; a remote voter must never receive raw text.
+    /// Absent ⇒ text-classifier voters simply abstain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_hint: Option<String>,
 }
 
 /// Provider-reported metering for one verdict (B21 honest accounting).

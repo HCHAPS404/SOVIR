@@ -1529,6 +1529,179 @@ impl InferenceGateway for OnnxVisualVoter {
         cfg!(feature = "onnx") && self.artifact_present
     }
 }
+/// Text ONNX voter (ADR-0025): a licensed local classifier scoring the
+/// request's `text_hint`. Fails closed like the visual seam — without
+/// the `onnx` feature or a configured artifact dir it never votes.
+/// LOCAL ONLY: it reads raw text and never egresses; the remote
+/// envelope is built field-by-field and cannot carry `text_hint`
+/// (asserted in `remote_envelope_never_carries_text_hint`).
+///
+/// Artifact dir (SOVIR_ONNX_TEXT_DIR) must contain:
+///   model_quantized.onnx — the classifier graph
+///   tokenizer.json       — HF tokenizer for the model
+///   config.json          — HF config carrying `id2label` (class order
+///                          is read, never guessed)
+pub struct OnnxTextVoter {
+    artifact_dir: Option<std::path::PathBuf>,
+    #[cfg(feature = "onnx")]
+    inner: std::sync::Mutex<Option<OnnxTextInner>>,
+}
+#[cfg(feature = "onnx")]
+struct OnnxTextInner {
+    _env: ort::environment::Environment,
+    session: ort::session::Session,
+    tokenizer: tokenizers::Tokenizer,
+    /// index -> label, from config.json id2label.
+    id2label: Vec<String>,
+}
+impl OnnxTextVoter {
+    pub fn from_env() -> Self {
+        let artifact_dir = std::env::var("SOVIR_ONNX_TEXT_DIR")
+            .ok()
+            .map(std::path::PathBuf::from)
+            .filter(|p| {
+                p.join("model_quantized.onnx").is_file() && p.join("tokenizer.json").is_file()
+            });
+        Self {
+            artifact_dir,
+            #[cfg(feature = "onnx")]
+            inner: std::sync::Mutex::new(None),
+        }
+    }
+    #[cfg(feature = "onnx")]
+    fn load(dir: &std::path::Path) -> Result<OnnxTextInner, PortError> {
+        let env = ort::init().build().map_err(|_| PortError::Unavailable)?;
+        let session = ort::session::Session::builder(&env)
+            .map_err(|_| PortError::Unavailable)?
+            .commit_from_file(dir.join("model_quantized.onnx"))
+            .map_err(|_| PortError::Unavailable)?;
+        let tokenizer = tokenizers::Tokenizer::from_file(dir.join("tokenizer.json"))
+            .map_err(|_| PortError::Unavailable)?;
+        let cfg: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("config.json"))
+                .map_err(|_| PortError::Unavailable)?,
+        )
+        .map_err(|_| PortError::Unavailable)?;
+        let id2label = cfg["id2label"]
+            .as_object()
+            .map(|m| {
+                let mut v: Vec<(usize, String)> = m
+                    .iter()
+                    .filter_map(|(k, val)| {
+                        k.parse::<usize>()
+                            .ok()
+                            .map(|i| (i, val.as_str().unwrap_or("").to_string()))
+                    })
+                    .collect();
+                v.sort_by_key(|(i, _)| *i);
+                v.into_iter().map(|(_, s)| s).collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if id2label.is_empty() {
+            return Err(PortError::Unavailable); // class order unknown = refuse
+        }
+        Ok(OnnxTextInner {
+            _env: env,
+            session,
+            tokenizer,
+            id2label,
+        })
+    }
+    #[cfg(feature = "onnx")]
+    fn score(&self, text: &str) -> Result<(String, u16), PortError> {
+        let dir = self.artifact_dir.as_ref().ok_or(PortError::Unavailable)?;
+        let mut guard = self.inner.lock().map_err(|_| PortError::Storage)?;
+        if guard.is_none() {
+            *guard = Some(Self::load(dir)?);
+        }
+        let inner = guard.as_mut().ok_or(PortError::Unavailable)?;
+        let enc = inner
+            .tokenizer
+            .encode(text, true)
+            .map_err(|_| PortError::Unavailable)?;
+        let ids: Vec<i64> = enc.get_ids().iter().map(|&t| t as i64).collect();
+        let mask: Vec<i64> = enc.get_attention_mask().iter().map(|&t| t as i64).collect();
+        let seq = ids.len();
+        // Feed exactly the inputs the graph declares — never guess names.
+        let mut feed: Vec<(String, ort::session::SessionInputValue)> = Vec::new();
+        for input in inner.session.inputs() {
+            let name = input.name().to_string();
+            if name.contains("mask") {
+                let mask_t = ort::value::Tensor::from_array(([1usize, seq], mask.clone()))
+                    .map_err(|_| PortError::Unavailable)?;
+                feed.push((name, mask_t.into()));
+            } else if name.contains("token_type") {
+                let zeros = ort::value::Tensor::from_array(([1usize, seq], vec![0i64; seq]))
+                    .map_err(|_| PortError::Unavailable)?;
+                feed.push((name, zeros.into()));
+            } else {
+                let ids_t = ort::value::Tensor::from_array(([1usize, seq], ids.clone()))
+                    .map_err(|_| PortError::Unavailable)?;
+                feed.push((name, ids_t.into()));
+            }
+        }
+        let outputs = inner
+            .session
+            .run(feed)
+            .map_err(|_| PortError::Unavailable)?;
+        let logits = outputs[0]
+            .try_extract_tensor::<f32>()
+            .map_err(|_| PortError::Unavailable)?
+            .1
+            .to_vec();
+        let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let exps: Vec<f32> = logits.iter().map(|&x| (x - max).exp()).collect();
+        let sum: f32 = exps.iter().sum();
+        let (top_i, _) = exps
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .ok_or(PortError::Unavailable)?;
+        let prob = exps[top_i] / sum;
+        let label = inner.id2label.get(top_i).cloned().unwrap_or_default();
+        Ok((label, (prob * 10_000.0).min(10_000.0) as u16))
+    }
+}
+#[async_trait]
+impl InferenceGateway for OnnxTextVoter {
+    async fn assess(
+        &self,
+        req: &sovir_domain::InferenceRequest,
+    ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+        #[cfg(feature = "onnx")]
+        {
+            let text = req
+                .text_hint
+                .as_deref()
+                .filter(|t| !t.trim().is_empty())
+                .ok_or(PortError::Unavailable)?; // no text = abstain
+            let (label, bp) = self.score(text)?;
+            let hypothesis = match label.as_str() {
+                "fraud" => "text_classifier_fraud",
+                "spam" => "text_classifier_spam",
+                _ => "no_pattern_detected",
+            };
+            return Ok(sovir_domain::InferenceVerdict {
+                request_id: req.request_id.clone(),
+                model_id: "horizon-phishing-scam-detector-base".into(),
+                hypotheses: vec![hypothesis.to_string()],
+                confidence_bp: bp,
+                provenance: format!("onnx-text local; label:{label}; no egress"),
+                usage: None,
+                votes: None,
+            });
+        }
+        #[cfg(not(feature = "onnx"))]
+        {
+            let _ = req;
+            Err(PortError::Unavailable)
+        }
+    }
+    fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+        let _ = mode;
+        cfg!(feature = "onnx") && self.artifact_dir.is_some()
+    }
+}
 /// Per-tenant inference budget in micro-USD (B4). Dev adapter: a shared
 /// cap for every tenant; production needs per-plan caps (B7 decision).
 pub struct InMemoryBudgetLedger {
@@ -2212,6 +2385,7 @@ mod tests {
             signals: vec![RiskSignal::UrgentAction, RiskSignal::PaymentRequest],
             privacy: PrivacyMode::Standard,
             est_cost_micro_usd: 10_000,
+            text_hint: None,
         }
     }
 
@@ -2672,6 +2846,7 @@ mod tests {
             signals: signals.to_vec(),
             privacy,
             est_cost_micro_usd: 0,
+            text_hint: None,
         }
     }
     #[tokio::test]
@@ -2990,6 +3165,31 @@ mod tests {
         assert!(!v.provenance.contains("local_settled"));
         assert_eq!(v.usage.unwrap().cost_micro_usd, Some(100));
     }
+    /// Privacy invariant (ADR-0025): a request carrying `text_hint` must
+    /// never put raw text on the wire — the remote envelope is built
+    /// field-by-field. Asserted at the egress recording.
+    #[tokio::test]
+    async fn remote_envelope_never_carries_text_hint() {
+        use sovir_domain::RiskSignal::*;
+        let egress = Arc::new(FakeEgress {
+            response: r#"{"request_id":"req-t","model_id":"model-x","hypotheses":["x"],"confidence_bp":1,"provenance":"p"}"#.to_string(),
+            sent: std::sync::Mutex::new(Vec::new()),
+        });
+        let remote = RemoteInferenceGateway::new(
+            egress.clone(),
+            "https://provider.example/assess".to_string(),
+            "key".to_string(),
+            "model-x".to_string(),
+        );
+        let mut req = inf_req(&[PaymentRequest], sovir_domain::PrivacyMode::Standard);
+        req.text_hint = Some("si no pagas publicamos tus fotos".to_string());
+        let _ = remote.assess(&req).await;
+        let body = egress.sent.lock().unwrap()[0].1.clone();
+        assert!(
+            !body.contains("text_hint") && !body.contains("si no pagas"),
+            "raw text leaked into the remote envelope: {body}"
+        );
+    }
     /// Registry coverage (ADR-0025): every voter NAME wired into the
     /// council must have a model card in `ml/model-cards/` — a voter
     /// without documented provenance is an audit gap.
@@ -3139,6 +3339,7 @@ mod tests {
             signals: vec![RiskSignal::UrgentAction],
             privacy: PrivacyMode::Standard,
             est_cost_micro_usd: 10,
+            text_hint: None,
         }
     }
 
@@ -3282,6 +3483,7 @@ mod tests {
                     signals,
                     privacy: PrivacyMode::Private,
                     est_cost_micro_usd: 0,
+                    text_hint: None,
                 })
                 .await
                 .unwrap();

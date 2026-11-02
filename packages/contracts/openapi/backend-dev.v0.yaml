@@ -196,6 +196,10 @@ components:
                    BULK_BUYER_LURE, QR_PRESENT]
         privacy: {type: string, enum: [standard, private]}
         est_cost_micro_usd: {type: integer}
+        text_hint:
+          type: string
+          maxLength: 4096
+          description: LOCAL-ONLY raw text for local classifier voters (ADR-0025). Never egressed — the remote envelope is built field-by-field without it. Absent => text voters abstain.
     InferenceVerdict:
       type: object
       description: Typed hypotheses only — never an authorized action.

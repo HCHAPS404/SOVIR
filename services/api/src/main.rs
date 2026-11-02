@@ -301,6 +301,12 @@ fn inference_gateway(
             "onnx-visual".into(),
             Arc::new(sovir_adapters::OnnxVisualVoter::from_env()),
         ),
+        // Text classifier (Apache-2.0): serves only with the `onnx`
+        // feature AND SOVIR_ONNX_TEXT_DIR artifacts — else fails closed.
+        (
+            "onnx-text".into(),
+            Arc::new(sovir_adapters::OnnxTextVoter::from_env()),
+        ),
     ];
     let settle_bp: u16 = env::var("SOVIR_COUNCIL_SETTLE_BP")
         .ok()

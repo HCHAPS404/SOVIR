@@ -130,6 +130,7 @@ fn bench_assess_inference_private(c: &mut Criterion) {
                     ],
                     privacy: PrivacyMode::Private,
                     est_cost_micro_usd: 0,
+                    text_hint: None,
                 },
             ))
             .unwrap()

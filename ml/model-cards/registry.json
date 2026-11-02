@@ -38,6 +38,20 @@
       "serves": ["private", "standard"],
       "egress": false,
       "status": "seam-only — fails closed until ADR-0024 artifact is approved and licensed"
+    },
+    {
+      "name": "onnx-text",
+      "model_id": "horizon-phishing-scam-detector-base",
+      "card": "sovir-onnx-text.md",
+      "kind": "onnx-classifier",
+      "modality": "text",
+      "tier": "base",
+      "serves": ["private", "standard"],
+      "egress": false,
+      "license": "Apache-2.0",
+      "artifact": "ml/artifacts/onnx-text/model_quantized.onnx (641MB int8; gitignored)",
+      "feature_gate": "cargo feature `onnx` + SOVIR_ONNX_TEXT_DIR",
+      "status": "active — scores request.text_hint locally; abstains when no text"
     }
   ]
 }
