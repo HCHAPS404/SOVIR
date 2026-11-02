@@ -14,6 +14,20 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        // Reachable base (ADR-0023): defaults target adb-reverse
+        // loopback; override at build time for the WiFi/overlay APK:
+        //   gradlew assembleDebug -PSOVIR_API_BASE=http://192.168.X.X:8787
+        buildConfigField(
+            "String",
+            "SOVIR_API_BASE",
+            "\"${providers.gradleProperty("SOVIR_API_BASE").getOrElse("http://127.0.0.1:8787")}\"",
+        )
+        buildConfigField(
+            "String",
+            "SOVIR_OIDC_TOKEN_URL",
+            "\"${providers.gradleProperty("SOVIR_OIDC_TOKEN_URL").getOrElse("http://127.0.0.1:8080/realms/sovir/protocol/openid-connect/token")}\"",
+        )
     }
 
     buildTypes {
@@ -33,6 +47,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

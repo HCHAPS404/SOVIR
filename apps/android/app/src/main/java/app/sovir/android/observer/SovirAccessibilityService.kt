@@ -28,11 +28,18 @@ class SovirAccessibilityService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
         ) return
         val pkg = event.packageName?.toString() ?: return
-        android.util.Log.d("SovirObserver", "event type=${event.eventType} pkg=$pkg")
+        // OS chrome and our own UI are not user content — the clock/status
+        // bar and SOVIR screens must never emit signals.
+        if (pkg in SKIP_PACKAGES) return
+        if (app.sovir.android.BuildConfig.DEBUG) {
+            android.util.Log.d("SovirObserver", "event type=${event.eventType} pkg=$pkg")
+        }
         val root = rootInActiveWindow ?: return
         val signals = SignalExtractor.extract(root)
         if (signals.isEmpty()) return
-        android.util.Log.i("SovirObserver", "signals $pkg -> $signals")
+        if (app.sovir.android.BuildConfig.DEBUG) {
+            android.util.Log.i("SovirObserver", "signals $pkg -> $signals")
+        }
         val key = signals.sorted().joinToString(",")
         val now = System.currentTimeMillis()
         val last = lastDigestByPackage[pkg]
@@ -55,5 +62,12 @@ class SovirAccessibilityService : AccessibilityService() {
 
     companion object {
         private val DEDUPE_MS = TimeUnit.SECONDS.toMillis(30)
+        // OS chrome — never user content, never observed.
+        private val SKIP_PACKAGES = setOf(
+            "app.sovir.android",
+            "com.android.systemui",
+            "com.android.settings",
+            "android",
+        )
     }
 }

@@ -14,8 +14,10 @@ import java.util.UUID
  * Dev-only: talks cleartext to SOVIR_API_BASE on the local network.
  */
 class ObserverApi(
-    private val base: String = "http://127.0.0.1:8787", // adb reverse tcp:8787
-    private val oidcTokenUrl: String = "http://127.0.0.1:8080/realms/sovir/protocol/openid-connect/token",
+    // Build-time reachable base (ADR-0023): defaults to adb-reverse
+    // loopback; a WiFi/overlay build passes -PSOVIR_API_BASE/-PSOVIR_OIDC_TOKEN_URL.
+    private val base: String = app.sovir.android.BuildConfig.SOVIR_API_BASE,
+    private val oidcTokenUrl: String = app.sovir.android.BuildConfig.SOVIR_OIDC_TOKEN_URL,
     private val oidcClientId: String = "sovir-extension",
     private val oidcUser: String = "jesui",
     private val oidcPass: String = "local_only",
