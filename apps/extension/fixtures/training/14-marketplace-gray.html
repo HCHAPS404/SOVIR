@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Caso 14 — Clasificado ambiguo</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:2rem auto;color:#333}</style></head>
+<body>
+<!-- TRAINING CASE 14 — legitimate-looking classified ad using the
+     exact vocabulary of scam bait. Expected:
+     [BULK_BUYER_LURE, OFF_PLATFORM_MOVE, IDENTITY_UNVERIFIED]
+     -> offplatform_lure / bulk_buyer_lure -> warn / high.
+     This is the precision edge: real classifieds talk like this.
+     The warn here is a TRUE positive structurally but possibly a
+     benign ad — exactly the ambiguity 'review'-tier tooling exists for. -->
+<h1>Compro moto — pago hoy</h1>
+<div>Compramos toda clase de motos y carros. Compra inmediata, pago de
+contado el mismo día. Escríbeme por whatsapp y cerramos el trato.</div>
+</body></html>

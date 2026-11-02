@@ -1,31 +1,285 @@
-:root { color-scheme: light; --bg: #f4f0e6; --text: #1a1714; --muted: #5e584e; --border: #d8d0c3; }
-:root[data-theme="dark"] { color-scheme: dark; --bg: #000000; --text: #f4f0e6; --muted: #c4bbae; --border: #3c3832; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { color-scheme: dark; --bg: #000000; --text: #f4f0e6; --muted: #c4bbae; --border: #3c3832; }
+/* SOVIR extension surfaces (popup + options). Mirrors the design
+   tokens in packages/ui-web/src/tokens.css — keep palette, radii and
+   font stacks in sync with that file; the extension cannot import the
+   package, so the values are duplicated here deliberately. */
+:root {
+  color-scheme: light;
+  --bg: #f4f0e6;
+  --surface: #fbf7f0;
+  --surface-2: #efe9dc;
+  --text: #1a1714;
+  --text-muted: #5e584e;
+  --border: #d8d0c3;
+  --border-subtle: #e5ded2;
+  --brand: #7a5b3a;
+  --focus: #1a1714;
+  --danger: #8c2e2a;
+  --display: "Iowan Old Style", Palatino, Georgia, serif;
+  --body: "Segoe UI", "Helvetica Neue", sans-serif;
+  --mono: "Cascadia Mono", ui-monospace, monospace;
+  --shadow: 0 1px 2px rgb(26 23 20 / 0.05), 0 6px 16px rgb(26 23 20 / 0.06);
 }
-body { margin: 0; font: 16px "Source Sans 3", "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-main { width: 360px; padding: 16px; }
-h1 { font-size: 1.3rem; font-weight: 500; margin: 0 0 8px; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #090908;
+  --surface: #141311;
+  --surface-2: #1c1a17;
+  --text: #f4f0e6;
+  --text-muted: #a89f93;
+  --border: #2c2924;
+  --border-subtle: #201e1a;
+  --brand: #d4b48a;
+  --focus: #f4f0e6;
+  --danger: #f09890;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.5), 0 10px 28px rgb(0 0 0 / 0.42);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #090908;
+    --surface: #141311;
+    --surface-2: #1c1a17;
+    --text: #f4f0e6;
+    --text-muted: #a89f93;
+    --border: #2c2924;
+    --border-subtle: #201e1a;
+    --brand: #d4b48a;
+    --focus: #f4f0e6;
+    --danger: #f09890;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.5), 0 10px 28px rgb(0 0 0 / 0.42);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.55;
+  background: var(--bg);
+  color: var(--text);
+}
+main { padding: 16px; }
 p { margin: 0 0 12px; }
-button { font: inherit; background: var(--text); color: var(--bg); border: 0; border-radius: 2px; padding: 8px 10px; }
-.theme-switch { display: flex; gap: 6px; margin: 0 0 12px; }
-.theme-switch button { background: transparent; color: var(--text); border: 1px solid var(--border); padding: 4px 8px; font-size: 12px; }
-.theme-switch button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
-.note { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); }
-.brand-lockup { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
-.brand-name { font-weight: 500; font-size: 14px; letter-spacing: 0.16em; line-height: 1; text-transform: uppercase; }
+code { font-family: var(--mono); font-size: 0.85em; color: var(--brand); }
+
+a:focus-visible, button:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+/* --- brand --- */
+.brand-lockup { display: inline-flex; align-items: center; gap: 0.6rem; }
+.brand-name {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-weight: 500;
+  font-size: 0.82rem;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  text-transform: uppercase;
+}
 .mark {
-  width: 28px;
-  height: 22px;
+  display: inline-block;
+  width: 1.9rem;
+  height: 1.5rem;
   flex: none;
   background: currentColor;
   -webkit-mask: url("icons/sovir-symbol-white.png") center / contain no-repeat;
   mask: url("icons/sovir-symbol-white.png") center / contain no-repeat;
 }
+.brand {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin: 0 0 8px;
+}
+
+/* --- theme switch --- */
+.theme-switch { display: inline-flex; gap: 6px; }
+.theme-switch button {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.theme-switch button:hover { color: var(--text); }
+.theme-switch button[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+/* --- buttons --- */
+button {
+  font: inherit;
+  background: var(--text);
+  color: var(--bg);
+  border: 1px solid var(--text);
+  border-radius: 4px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+button:hover { background: var(--text-muted); border-color: var(--text-muted); }
+button:disabled { opacity: 0.55; cursor: default; }
+button.ghost, button.revoke {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+button.ghost:hover, button.revoke:hover { border-color: var(--text-muted); background: var(--surface); }
+button.revoke { padding: 2px 8px; font-size: 12px; }
+button.ghost { margin-left: 6px; }
+
+/* --- forms --- */
+label { display: block; font-size: 13px; color: var(--text-muted); }
+input[type="text"], input[type="url"], .popup input {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  width: 100%;
+  margin-top: 4px;
+}
+input[type="text"]:focus, input[type="url"]:focus { border-color: var(--brand); }
+input[type="checkbox"] {
+  appearance: none;
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  display: inline-grid;
+  place-content: center;
+  cursor: pointer;
+  vertical-align: -3px;
+}
+input[type="checkbox"]::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  transform: scale(0);
+  transition: transform 90ms ease-out;
+  background: var(--brand);
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+input[type="checkbox"]:checked { border-color: var(--brand); }
+input[type="checkbox"]:checked::before { transform: scale(1); }
+.field-row { display: flex; align-items: flex-end; gap: 10px; }
+.field-row label { flex: 1; min-width: 0; }
+.field-row + .field-row { margin-top: 10px; }
+.check { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 14px; cursor: pointer; }
+
+/* --- popup surface --- */
+.popup { width: 360px; }
+.popup-head {
+  display: flex;
+  align-items: center;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.status { margin: 0 0 6px; font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; }
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--border);
+}
+.status.is-on .dot { background: var(--brand); }
+.popup-actions { display: flex; gap: 8px; margin: 12px 0; }
+.popup-actions #observe { flex: 1; }
+.popup-foot { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+
+/* --- options page: dashboard-aligned --- */
+.options { width: min(680px, 100%); margin: 0 auto; padding: 0 24px 48px; }
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: min(680px, 100%);
+  margin: 0 auto;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.page-head { padding: 28px 0 8px; }
+.page-head h1 {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 1.9rem;
+  margin: 0 0 6px;
+}
+.page-head .lede { color: var(--text-muted); margin: 0; max-width: 52ch; }
+h1 { font-family: var(--display); font-weight: 500; font-size: 1.3rem; margin: 0 0 8px; }
+h2 {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 1.15rem;
+  margin: 0 0 8px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-top: 14px;
+}
+.card > p { color: var(--text-muted); font-size: 13.5px; }
+.card > p:last-of-type { margin-bottom: 0; }
+.card .field-row { margin-top: 12px; }
+.card .check { margin-top: 12px; }
+.kicker {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 4px;
+}
+.well {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
+}
+.well li { padding: 3px 0; font-size: 12.5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding: 0; list-style: none; }
+.chips li {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+/* --- misc --- */
+.note { font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
+.note.error { color: var(--danger); }
+.hint { font-family: var(--mono); font-size: 11.5px; color: var(--text-muted); margin: 8px 0 0; min-height: 1em; }
 .granted-list { list-style: none; margin: 0 0 12px; padding: 0; }
-.granted-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
-.granted-list .muted { color: var(--muted); }
-button.revoke { background: transparent; color: var(--text); border: 1px solid var(--border); padding: 2px 8px; font-size: 12px; }
-button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); margin-left: 6px; }
-.note.error { color: #a33; }
-.popup input[type="url"], .popup input { font: inherit; padding: 4px 6px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text); }
+.granted-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.granted-list .muted { color: var(--text-muted); }

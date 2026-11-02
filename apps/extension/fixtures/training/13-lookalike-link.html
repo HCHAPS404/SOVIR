@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Caso 13 — Dominio lookalike</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:2rem auto;color:#333}</style></head>
+<body>
+<!-- TRAINING CASE 13 — punycode lookalike + mismatched anchor text.
+     Expected: [LINK_DESTINATION_MISMATCH, SUSPICIOUS_DOMAIN,
+     IDENTITY_UNVERIFIED] -> link_spoofing needs a credential/identity
+     corroborant -> IDENTITY_UNVERIFIED (http) satisfies it -> warn. -->
+<h1>Acceso a tu banco</h1>
+<p>Entra desde el enlace oficial:</p>
+<p><a href="http://xn--bnk0-8wa.secure-portal.tk/acceso">https://www.banco-ejemplo.com/entrar</a></p>
+</body></html>

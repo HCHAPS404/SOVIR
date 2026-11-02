@@ -25,7 +25,14 @@
       digest,
       observed_at_ms: Date.now(),
     });
+    // Cheap nudge — the worker decides whether the opt-in visual scan
+    // runs (flag off = no-op). Sent only when the signal set changed.
+    chrome.runtime.sendMessage({ type: "vision-check" });
   }
+
+  // One unconditional nudge per load: a QR-only page carries no text
+  // signals, so the scan trigger cannot depend on them.
+  chrome.runtime.sendMessage({ type: "vision-check" });
 
   // Initial pass + throttled rescan on DOM churn (SPA navigations,
   // lazy-rendered forms).

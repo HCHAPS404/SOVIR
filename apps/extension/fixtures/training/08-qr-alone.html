@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Caso 08 — QR solo</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:2rem auto;color:#333;text-align:center}</style></head>
+<body>
+<!-- TRAINING CASE 08 — vision path, corroboration gate.
+     Expected: TEXT path silent; IMAGE_REGION event [QR_PRESENT]
+     -> default observe / unknown. A visual signal alone NEVER warns. -->
+<h1>Carta del restaurante</h1>
+<p>Escanea el código con la cámara para ver el menú completo.</p>
+<canvas id="qr" width="360" height="360" style="border:1px solid #ccc"></canvas>
+<script src="qr-pattern.js"></script>
+<script>sovirDrawQr(document.getElementById("qr"), 25, 0x1ce7e5);</script>
+</body></html>

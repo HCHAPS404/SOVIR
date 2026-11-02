@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Caso 12 — Romance separado</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:2rem auto;color:#333}
+div{border:1px solid #ddd;padding:.8rem;margin:.6rem 0;border-radius:8px}</style></head>
+<body>
+<!-- TRAINING CASE 12 — HONEST MISS. Chat bubbles: each message is its
+     own block. Love in one, the money ask in another. The extractor
+     requires both inside the same text node, so grooming split across
+     messages escapes v0. Expected: no ROMANCE_BAIT -> no event.
+     Documents the per-block limitation a sequential/ML tier would close. -->
+<div>My love, you are my soulmate. I think about you every day and I
+cannot wait to finally meet you in person.</div>
+<div>Talking to you is the best part of my day, darling.</div>
+<div>By the way, could you help me with the plane ticket? I only need a
+little money to cover it.</div>
+</body></html>

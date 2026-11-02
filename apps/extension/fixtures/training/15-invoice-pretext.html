@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Caso 15 — Pretexto de factura</title>
+<style>body{font-family:sans-serif;max-width:560px;margin:2rem auto;color:#333}
+.inv{border:1px solid #ddd;padding:1.5rem}</style></head>
+<body>
+<!-- TRAINING CASE 15 — invoice pretexting: calm business tone, no
+     threat words, but it harvests card data. Expected:
+     [PAYMENT_REQUEST, IDENTITY_UNVERIFIED] ->
+     compounded_sensitive_request -> warn / high. -->
+<h1>Portal de facturación</h1>
+<div class="inv">
+<p>Estimado cliente: su factura del mes está disponible. Para descargarla,
+confirme los datos de su método de pago habitual.</p>
+<form action="/billing/confirm" method="post">
+  <label>Titular: <input type="text" name="holder"></label>
+  <label>Número de tarjeta: <input type="text" name="card" autocomplete="cc-number"></label>
+  <label>CVV: <input type="text" name="cvv" autocomplete="cc-csc"></label>
+  <button type="submit">Descargar factura</button>
+</form>
+<p style="font-size:12px">Gracias por su preferencia.</p>
+</div>
+</body></html>

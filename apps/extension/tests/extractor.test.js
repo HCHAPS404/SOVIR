@@ -401,3 +401,34 @@ test("span inside feed markup is now scanned (selector widening)", () => {
   );
   assert.ok(extract(d, loc).includes("SCARCITY_PRESSURE"));
 });
+
+test("real fixture page emits the broad synthetic taxonomy", () => {
+  // The fixture is the repo's own end-to-end target — pin that it
+  // still trips a wide slice of the enum (the transport bound is
+  // asserted separately in background.test.js).
+  const html = readFileSync(join(here, "..", "fixtures", "synthetic-phish.html"), "utf8");
+  const { window } = new JSDOM(html);
+  const loc = { protocol: "http:", host: "127.0.0.1:8789", href: "http://127.0.0.1:8789/synthetic-phish.html" };
+  const signals = extract(window.document, loc);
+  assert.ok(signals.length >= 14, `expected broad taxonomy, got ${signals.length}`);
+  for (const s of [
+    "CREDENTIAL_REQUEST",
+    "PAYMENT_REQUEST",
+    "SEED_PHRASE_REQUEST",
+    "OFF_PLATFORM_MOVE",
+    "LINK_DESTINATION_MISMATCH",
+    "IDENTITY_UNVERIFIED",
+  ]) {
+    assert.ok(signals.includes(s), `fixture must emit ${s}`);
+  }
+});
+
+test("romance bait split across chat bubbles (fixture 12)", () => {
+  const html = readFileSync(
+    join(here, "..", "fixtures", "training", "12-romance-split.html"),
+    "utf8",
+  );
+  const { window } = new JSDOM(html, { url: "https://chat.example/" });
+  const signals = extract(window.document, window.location);
+  assert.ok(signals.includes("ROMANCE_BAIT"), "split love+money must trigger");
+});

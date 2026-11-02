@@ -9,13 +9,68 @@ const savedPrincipal = document.querySelector("#saved-principal");
 const oidcIssuer = document.querySelector("#oidc-issuer");
 const oidcClient = document.querySelector("#oidc-client");
 const savedOidc = document.querySelector("#saved-oidc");
+const VISION_KEY = "sovir-vision-enabled";
+const visionToggle = document.querySelector("#vision-enabled");
+const savedVision = document.querySelector("#saved-vision");
+const OBSERVE_ALL_KEY = "sovir-observe-all";
+const BLOCKLIST_KEY = "sovir-observe-blocklist";
+const observeAllToggle = document.querySelector("#observe-all");
+const blocklistInput = document.querySelector("#observe-blocklist");
+const savedObserve = document.querySelector("#saved-observe");
 
-chrome.storage.local.get([KEY, PRINCIPAL_KEY, OIDC_ISSUER_KEY, OIDC_CLIENT_KEY], (s) => {
+chrome.storage.local.get([KEY, PRINCIPAL_KEY, OIDC_ISSUER_KEY, OIDC_CLIENT_KEY, VISION_KEY, BLOCKLIST_KEY], (s) => {
   input.value = s[KEY] ?? "http://127.0.0.1:8787";
   principalInput.value = s[PRINCIPAL_KEY] ?? "";
   principalInput.placeholder = "ext-demo";
   oidcIssuer.value = s[OIDC_ISSUER_KEY] ?? "";
   oidcClient.value = s[OIDC_CLIENT_KEY] ?? "";
+  visionToggle.checked = s[VISION_KEY] === true;
+  blocklistInput.value = (s[BLOCKLIST_KEY] ?? []).join("\n");
+  chrome.permissions.contains({ origins: ["<all_urls>"] }, (has) => {
+    observeAllToggle.checked = has;
+  });
+});
+
+visionToggle.addEventListener("change", () => {
+  chrome.storage.local.set({ [VISION_KEY]: visionToggle.checked }, () => {
+    savedVision.textContent = visionToggle.checked
+      ? "Activo — escanea QR solo en sitios otorgados."
+      : "Desactivado.";
+  });
+});
+
+// ADR-0022: the toggle's own click is the user gesture that fires the
+// native Chrome <all_urls> prompt — that prompt IS the consent moment.
+observeAllToggle.addEventListener("change", () => {
+  if (observeAllToggle.checked) {
+    chrome.permissions.request({ origins: ["<all_urls>"] }, (granted) => {
+      if (!granted) {
+        observeAllToggle.checked = false;
+        savedObserve.textContent = "Permiso no concedido — sigue el modo por sitio.";
+        return;
+      }
+      chrome.storage.local.set({ [OBSERVE_ALL_KEY]: true }, () => {
+        savedObserve.textContent = "Observación amplia activa — excepciones abajo.";
+      });
+    });
+  } else {
+    chrome.permissions.remove({ origins: ["<all_urls>"] }, () => {
+      chrome.storage.local.set({ [OBSERVE_ALL_KEY]: false }, () => {
+        savedObserve.textContent = "Revocado — vuelve el consentimiento por sitio.";
+      });
+    });
+  }
+});
+
+document.querySelector("#save-blocklist").addEventListener("click", () => {
+  const entries = blocklistInput.value
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => /^https?:\/\//.test(l));
+  const patterns = entries.map((l) => l.replace(/\/+$/, "") + "/*");
+  chrome.storage.local.set({ [BLOCKLIST_KEY]: patterns }, () => {
+    savedObserve.textContent = `${patterns.length} excepción(es) guardada(s).`;
+  });
 });
 
 document.querySelector("#save").addEventListener("click", () => {

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Caso 09 — QR + formulario</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:2rem auto;color:#333;text-align:center}</style></head>
+<body>
+<!-- TRAINING CASE 09 — QR plus credential form. Expected TWO events:
+     IMAGE_REGION [QR_PRESENT] -> observe (weak evidence alone),
+     TEXT [CREDENTIAL_REQUEST, IDENTITY_UNVERIFIED] ->
+     compounded_sensitive_request -> warn / high. -->
+<h1>Punto de acceso Wi-Fi</h1>
+<p>Escanea el código e introduce tu contraseña para conectarte.</p>
+<canvas id="qr" width="360" height="360" style="border:1px solid #ccc"></canvas>
+<form action="/wifi-login" method="post" style="margin-top:1rem">
+  <label>Contraseña: <input type="password" name="p"></label>
+  <button type="submit">Conectar</button>
+</form>
+<script src="qr-pattern.js"></script>
+<script>sovirDrawQr(document.getElementById("qr"), 25, 0x5eedca11);</script>
+</body></html>

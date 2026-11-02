@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>SOVIR — Batería de validación</title>
+<style>
+body{font-family:sans-serif;max-width:780px;margin:2rem auto;color:#333}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px 8px;text-align:left;font-size:14px}
+code{font-family:monospace;font-size:12px}.warn{background:#fde8e8}.rev{background:#fdf6e3}.obs{background:#eef4fd}.none{background:#f4f4f4}
+</style></head>
+<body>
+<!-- TRAINING INDEX — descriptions deliberately avoid extractor terms;
+     this page itself must emit nothing (verified via jsdom). -->
+<h1>Batería de validación — extensión SOVIR</h1>
+<p>Origen único <code>http://127.0.0.1:8789</code>: concede una vez
+(&quot;Observar este sitio&quot; en el popup) y abre cada caso en orden.
+La decisión la fija el motor <code>dev-2</code>; compara con lo esperado.</p>
+<table>
+<tr><th>Caso</th><th>Qué muestra</th><th>Esperado</th></tr>
+<tr class="none"><td><a href="01-benign.html">01-benign</a></td><td>Contenido ordinario</td><td><code>∅ — sin evento</code></td></tr>
+<tr class="none"><td><a href="02-romance-love-only.html">02-romance-love-only</a></td><td>Afecto sin pedido monetario</td><td><code>∅ — sin evento</code></td></tr>
+<tr class="rev"><td><a href="03-scarcity-weak.html">03-scarcity-weak</a></td><td>Presión de escasez aislada</td><td><code>review / elevated</code></td></tr>
+<tr class="warn"><td><a href="04-login-plain-http.html">04-login-plain-http</a></td><td>Formulario de clave en HTTP plano</td><td><code>warn / high</code></td></tr>
+<tr class="warn"><td><a href="05-extortion.html">05-extortion</a></td><td>Amenaza de difusión + presión</td><td><code>warn / high</code></td></tr>
+<tr class="warn"><td><a href="06-seed-phrase.html">06-wallet</a></td><td>Solicitud de recuperación de wallet</td><td><code>warn / high</code></td></tr>
+<tr class="warn"><td><a href="07-link-spoof.html">07-link-spoof</a></td><td>Enlace que miente su destino + clave</td><td><code>warn / high</code></td></tr>
+<tr class="obs"><td><a href="08-qr-alone.html">08-qr-alone</a></td><td>Patrón QR sin contexto (visión)</td><td><code>IMAGE_REGION → observe</code></td></tr>
+<tr class="warn"><td><a href="09-qr-phish.html">09-qr-phish</a></td><td>Patrón QR + formulario de clave</td><td><code>TEXT warn + IMAGE_REGION observe</code></td></tr>
+<tr class="warn"><td><a href="../synthetic-phish.html">10-synthetic-phish</a></td><td>Fixture completo (todo junto)</td><td><code>warn / high</code></td></tr>
+<tr><th colspan="3" style="text-align:left;background:#eee">Ingeniería social sutil</th></tr>
+<tr class="warn"><td><a href="11-polite-credential.html">11-polite-credential</a></td><td>Login bancario cortés, sin presión</td><td><code>warn / high</code></td></tr>
+<tr class="none"><td><a href="12-romance-split.html">12-romance-split</a></td><td>Burbujas: amor en una, dinero en otra</td><td><code>∅ MISS documentado</code></td></tr>
+<tr class="warn"><td><a href="13-lookalike-link.html">13-lookalike-link</a></td><td>Enlace punycode que miente su dominio</td><td><code>warn / high</code></td></tr>
+<tr class="warn"><td><a href="14-marketplace-gray.html">14-marketplace-gray</a></td><td>Clasificado con vocabulario de cebo</td><td><code>warn — zona gris real</code></td></tr>
+<tr class="warn"><td><a href="15-invoice-pretext.html">15-invoice-pretext</a></td><td>Factura cortés que pide tarjeta</td><td><code>warn / high</code></td></tr>
+<tr class="warn"><td><a href="16-job-fee.html">16-job-fee</a></td><td>Empleo remoto con cuota inicial</td><td><code>warn / high</code></td></tr>
+</table>
+<p>Silencio en 01/02 es éxito: SOVIR no reporta navegación ordinaria.
+El QR (08) nunca escala por sí solo — la corroboración es estructural.</p>
+</body></html>

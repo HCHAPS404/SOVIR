@@ -114,6 +114,46 @@ test("dedupe suppresses the same digest within the TTL window", async () => {
   assert.equal(events.length, 1);
 });
 
+test("emitted event honours the ≤8-signal contract bound", async () => {
+  // observed-event.schema.json caps signals at 8; a pathological page
+  // can trip more. The emitter must keep the highest-evidence ones.
+  const res = await send({
+    type: "observation",
+    signals: [
+      "TRACKING_OBSERVED",
+      "IDENTITY_UNVERIFIED",
+      "URGENT_ACTION",
+      "CONSENT_DARK_PATTERN",
+      "SCARCITY_PRESSURE",
+      "SUSPICIOUS_DOMAIN",
+      "LINK_DESTINATION_MISMATCH",
+      "OFF_PLATFORM_MOVE",
+      "AUTHORITY_IMPERSONATION",
+      "GIFT_CARD_PAYMENT",
+      "CREDENTIAL_REQUEST",
+      "PAYMENT_REQUEST",
+      "EXTORTION_LANGUAGE",
+      "SEED_PHRASE_REQUEST",
+    ],
+    digest: "sha256:big",
+    observed_at_ms: 1,
+  });
+  assert.equal(res.ok, true);
+  const event = fetchCalls.find((c) => c.url.endsWith("/v1/events"));
+  const emitted = JSON.parse(event.init.body).signals;
+  assert.equal(emitted.length, 8);
+  assert.deepEqual(emitted, [
+    "SEED_PHRASE_REQUEST",
+    "EXTORTION_LANGUAGE",
+    "PAYMENT_REQUEST",
+    "CREDENTIAL_REQUEST",
+    "GIFT_CARD_PAYMENT",
+    "AUTHORITY_IMPERSONATION",
+    "OFF_PLATFORM_MOVE",
+    "LINK_DESTINATION_MISMATCH",
+  ]);
+});
+
 test("401 on ingest triggers exactly one reconnect then retry", async () => {
   let eventCalls = 0;
   fetchBehavior = (url) => {
@@ -198,4 +238,82 @@ test("event body never carries page text — only digest + enum signals", async 
   assert.equal(body.title, undefined);
   assert.equal(body.sensitive_data_class, "PUBLIC");
   assert.equal(body.modality, "TEXT");
+});
+
+// ---------------------------------------------------------------------------
+// Vision path: the real vision.js scan runs against a stubbed capture
+// seam — the test pins gating, modality, and the no-pixels invariant.
+// ---------------------------------------------------------------------------
+const visionSrc = readFileSync(join(here, "..", "vision.js"), "utf8");
+
+function installVision(qrFrame) {
+  new Function(visionSrc)();
+  globalThis.sovirCapturePixels = async () => qrFrame;
+}
+
+function qrImage() {
+  // Synthetic QR: three finder patterns on light ground.
+  const w = 96;
+  const data = new Uint8ClampedArray(w * w * 4);
+  for (let i = 0; i < data.length; i += 4) data.set([240, 240, 240, 255], i);
+  const paint = (x0, y0, x1, y1, px) => {
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) data.set(px, (y * w + x) * 4);
+  };
+  const finder = (ox, oy) => {
+    paint(ox, oy, ox + 14, oy + 14, [20, 20, 20, 255]);
+    paint(ox + 2, oy + 2, ox + 12, oy + 12, [240, 240, 240, 255]);
+    paint(ox + 4, oy + 4, ox + 10, oy + 10, [20, 20, 20, 255]);
+  };
+  finder(8, 8);
+  finder(72, 8);
+  finder(8, 72);
+  return { data, width: w, height: w };
+}
+
+function sendVision(windowId = 3) {
+  return new Promise((resolve) =>
+    messageHandler({ type: "vision-check" }, { tab: { id: 7, windowId } }, resolve),
+  );
+}
+
+test("vision-check with the flag off never captures", async () => {
+  installVision(qrImage());
+  const res = await sendVision();
+  assert.equal(res.disabled, true);
+  assert.equal(fetchCalls.length, 0);
+});
+
+test("vision-check enabled emits IMAGE_REGION event with QR_PRESENT", async () => {
+  installVision(qrImage());
+  storageLocal["sovir-vision-enabled"] = true;
+  const res = await sendVision();
+  assert.equal(res.ok, true);
+  const event = fetchCalls.find((c) => c.url.endsWith("/v1/events"));
+  const body = JSON.parse(event.init.body);
+  assert.equal(body.modality, "IMAGE_REGION");
+  assert.deepEqual(body.signals, ["QR_PRESENT"]);
+  assert.ok(body.content_digest.startsWith("sha256:"));
+  assert.equal(body.sensitive_data_class, "PUBLIC");
+  // The invariant: no pixels, no dataUrl, no DOM — only enums + digest.
+  assert.equal(body.data, undefined);
+  assert.equal(body.image, undefined);
+  assert.equal(body.url, undefined);
+});
+
+test("vision-check on a clean page emits nothing", async () => {
+  installVision({ data: new Uint8ClampedArray(96 * 96 * 4).fill(240), width: 96, height: 96 });
+  storageLocal["sovir-vision-enabled"] = true;
+  const res = await sendVision();
+  assert.deepEqual(res.signals, []);
+  assert.equal(fetchCalls.filter((c) => c.url.endsWith("/v1/events")).length, 0);
+});
+
+test("vision-check paused is dropped before any capture", async () => {
+  installVision(qrImage());
+  storageLocal["sovir-vision-enabled"] = true;
+  await send({ type: "set-paused", paused: true });
+  const res = await sendVision();
+  assert.equal(res.paused, true);
+  assert.equal(fetchCalls.filter((c) => c.url.endsWith("/v1/events")).length, 0);
 });

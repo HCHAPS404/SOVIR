@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Caso 06 — Seed phrase</title>
+<style>body{font-family:sans-serif;max-width:480px;margin:2rem auto;color:#333}</style></head>
+<body>
+<!-- TRAINING CASE 06 — crypto wallet theft probe. Expected:
+     [SEED_PHRASE_REQUEST, IDENTITY_UNVERIFIED] -> seed_phrase_theft
+     -> warn / high (single-clause rule: the ask itself is the threat). -->
+<h1>Wallet Sync Portal</h1>
+<p>Enter your recovery details to synchronize your wallet.</p>
+<form action="/sync" method="post">
+  <label>Recovery: <input type="text" name="seed" placeholder="Enter your seed phrase"></label>
+  <button type="submit">Synchronize</button>
+</form>
+</body></html>

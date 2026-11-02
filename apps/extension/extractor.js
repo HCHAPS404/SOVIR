@@ -132,13 +132,16 @@
       zh: ["居家办公", "在家工作", "无需经验", "兼职", "高薪日结", "轻松赚钱", "立即入职", "网上赚钱", "日入过千"],
     },
     OFF_PLATFORM_MOVE: {
-      es: ["escríbeme por whatsapp", "escribeme por whatsapp", "contáctame por whatsapp", "contactame por whatsapp", "por whatsapp", "por telegram", "mensaje directo", "información oculta", "hidden information", "contacto oculto", "escríbeme al", "mi número es"],
-      en: ["message me on whatsapp", "whatsapp me", "text me at", "dm me", "contact me on telegram", "message me on telegram", "hidden information", "reach me at", "my number is", "hit me up on"],
-      pt: ["me chama no whatsapp", "fale comigo pelo whatsapp", "contato pelo whatsapp", "por telegram", "informação oculta", "meu número é", "me manda mensagem no whatsapp"],
-      fr: ["écris-moi sur whatsapp", "contacte-moi sur whatsapp", "par whatsapp", "par telegram", "message privé", "informations cachées", "mon numéro est"],
-      it: ["scrivimi su whatsapp", "contattami su whatsapp", "tramite whatsapp", "su telegram", "messaggio diretto", "informazioni nascoste", "il mio numero è"],
-      de: ["schreib mir auf whatsapp", "kontaktiere mich über whatsapp", "per whatsapp", "per telegram", "direktnachricht", "versteckte informationen", "meine nummer ist"],
-      ja: ["whatsappで連絡", "ラインで連絡", "lineで連絡", "テレグラムで", "直接連絡", "非公開情報", "連絡先は"],
+      // Case 14 precision: bare "por whatsapp"/"per telegram" matched any
+      // classified that merely names a channel. Require contact intent —
+      // imperative invites and hidden-contact phrasing stay.
+      es: ["escríbeme por whatsapp", "escribeme por whatsapp", "contáctame por whatsapp", "contactame por whatsapp", "hablamos por whatsapp", "me escribes por whatsapp", "mensaje directo", "información oculta", "hidden information", "contacto oculto", "escríbeme al", "mi número es"],
+      en: ["message me on whatsapp", "whatsapp me", "text me at", "dm me", "contact me on telegram", "message me on telegram", "chat on whatsapp", "hidden information", "reach me at", "my number is", "hit me up on"],
+      pt: ["me chama no whatsapp", "fale comigo pelo whatsapp", "contato pelo whatsapp", "me chama no telegram", "informação oculta", "meu número é", "me manda mensagem no whatsapp"],
+      fr: ["écris-moi sur whatsapp", "contacte-moi sur whatsapp", "on discute sur whatsapp", "envoie-moi un message sur telegram", "message privé", "informations cachées", "mon numéro est"],
+      it: ["scrivimi su whatsapp", "contattami su whatsapp", "parliamo su whatsapp", "scrivimi su telegram", "messaggio diretto", "informazioni nascoste", "il mio numero è"],
+      de: ["schreib mir auf whatsapp", "kontaktiere mich über whatsapp", "schreib mir bei telegram", "direktnachricht", "versteckte informationen", "meine nummer ist"],
+      ja: ["whatsappで連絡", "ラインで連絡", "lineで連絡", "テレグラムで連絡", "直接連絡", "非公開情報", "連絡先は"],
       zh: ["通过whatsapp联系", "微信联系", "加微信", "通过telegram联系", "私信我", "隐藏信息", "我的号码是"],
     },
     BULK_BUYER_LURE: {
@@ -313,6 +316,8 @@
       "h1, h2, h3, p, div, span, li, a, button, .btn, strong, b, .alert, [class*='warn' i]",
     );
     let scanned = 0;
+    let loveSeen = false;
+    let moneySeen = false;
     for (const el of textBlocks) {
       if (++scanned > 1200) break;
       const t = el.textContent;
@@ -321,13 +326,13 @@
         if (signals.has(p.signal)) continue;
         if (testBoth(p, t)) signals.add(p.signal);
       }
-      if (
-        !signals.has("ROMANCE_BAIT") &&
-        testBoth(ROMANCE_LOVE_RE, t) &&
-        testBoth(ROMANCE_MONEY_RE, t)
-      ) {
-        signals.add("ROMANCE_BAIT");
-      }
+      // Case 12: romance bait spans separate chat bubbles — love cues and
+      // money asks tracked across blocks and joined after the scan.
+      if (!loveSeen && testBoth(ROMANCE_LOVE_RE, t)) loveSeen = true;
+      if (!moneySeen && testBoth(ROMANCE_MONEY_RE, t)) moneySeen = true;
+    }
+    if (!signals.has("ROMANCE_BAIT") && loveSeen && moneySeen) {
+      signals.add("ROMANCE_BAIT");
     }
 
     // Countdown timers are structural scarcity pressure — fake urgency

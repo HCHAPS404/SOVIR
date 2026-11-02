@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Caso 01 — Página benigna</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:2rem auto;color:#333}</style></head>
+<body>
+<!-- TRAINING CASE 01 — benign. Expected: 0 signals -> NO event emitted.
+     Silence is the correct outcome; SOVIR does not track browsing. -->
+<h1>Panadería La Espiga</h1>
+<p>Pan artesanal de masa madre. Abrimos de martes a domingo, 7:00–14:00.</p>
+<p>Nos encontrarás en el mercado central, puesto 12. También hacemos pedidos
+para cafeterías del barrio.</p>
+<h2>Contacto</h2>
+<form action="/contacto" method="post">
+  <label>Nombre: <input type="text" name="nombre"></label>
+  <label>Correo: <input type="email" name="email"></label>
+  <label>Mensaje: <textarea name="mensaje"></textarea></label>
+  <button type="submit">Enviar</button>
+</form>
+<p>Horario de reparto: mañanas. Precios en vitrina, IVA incluido.</p>
+</body></html>

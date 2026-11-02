@@ -7,68 +7,134 @@
     <script src="theme.js"></script>
   </head>
   <body>
-    <main style="width: min(640px, 100%)">
-      <p class="brand-lockup"><span class="mark" aria-hidden="true"></span><span class="brand-name">SOVIR</span></p>
+    <header class="topbar">
+      <span class="brand-lockup"><span class="mark" aria-hidden="true"></span><span class="brand-name">SOVIR</span></span>
       <div class="theme-switch" role="group" aria-label="Tema">
         <button type="button" data-theme-choice="light">Claro</button>
         <button type="button" data-theme-choice="dark">Oscuro</button>
       </div>
-      <p class="note">Observación opt-in por sitio. Emite señales tipadas, nunca contenido.</p>
-      <h1>Opciones</h1>
-      <p>
-        La observación se activa sitio a sitio desde el popup (permiso opcional de Chrome). Cada
-        sitio concedido inyecta <code>content.js</code>, que extrae señales tipadas —
-        <code>CREDENTIAL_REQUEST</code>, <code>PAYMENT_REQUEST</code>, <code>URGENT_ACTION</code>,
-        <code>CONSENT_DARK_PATTERN</code>, <code>TRACKING_OBSERVED</code>,
-        <code>IDENTITY_UNVERIFIED</code> — y un digest sha256 de metadatos. Nunca sale texto, DOM ni
-        valores de campos de la página.
-      </p>
-      <p>
-        Los eventos van a la API dev local (<code>http://127.0.0.1:8787</code>) bajo el grant{" "}
-        <code>ext-observer-grant</code> de la fuente <code>screen-observer:ext</code>. Revocar el
-        grant o el dispositivo en la consola corta la ingesta al instante.
-      </p>
-      <p>La observación de píxeles/pantalla completa no existe en la extensión: es metadata de página.</p>
-      <h2>API</h2>
-      <p>
-        <label>
-          URL base de la API
-          <input id="api-url" type="url" value="http://127.0.0.1:8787" />
+    </header>
+    <main class="options">
+      <header class="page-head">
+        <h1>Opciones</h1>
+        <p class="lede">Observación opt-in por sitio. Emite señales tipadas y un digest de metadatos — nunca contenido de la página.</p>
+      </header>
+
+      <section class="card">
+        <p class="kicker">Qué observa</p>
+        <h2>Cómo funciona</h2>
+        <p>
+          La observación se activa sitio a sitio desde el popup (permiso opcional de Chrome). Cada
+          sitio concedido inyecta <code>content.js</code>, que extrae señales tipadas y un digest
+          sha256 de metadatos. Nunca sale texto, DOM ni valores de campos de la página.
+        </p>
+        <ul class="chips" aria-label="Ejemplos de señales">
+          <li>CREDENTIAL_REQUEST</li>
+          <li>PAYMENT_REQUEST</li>
+          <li>URGENT_ACTION</li>
+          <li>CONSENT_DARK_PATTERN</li>
+          <li>TRACKING_OBSERVED</li>
+          <li>IDENTITY_UNVERIFIED</li>
+          <li>QR_PRESENT</li>
+        </ul>
+        <p>
+          Los eventos van a la API dev local (<code>http://127.0.0.1:8787</code>) bajo el grant
+          <code>ext-observer-grant</code> de la fuente <code>screen-observer:ext</code>. Revocar el
+          grant o el dispositivo en la consola corta la ingesta al instante.
+        </p>
+      </section>
+
+      <section class="card">
+        <p class="kicker">Opt-in</p>
+        <h2>Visión (experimental)</h2>
+        <p>
+          Análisis visual limitado: una captura de la pestaña otorgada se reduce en el worker, se
+          escanean patrones QR y se descarta — el evento lleva solo <code>QR_PRESENT</code> + digest
+          del frame, nunca píxeles ni OCR de página completa.
+        </p>
+        <label class="check" for="vision-enabled">
+          <input id="vision-enabled" type="checkbox" />
+          <span>Activar detección de códigos QR en sitios otorgados</span>
         </label>
-        <button id="save" type="button">Guardar</button>
-        <span id="saved" class="note"></span>
-      </p>
-      <h2>Tu cuenta</h2>
-      <p>
-        La identidad con la que abres la consola (<code>http://127.0.0.1:3001</code>). Los eventos
-        que observe esta extensión aparecerán bajo esa misma cuenta.
-      </p>
-      <p>
-        <label>
-          Tu identidad en la consola
-          <input id="principal" type="text" placeholder="ext-demo" />
+        <p id="saved-vision" class="hint" role="status"></p>
+      </section>
+
+      <section class="card">
+        <p class="kicker">Opt-in amplio</p>
+        <h2>Observar todos los sitios (experimental)</h2>
+        <p>
+          Por defecto la observación se concede sitio a sitio. Si activas esto, Chrome te pedirá
+          permiso para <em>todos</em> los sitios una sola vez — ese prompt es tu consentimiento
+          explícito. Puedes excluir orígenes abajo y apagar el toggle cuando quieras (revoca el
+          permiso al instante).
+        </p>
+        <label class="check" for="observe-all">
+          <input id="observe-all" type="checkbox" />
+          <span>Observar todos los sitios que abra</span>
         </label>
-        <button id="save-principal" type="button">Guardar</button>
-        <span id="saved-principal" class="note"></span>
-      </p>
-      <h2>Cuenta real (OIDC)</h2>
-      <p>
-        Si tienes un proveedor de identidad (p. ej. Keycloak local), configúralo aquí y la
-        extensión iniciará sesión contigo en vez de usar la cuenta de demostración. Vacío = modo
-        demo local.
-      </p>
-      <p>
-        <label>
-          Issuer OIDC (realm URL)
-          <input id="oidc-issuer" type="url" placeholder="http://127.0.0.1:8081/realms/sovir" />
-        </label>
-        <label>
-          Client ID
-          <input id="oidc-client" type="text" placeholder="sovir-extension" />
-        </label>
-        <button id="save-oidc" type="button">Guardar</button>
-        <span id="saved-oidc" class="note"></span>
-      </p>
+        <div class="field-row">
+          <label for="observe-blocklist">
+            Excepciones — un origen por línea (nunca se observan)
+            <textarea id="observe-blocklist" rows="3" placeholder="https://mail.google.com&#10;https://banca.ejemplo.com"></textarea>
+          </label>
+          <button id="save-blocklist" type="button">Guardar</button>
+        </div>
+        <p id="saved-observe" class="hint" role="status"></p>
+      </section>
+
+      <section class="card">
+        <p class="kicker">Conexión</p>
+        <h2>API</h2>
+        <div class="field-row">
+          <label for="api-url">
+            URL base de la API
+            <input id="api-url" type="url" value="http://127.0.0.1:8787" />
+          </label>
+          <button id="save" type="button">Guardar</button>
+        </div>
+        <p id="saved" class="hint" role="status"></p>
+      </section>
+
+      <section class="card">
+        <p class="kicker">Identidad demo</p>
+        <h2>Tu cuenta</h2>
+        <p>
+          La identidad con la que abres la consola (<code>http://127.0.0.1:3001</code>). Los eventos
+          que observe esta extensión aparecerán bajo esa misma cuenta.
+        </p>
+        <div class="field-row">
+          <label for="principal">
+            Tu identidad en la consola
+            <input id="principal" type="text" placeholder="ext-demo" />
+          </label>
+          <button id="save-principal" type="button">Guardar</button>
+        </div>
+        <p id="saved-principal" class="hint" role="status"></p>
+      </section>
+
+      <section class="card">
+        <p class="kicker">Identidad real</p>
+        <h2>Cuenta real (OIDC)</h2>
+        <p>
+          Si tienes un proveedor de identidad (p. ej. Keycloak local), configúralo aquí y la
+          extensión iniciará sesión contigo en vez de usar la cuenta de demostración. Vacío = modo
+          demo local.
+        </p>
+        <div class="field-row">
+          <label for="oidc-issuer">
+            Issuer OIDC (realm URL)
+            <input id="oidc-issuer" type="url" placeholder="http://127.0.0.1:8081/realms/sovir" />
+          </label>
+        </div>
+        <div class="field-row">
+          <label for="oidc-client">
+            Client ID
+            <input id="oidc-client" type="text" placeholder="sovir-extension" />
+          </label>
+          <button id="save-oidc" type="button">Guardar</button>
+        </div>
+        <p id="saved-oidc" class="hint" role="status"></p>
+      </section>
       <script src="options.js"></script>
     </main>
   </body>

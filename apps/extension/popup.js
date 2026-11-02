@@ -21,14 +21,19 @@ async function grantedOrigins() {
 
 async function paintApi() {
   const state = await chrome.runtime.sendMessage({ type: "get-state" });
-  apiEl.textContent = state?.ready
+  apiEl.querySelector(".status-text").textContent = state?.ready
     ? `API conectada · ${state.principal}`
     : "API: sin conexión — arranca cargo run -p sovir-api";
+  apiEl.classList.toggle("is-on", !!state?.ready);
   pauseBtn.textContent = state?.paused ? "Reanudar" : "Pausar todo";
   pauseBtn.dataset.paused = state?.paused ? "true" : "false";
   errorEl.textContent = state?.lastError ? `Último error: ${state.lastError}` : "";
   lastEl.textContent = state?.lastObservation
-    ? `Última emisión ${fmtTime(state.lastObservation.at_ms)}: ${state.lastObservation.signals.join(", ")}`
+    ? `Última emisión ${fmtTime(state.lastObservation.at_ms)}${
+        state.lastObservation.modality && state.lastObservation.modality !== "TEXT"
+          ? ` [${state.lastObservation.modality}]`
+          : ""
+      }: ${state.lastObservation.signals.join(", ")}`
     : "";
   return state;
 }
@@ -37,13 +42,17 @@ async function paintSite() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentTab = tab;
   if (!tab?.url || !/^https?:/.test(tab.url)) {
-    siteEl.textContent = "Este sitio: no observable";
+    siteEl.querySelector(".status-text").textContent = "Este sitio: no observable";
+    siteEl.classList.remove("is-on");
     observeBtn.disabled = true;
     return;
   }
   const origin = new URL(tab.url).origin;
   const granted = await chrome.permissions.contains({ origins: [`${origin}/*`] });
-  siteEl.textContent = granted ? `Observando ${origin}` : `Sin observar ${origin}`;
+  siteEl.querySelector(".status-text").textContent = granted
+    ? `Observando ${origin}`
+    : `Sin observar ${origin}`;
+  siteEl.classList.toggle("is-on", granted);
   observeBtn.textContent = granted ? "Observación activa" : "Observar este sitio";
   observeBtn.disabled = granted;
 }
