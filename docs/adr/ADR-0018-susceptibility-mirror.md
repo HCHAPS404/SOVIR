@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed — pending maintainer signoff. **No storage, scoring, or UI for a
-user susceptibility profile may be implemented until this ADR is signed.**
+
+Accepted — maintainer signoff 2026-11-02.
 This ADR proposes amending invariant 7; the amendment text in §Decision 2
 takes effect only with explicit human approval.
 

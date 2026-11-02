@@ -1,6 +1,6 @@
 # ADR-0019 — OCR on-device como modalidad de extracción (propuesta)
 
-- Status: Proposed — pending maintainer signoff
+- Status: Accepted — maintainer signoff 2026-11-02
 - Date: 2026-10-29
 - Owners: platform (Cursor) + backend (Claude)
 - Related issue: edge plane v2; extends ADR-0014, ADR-0015

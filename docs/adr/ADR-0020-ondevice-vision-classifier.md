@@ -1,6 +1,6 @@
 # ADR-0020 — Clasificador de visión on-device (propuesta)
 
-- Status: Proposed — pending maintainer signoff
+- Status: Accepted — maintainer signoff 2026-11-02
 - Date: 2026-10-29
 - Owners: backend (Claude) + platform (Cursor)
 - Related issue: edge plane v3; extends ADR-0015, ADR-0019

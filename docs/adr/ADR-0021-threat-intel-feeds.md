@@ -1,6 +1,6 @@
 # ADR-0021 — Fuentes de threat intel curadas (propuesta)
 
-- Status: Proposed — pending maintainer signoff
+- Status: Accepted — maintainer signoff 2026-11-02
 - Date: 2026-10-29
 - Owners: backend (Devin) + arquitectura (ChatGPT)
 - Related issue: intel seam; extends ADR-0012
