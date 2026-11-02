@@ -6,6 +6,7 @@ import {
 } from "../../lib/actions";
 import { listDevices, whoami } from "../../lib/api";
 import { describePlatform } from "../../lib/humanize";
+import { getLocale, stringsFor } from "../../lib/i18n";
 import { live } from "../../lib/live";
 import { getView } from "../../lib/view";
 
@@ -61,6 +62,8 @@ export default async function DevicesPage() {
   const [devices, me] = await Promise.all([live(listDevices), live(whoami)]);
   const view = await getView(me?.is_admin);
   const dev = view === "dev";
+  const locale = await getLocale();
+  const s = stringsFor(locale);
 
   const activeDevices = devices?.filter((d) => !d.revoked_at_ms) ?? [];
 
@@ -92,19 +95,16 @@ export default async function DevicesPage() {
                   aria-hidden="true"
                 />
                 {activeDevices.length > 0
-                  ? `${activeDevices.length} ${activeDevices.length === 1 ? "dispositivo conectado" : "dispositivos conectados"} a tu cuenta`
-                  : "Aún no has vinculado ningún dispositivo"}
+                  ? s.devices.kickerConnected(activeDevices.length)
+                  : s.devices.kickerNone}
               </p>
-              <h1>Mis dispositivos</h1>
-              <p className="page-head-sub">
-                Aquí aparecen tus navegadores, teléfonos o computadoras cuando inicias sesión en
-                ellos. Si ya no usas alguno, puedes desconectarlo con un clic.
-              </p>
+              <h1>{s.devices.title}</h1>
+              <p className="page-head-sub">{s.devices.sub}</p>
             </div>
             <div className="head-actions">
               <form action={connectThisDeviceAction}>
                 <button className="btn-op btn-op--primary" type="submit">
-                  + Conectar este navegador
+                  {s.devices.connectButton}
                 </button>
               </form>
             </div>
@@ -115,19 +115,15 @@ export default async function DevicesPage() {
               <div>
                 <span className="chip chip--warning">
                   <i className="dot dot--warning" />
-                  Ningún equipo vinculado todavía
+                  {s.devices.noneChip}
                 </span>
-                <h2>Conecta este navegador para empezar</h2>
-                <p>
-                  No necesitas escribir nombres técnicos ni configurar nada a mano: cuando abres
-                  SOVIR en un equipo o navegador y entras a tu cuenta, queda vinculado
-                  automáticamente.
-                </p>
+                <h2>{s.devices.noneTitle}</h2>
+                <p>{s.devices.noneSub}</p>
               </div>
               <div>
                 <form action={connectThisDeviceAction}>
                   <button className="btn-op btn-op--primary" type="submit">
-                    Conectar este navegador ahora
+                    {s.devices.noneButton}
                   </button>
                 </form>
               </div>
@@ -142,26 +138,28 @@ export default async function DevicesPage() {
                       <div>
                         <span className="panel-kicker">{describePlatform(d.platform)}</span>
                         <h3>{d.label || describePlatform(d.platform)}</h3>
-                        <p>
-                          {active
-                            ? "Conectado a tu cuenta y listo para avisarte ante estafas."
-                            : "Desconectado — ya no envía información a tu cuenta."}
+                        <p>{active ? s.devices.cardActive : s.devices.cardRevoked}</p>
+                        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                          {s.devices.lastSeen}:{" "}
+                          {d.last_seen_at_ms
+                            ? new Date(d.last_seen_at_ms).toLocaleString(locale)
+                            : s.devices.lastSeenNever}
                         </p>
                       </div>
                       <span className={`chip chip--${active ? "success" : "unknown"}`}>
                         <i className={`dot dot--${active ? "success" : "unknown"}`} />
-                        {active ? "conectado" : "desconectado"}
+                        {active ? s.devices.chipOn : s.devices.chipOff}
                       </span>
                     </div>
                     {active ? (
                       <div className="entity-card-foot">
                         <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-                          ¿Ya no usas este equipo?
+                          {s.devices.disconnectAsk}
                         </span>
                         <form action={revokeDeviceAction}>
                           <input type="hidden" name="device_id" value={d.device_id} />
                           <button className="btn-op btn-op--danger" type="submit">
-                            Desconectar
+                            {s.devices.disconnect}
                           </button>
                         </form>
                       </div>

@@ -1,16 +1,29 @@
+import { cookies } from "next/headers";
 import { ConsoleFrame, requireApiSession } from "../../components/ConsoleFrame";
+import { SubmitButton } from "../../components/SubmitButton";
 import {
+  assessEventSignalsAction,
   dispatchInterventionsAction,
   emitSequencePair,
   emitUiTreeObservation,
 } from "../../lib/actions";
-import { exportData } from "../../lib/api";
+import { exportData, type InferenceVerdict } from "../../lib/api";
 import { timeAgo } from "../../lib/digest";
-import { describeIntervention } from "../../lib/humanize";
+import { describeHypothesis, describeIntervention } from "../../lib/humanize";
 import { live } from "../../lib/live";
 import { getView } from "../../lib/view";
 
 export const metadata = { title: "Avisos de seguridad" };
+
+interface EventInferenceResult {
+  ok: boolean;
+  event_id: string;
+  privacy: "private" | "standard";
+  signals: string[];
+  at_ms: number;
+  verdict?: InferenceVerdict;
+  error?: string;
+}
 
 function SegBar({
   active,
@@ -47,6 +60,17 @@ export default async function IncidentsPage() {
   const dev = view === "dev";
   const data = await live(exportData);
   const now = Date.now();
+  const jar = await cookies();
+  const rawInf = jar.get("sovir_last_inference")?.value;
+  let lastInference: EventInferenceResult | null = null;
+  if (rawInf) {
+    try {
+      const parsed = JSON.parse(rawInf) as EventInferenceResult;
+      if (parsed.event_id) lastInference = parsed;
+    } catch {
+      lastInference = null;
+    }
+  }
 
   const items = data?.interventions ?? [];
   const events = data?.events ?? [];
@@ -360,6 +384,54 @@ export default async function IncidentsPage() {
                       <span className="kanban-code">{e.event_id.slice(0, 10).toUpperCase()}</span>
                     </div>
                     <p>{e.signals.join(" · ") || "sin señales"}</p>
+                    {e.signals.length > 0 ? (
+                      <form action={assessEventSignalsAction} className="form-row">
+                        <input type="hidden" name="event_id" value={e.event_id} />
+                        <input type="hidden" name="signals" value={e.signals.join(",")} />
+                        <input type="hidden" name="privacy" value="standard" />
+                        <SubmitButton label="Analizar con IA" pendingLabel="Analizando…" />
+                      </form>
+                    ) : null}
+                    {lastInference?.event_id === e.event_id ? (
+                      <div className="entity-card" style={{ marginTop: "0.35rem" }} role="status">
+                        <div className="entity-card-head">
+                          <div>
+                            <span className="panel-kicker">
+                              Hipótesis IA · {lastInference.privacy.toUpperCase()}
+                            </span>
+                            <h3>
+                              {lastInference.ok && lastInference.verdict
+                                ? `Veredicto de ${lastInference.verdict.model_id}`
+                                : "Proveedor no disponible"}
+                            </h3>
+                          </div>
+                          <span className={`chip chip--${lastInference.ok ? "success" : "warning"}`}>
+                            <i className={`dot dot--${lastInference.ok ? "success" : "warning"}`} />
+                            {lastInference.ok ? "evaluado" : lastInference.error ?? "503"}
+                          </span>
+                        </div>
+                        {lastInference.ok && lastInference.verdict ? (
+                          <ul className="kv-list">
+                            <li>
+                              <span>Hipótesis</span>
+                              <strong>
+                                {lastInference.verdict.hypotheses.map(describeHypothesis).join(", ") || "—"}
+                              </strong>
+                            </li>
+                            <li>
+                              <span>Confianza</span>
+                              <strong>
+                                {(lastInference.verdict.confidence_bp / 100).toFixed(1)}%
+                              </strong>
+                            </li>
+                            <li>
+                              <span>Provenance</span>
+                              <strong>{lastInference.verdict.provenance}</strong>
+                            </li>
+                          </ul>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="kanban-card-foot">
                       <SegBar
                         active={Math.min(5, Math.max(1, e.signals.length * 2))}

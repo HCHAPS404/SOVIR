@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import type { BudgetView, Principal, PrincipalDataExport } from "../lib/api";
 import {
   connectThisDeviceAction,
@@ -15,27 +16,10 @@ import {
   trendDelta,
   weeklyDigest,
 } from "../lib/digest";
+import { fill, getLocale, stringsFor } from "../lib/i18n";
+import { TIPS } from "../lib/tips-i18n";
 import { getView } from "../lib/view";
 import { Sparkline } from "./Sparkline";
-
-const tips = [
-  {
-    q: "1. Si algo te exige actuar “YA MISMO”",
-    a: "Cuenta bloqueada, supuesto premio, multa o paquete retenido: la prisa artificial es el truco favorito del estafador para que no pienses. Detente y verifica por otro medio.",
-  },
-  {
-    q: "2. Primero te asustan, luego te piden pagar",
-    a: "Casi todas las estafas siguen el mismo orden: primero crean miedo o urgencia y enseguida te piden una transferencia o tarjeta. SOVIR detecta esa secuencia automáticamente.",
-  },
-  {
-    q: "3. Nombres parecidos a tu banco o empresa",
-    a: "Los impostores copian logotipos y usan direcciones casi idénticas a las oficiales. Si alguien te pide claves o códigos por mensaje, desconfía siempre.",
-  },
-  {
-    q: "4. Botones diseñados para confundirte",
-    a: "Páginas donde el botón de “Aceptar cobro” brilla y el de “Rechazar” está escondido, o casillas ya marcadas sin tu permiso. SOVIR te avisa cuando detecta estas trampas.",
-  },
-] as const;
 
 const CAT_COLORS = ["amber", "copper", "plum", "slate", "sage", "brand"] as const;
 
@@ -72,10 +56,17 @@ export async function OverviewBoard({
 }) {
   const view = await getView(me?.is_admin);
   const dev = view === "dev";
+  const locale = await getLocale();
+  const s = stringsFor(locale);
+  const tips = TIPS[locale];
   const now = Date.now();
   const digest = data ? weeklyDigest(data, now) : null;
   const feed = data ? recentActivity(data, 8) : [];
-  const nick = me?.principal_id.replace(/^console-/, "") ?? "usuario";
+  // preferred_username (display-only cookie set at login) wins over the
+  // raw principal_id — under OIDC that id is the `sub` UUID.
+  const displayName = (await cookies()).get("sovir_display_name")?.value;
+  const nick =
+    displayName || (me?.principal_id.replace(/^console-/, "") ?? "usuario");
 
   const activityTrend = digest
     ? trendDelta(
@@ -129,23 +120,23 @@ export async function OverviewBoard({
           <div className="page-head-title">
             <p className="live-kicker">
               <i className="dot dot--success" aria-hidden="true" />
-              Tu protección está activa · Todo se analiza dentro de tu propio equipo
+              {s.overview.kicker}
             </p>
-            <h1>Hola, {nick}</h1>
-            <p className="page-head-sub">
-              SOVIR es tu asistente contra estafas digitales: te avisa cuando una página o mensaje
-              intenta apurarte para que pagues o entregues tus datos personales.
-            </p>
+            <h1>{fill(s.overview.greeting, { x: nick })}</h1>
+            <p className="page-head-sub">{s.overview.sub}</p>
           </div>
           <div className="head-actions">
             {budget ? (
-              <span className="chip" title="Gasto real de inferencia remota sobre el límite de tu plan">
-                Gasto: ${budget.spent_usd.toFixed(2)} / ${budget.cap_usd.toFixed(2)}
+              <span className="chip" title={s.overview.budgetChip}>
+                {fill(s.overview.budgetChip, {
+                  a: budget.spent_usd.toFixed(2),
+                  b: budget.cap_usd.toFixed(2),
+                })}
               </span>
             ) : null}
             <form action={emitSequencePair}>
               <button className="btn-op btn-op--primary" type="submit">
-                Hacer una prueba de estafa
+                {s.overview.testButton}
               </button>
             </form>
           </div>
@@ -167,41 +158,30 @@ export async function OverviewBoard({
                     }`}
                   />
                   {digest.status === "protected"
-                    ? "Avisos emitidos esta semana"
-                    : "Sin amenazas detectadas"}
+                    ? s.overview.chipWarnings
+                    : s.overview.chipClean}
                 </span>
                 {digest.status === "protected" ? (
                   <>
-                    <h2>
-                      Esta semana te avisamos ante {digest.protectedCount}{" "}
-                      {digest.protectedCount === 1
-                        ? "intento sospechoso"
-                        : "intentos sospechosos"}
-                    </h2>
+                    <h2>{s.overview.heroWarnTitle(digest.protectedCount)}</h2>
                     <p>
-                      Detectamos tácticas de presión o solicitudes de pago dudosas
+                      {s.overview.heroWarnSub}
                       {digest.lastAlertAt
-                        ? ` (el último aviso fue ${timeAgo(digest.lastAlertAt, now)})`
+                        ? ` (${fill(s.common.lastAlertAgo, {
+                            x: timeAgo(digest.lastAlertAt, now),
+                          })})`
                         : ""}
-                      . Debajo puedes ver tu actividad por día.
                     </p>
                   </>
                 ) : digest.status === "quiet" ? (
                   <>
-                    <h2>Todo está tranquilo esta semana</h2>
-                    <p>
-                      Revisamos {digest.signalCount}{" "}
-                      {digest.signalCount === 1 ? "actividad" : "actividades"} y no encontramos
-                      ningún intento de estafa ni cobro engañoso.
-                    </p>
+                    <h2>{s.overview.heroQuietTitle}</h2>
+                    <p>{s.overview.heroQuietSub(digest.signalCount)}</p>
                   </>
                 ) : (
                   <>
-                    <h2>SOVIR está listo para cuidarte</h2>
-                    <p>
-                      Aún no hay avisos registrados. Si quieres ver cómo funciona antes de que
-                      ocurra algo real, pulsa <strong>“Hacer una prueba de estafa”</strong> arriba.
-                    </p>
+                    <h2>{s.overview.heroEmptyTitle}</h2>
+                    <p>{s.overview.heroEmptySub}</p>
                   </>
                 )}
               </div>
@@ -227,32 +207,26 @@ export async function OverviewBoard({
             </div>
           </section>
 
-          <section className="panel" aria-label="Cómo funciona tu protección">
+          <section className="panel" aria-label={s.overview.howTitle}>
             <div className="panel-head">
               <div>
-                <p className="panel-kicker">En palabras simples</p>
-                <h2>¿Cómo te cuida SOVIR?</h2>
+                <p className="panel-kicker">{s.overview.howKicker}</p>
+                <h2>{s.overview.howTitle}</h2>
               </div>
             </div>
             <ul className="how-list">
               <li>
                 <i className="dot dot--success" aria-hidden="true" />
                 <div>
-                  <strong>1. Detecta trampas en el momento</strong>
-                  <span>
-                    Identifica cuando un sitio usa falsa urgencia, cobros escondidos o se hace
-                    pasar por alguien más.
-                  </span>
+                  <strong>{s.overview.how1T}</strong>
+                  <span>{s.overview.how1S}</span>
                 </div>
               </li>
               <li>
                 <i className="dot dot--brand" aria-hidden="true" />
                 <div>
-                  <strong>2. Nunca espía tu vida privada</strong>
-                  <span>
-                    Todo funciona dentro de tu dispositivo. No guardamos tus contraseñas, fotos ni
-                    conversaciones.
-                  </span>
+                  <strong>{s.overview.how2T}</strong>
+                  <span>{s.overview.how2S}</span>
                 </div>
               </li>
               <li>
@@ -261,22 +235,17 @@ export async function OverviewBoard({
                   aria-hidden="true"
                 />
                 <div>
-                  <strong>3. Tú decides qué permisos están encendidos</strong>
-                  <span>
-                    Tienes <strong>{activeGrants}</strong>{" "}
-                    {activeGrants === 1 ? "permiso activo" : "permisos activos"} y{" "}
-                    <strong>{activeDevices}</strong>{" "}
-                    {activeDevices === 1 ? "dispositivo vinculado" : "dispositivos vinculados"}.
-                  </span>
+                  <strong>{s.overview.how3T}</strong>
+                  <span>{s.overview.how3S(activeGrants, activeDevices)}</span>
                 </div>
               </li>
             </ul>
             <div className="head-actions" style={{ marginTop: "auto" }}>
               <Link className="btn-op" href="/permissions">
-                Ver mis permisos →
+                {s.overview.seePermissions}
               </Link>
               <Link className="btn-op" href="/devices">
-                Ver mis dispositivos →
+                {s.overview.seeDevices}
               </Link>
             </div>
           </section>
@@ -284,15 +253,15 @@ export async function OverviewBoard({
 
         {/* Segundo bloque: Qué detectamos + Guía rápida para no caer en trampas */}
         <div className="bento-2col">
-          <section className="panel" aria-label="Lo que hemos detectado">
+          <section className="panel" aria-label={s.overview.catTitle}>
             <div className="panel-head">
               <div>
-                <p className="panel-kicker">Motivos de aviso</p>
-                <h2>¿Qué tipo de trampas hemos frenado?</h2>
-                <p>Resumen en español claro de las señales sospechosas vistas esta semana.</p>
+                <p className="panel-kicker">{s.overview.catKicker}</p>
+                <h2>{s.overview.catTitle}</h2>
+                <p>{s.overview.catSub}</p>
               </div>
               <Link className="btn-op" href="/incidents">
-                Ver avisos ({data.interventions.length}) →
+                {s.overview.catSeeAlerts(data.interventions.length)}
               </Link>
             </div>
 
@@ -323,18 +292,16 @@ export async function OverviewBoard({
               </ul>
             ) : (
               <p className="empty">
-                <strong>Ninguna señal sospechosa todavía.</strong> Cuando SOVIR detecte un intento
-                de engaño, aquí verás exactamente de qué tipo fue.
+                <strong>{s.overview.feedEmpty}</strong>
               </p>
             )}
           </section>
 
-          <section className="panel" aria-label="Guía práctica contra estafas">
+          <section className="panel" aria-label={s.overview.tipsTitle}>
             <div className="panel-head">
               <div>
-                <p className="panel-kicker">Consejos útiles</p>
-                <h2>4 señales para reconocer una estafa al instante</h2>
-                <p>Haz clic en cualquiera para leer cómo protegerte en el día a día.</p>
+                <p className="panel-kicker">{s.overview.tipsKicker}</p>
+                <h2>{s.overview.tipsTitle}</h2>
               </div>
             </div>
             <ul className="tips">

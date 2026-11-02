@@ -57,5 +57,20 @@ export async function GET(request: Request) {
     secure: cfg.secure,
     path: "/",
   });
+  // Display name only: `preferred_username` is a mutable IdP claim shown
+  // in greetings; `sub` remains the stable authorization principal.
+  try {
+    const claims = JSON.parse(
+      Buffer.from(tokens.access_token.split(".")[1], "base64url").toString(),
+    ) as { preferred_username?: string };
+    if (claims.preferred_username) {
+      jar.set("sovir_display_name", claims.preferred_username, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: cfg.secure,
+        path: "/",
+      });
+    }
+  } catch {}
   redirect("/");
 }

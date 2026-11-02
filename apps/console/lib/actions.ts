@@ -303,6 +303,40 @@ export async function assessInferenceAction(formData: FormData): Promise<void> {
   revalidatePath("/", "layout");
 }
 
+// Per-event analysis from /incidents: runs `/v1/inference/assess` with the
+// event's own typed signals (never content), keyed by event id so the
+// verdict lands next to its card. Standard privacy => remote provider.
+export async function assessEventSignalsAction(formData: FormData): Promise<void> {
+  const { token, jar } = await sessionOrRedirect();
+  const eventId = String(formData.get("event_id") ?? "").slice(0, 64);
+  const privacy: PrivacyMode = formData.get("privacy") === "standard" ? "standard" : "private";
+  const signals = String(formData.get("signals") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 40);
+  if (!eventId || signals.length === 0) return;
+  try {
+    const verdict = await assessInference(token, rid("inf"), signals, privacy);
+    jar.set(
+      "sovir_last_inference",
+      JSON.stringify({ ok: true, privacy, signals, event_id: eventId, at_ms: Date.now(), verdict }),
+      { httpOnly: true, sameSite: "lax", secure: false, path: "/" },
+    );
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/incidents?error=backend");
+    const code = e instanceof Error ? e.message : "provider_unavailable";
+    jar.set(
+      "sovir_last_inference",
+      JSON.stringify({ ok: false, privacy, signals, event_id: eventId, at_ms: Date.now(), error: code }),
+      { httpOnly: true, sameSite: "lax", secure: false, path: "/" },
+    );
+  }
+  revalidatePath("/incidents");
+  revalidatePath("/", "layout");
+}
+
 export async function enforceRetentionAction(): Promise<void> {
   const { token } = await sessionOrRedirect();
   try {

@@ -1,15 +1,16 @@
+import { getLocale, stringsFor, type Strings } from "../../lib/i18n";
 import { oidcConfig } from "../../lib/oidc";
 
 export const metadata = { title: "Entrar", robots: { index: false, follow: false } };
 
-const errors: Record<string, string> = {
-  backend: "El servicio local de SOVIR no está encendido en 127.0.0.1:8787.",
-  session: "Tu sesión terminó — vuelve a escribir tu nombre para entrar.",
-  name: "Usa solo letras, números, punto o guion (sin espacios especiales).",
-  oidc_denied: "Cancelaste el acceso en el proveedor de identidad.",
-  oidc_state: "El intento de acceso expiró — vuelve a intentarlo.",
-  oidc_exchange: "No pudimos completar el acceso con tu cuenta.",
-  oidc_token: "El proveedor no entregó una credencial válida.",
+const ERROR_KEYS: Record<string, keyof Strings["signin"]["errors"]> = {
+  backend: "backend",
+  session: "session",
+  name: "name",
+  oidc_denied: "oidcDenied",
+  oidc_state: "oidcState",
+  oidc_exchange: "oidcExchange",
+  oidc_token: "oidcToken",
 };
 
 export default async function SignInPage({
@@ -18,7 +19,9 @@ export default async function SignInPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const { error } = await searchParams;
-  const note = error ? errors[error] : null;
+  const s = stringsFor(await getLocale());
+  const key = error ? ERROR_KEYS[error] : undefined;
+  const note = key ? s.signin.errors[key] : null;
   const oidc = oidcConfig();
   return (
     <main className="register-stage">
@@ -27,15 +30,12 @@ export default async function SignInPage({
           <span className="mark" aria-hidden="true" />
           <span className="brand-name">SOVIR</span>
         </p>
-        <h1>Tu protección personal</h1>
+        <h1>{s.signin.title}</h1>
         {note ? <p role="alert">{note}</p> : null}
-        <p>
-          SOVIR te ayuda a detectar estafas, cobros engañosos y mensajes de presión antes de que
-          tomes una decisión apresurada. Todo funciona en tu propio equipo.
-        </p>
+        <p>{s.signin.sub}</p>
         <form className="register-email" action="/api/session" method="post">
           <label>
-            Escribe tu nombre para abrir tu espacio
+            {s.signin.inputLabel}
             <input
               name="principal"
               type="text"
@@ -43,26 +43,22 @@ export default async function SignInPage({
               minLength={1}
               maxLength={40}
               pattern="[A-Za-z0-9._\-\s]+"
-              placeholder="p. ej. Ana"
+              placeholder={s.signin.placeholder}
               autoComplete="username"
             />
           </label>
           <button className="button" type="submit">
-            Entrar a mi panel
+            {s.signin.button}
           </button>
         </form>
         {oidc ? (
-          <form action="/api/auth/oidc/login" method="get">
-            <button className="button" type="submit">
-              Entrar con mi cuenta
+          <form className="register-email" action="/api/auth/oidc/login" method="get">
+            <button className="button secondary" type="submit">
+              {s.signin.oidcButton}
             </button>
           </form>
         ) : null}
-        <p className="register-note">
-          Cada nombre tiene su propio espacio privado de avisos, dispositivos y permisos. Entorno
-          local de demostración (sesión aislada en <code>httpOnly</code>, sin contraseñas ni envío
-          de datos a terceros).
-        </p>
+        <p className="register-note">{s.signin.note}</p>
       </div>
     </main>
   );

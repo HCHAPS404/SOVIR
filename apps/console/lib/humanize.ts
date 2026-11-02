@@ -1,6 +1,39 @@
 // Human-language descriptions for console surfaces. Technical ids stay
 // available as a muted detail line — meaning first, identifiers second.
 
+// Typed inference hypotheses (sovir-adapters classifier labels + remote
+// provider output which uses the same closed label set) → plain Spanish.
+const HYPOTHESIS_LABELS: Record<string, string> = {
+  authority_coercion: "suplantación de autoridad para presionar",
+  bulk_buyer_lure: "comprador falso que mueve la venta fuera",
+  credential_phishing: "robo de credenciales",
+  credential_request_unverified: "piden credenciales sin identidad verificada",
+  customs_fee_phish: "cargo aduanero falso",
+  data_harvesting: "cosecha de datos personales",
+  extortion_attempt: "intento de extorsión",
+  gift_card_shakedown: "exigencia de pago con tarjetas regalo",
+  guaranteed_investment: "inversión con ganancia garantizada",
+  health_fraud_pitch: "cura milagrosa fraudulenta",
+  identity_unverified: "identidad no verificada",
+  job_fee_bait: "empleo que cobra cuota inicial",
+  link_spoofing: "enlace que finge ser otro",
+  manipulative_pattern: "patrón manipulativo",
+  offplatform_lure: "intento de moverte fuera de la plataforma",
+  payment_fraud_attempt: "intento de fraude de pago",
+  payment_request_unverified: "piden pago sin identidad verificada",
+  privacy_tracking_exposure: "exposición de rastreo",
+  prize_advance_fee: "premio que exige pago por adelantado",
+  qr_phishing_lure: "cebo de phishing por QR",
+  romance_money_bait: "gancho romántico con pedido de dinero",
+  scareware_lure: "susto técnico para que instales algo",
+  seed_phrase_theft: "robo de frase de recuperación",
+  urgency_pressure: "presión de urgencia",
+};
+
+export function describeHypothesis(label: string): string {
+  return HYPOTHESIS_LABELS[label] ?? label;
+}
+
 export function describeSource(sourceId: string): { name: string; does: string } {
   switch (sourceId) {
     case "console-lab":

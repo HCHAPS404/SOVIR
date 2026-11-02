@@ -30,6 +30,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   DATA_HARVESTING: "Recolección excesiva de datos",
   OFF_PLATFORM_MOVE: "Conversación movida fuera de la plataforma",
   BULK_BUYER_LURE: "Cebo de compra inmediata al contado",
+  QR_PRESENT: "Código QR detectado en la página",
 };
 
 export interface WeeklyDigest {

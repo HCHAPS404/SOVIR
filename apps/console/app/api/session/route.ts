@@ -16,6 +16,7 @@ export async function POST(request: Request) {
     if (token) await logout(token);
     jar.delete("sovir_api_token");
     jar.delete("sovir_api_principal");
+    jar.delete("sovir_display_name");
     redirect("/sign-in");
   }
 
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
     const opts = { httpOnly: true, sameSite: "lax" as const, secure: false, path: "/" };
     jar.set("sovir_api_token", session.token, opts);
     jar.set("sovir_api_principal", session.principal_id, opts);
+    jar.set("sovir_display_name", name, opts);
   } catch (e) {
     if (e instanceof ApiDown) redirect("/sign-in?error=backend");
     redirect("/sign-in?error=session");
