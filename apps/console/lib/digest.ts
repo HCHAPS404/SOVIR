@@ -13,6 +13,21 @@ const SIGNAL_LABELS: Record<string, string> = {
   TRACKING_OBSERVED: "Rastreo oculto",
   HIDDEN_FEE_PATTERN: "Cargos ocultos",
   USER_DEFINED_EXPOSURE_LIMIT: "Límites de exposición",
+  LINK_DESTINATION_MISMATCH: "Enlaces que mienten su destino",
+  SUSPICIOUS_DOMAIN: "Dominios de dudosa procedencia",
+  EXTORTION_LANGUAGE: "Lenguaje de amenaza o chantaje",
+  SCAREWARE_CLAIM: "Falsas alarmas de virus",
+  PRIZE_LOTTERY_CLAIM: "Premios y sorteos falsos",
+  INVESTMENT_PROMISE: "Promesas de dinero garantizado",
+  GIFT_CARD_PAYMENT: "Exigencia de pago con tarjetas regalo",
+  SEED_PHRASE_REQUEST: "Solicitud de frases de recuperación",
+  DELIVERY_CUSTOMS_FEE: "Fraudes de paquete retenido",
+  AUTHORITY_IMPERSONATION: "Suplantación de autoridades",
+  SCARCITY_PRESSURE: "Presión por escasez o tiempo límite",
+  JOB_SCAM_OFFER: "Ofertas de trabajo sospechosas",
+  ROMANCE_BAIT: "Cebo sentimental con petición de dinero",
+  MIRACLE_CURE_CLAIM: "Remedios milagrosos",
+  DATA_HARVESTING: "Recolección excesiva de datos",
 };
 
 export interface WeeklyDigest {

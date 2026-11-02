@@ -13,6 +13,122 @@
       "decision": "warn"
     },
     {
+      "name": "extortion_demand",
+      "clauses": [
+        ["EXTORTION_LANGUAGE"],
+        ["PAYMENT_REQUEST", "URGENT_ACTION"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "scareware_lure",
+      "clauses": [
+        ["SCAREWARE_CLAIM"],
+        ["CREDENTIAL_REQUEST", "PAYMENT_REQUEST", "URGENT_ACTION", "AUTHORITY_IMPERSONATION"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "link_spoofing",
+      "clauses": [
+        ["LINK_DESTINATION_MISMATCH", "SUSPICIOUS_DOMAIN"],
+        ["CREDENTIAL_REQUEST", "IDENTITY_UNVERIFIED"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "seed_phrase_theft",
+      "clauses": [
+        ["SEED_PHRASE_REQUEST"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "gift_card_shakedown",
+      "clauses": [
+        ["GIFT_CARD_PAYMENT"],
+        ["URGENT_ACTION", "EXTORTION_LANGUAGE", "SCAREWARE_CLAIM", "AUTHORITY_IMPERSONATION"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "prize_advance_fee",
+      "clauses": [
+        ["PRIZE_LOTTERY_CLAIM"],
+        ["PAYMENT_REQUEST", "HIDDEN_FEE_PATTERN", "DELIVERY_CUSTOMS_FEE", "CREDENTIAL_REQUEST", "URGENT_ACTION"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "guaranteed_investment",
+      "clauses": [
+        ["INVESTMENT_PROMISE"],
+        ["PAYMENT_REQUEST", "CREDENTIAL_REQUEST", "URGENT_ACTION", "GIFT_CARD_PAYMENT"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "authority_coercion",
+      "clauses": [
+        ["AUTHORITY_IMPERSONATION"],
+        ["PAYMENT_REQUEST", "GIFT_CARD_PAYMENT", "EXTORTION_LANGUAGE", "URGENT_ACTION"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "romance_money_bait",
+      "clauses": [
+        ["ROMANCE_BAIT"],
+        ["PAYMENT_REQUEST", "GIFT_CARD_PAYMENT"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "job_fee_bait",
+      "clauses": [
+        ["JOB_SCAM_OFFER"],
+        ["PAYMENT_REQUEST", "CREDENTIAL_REQUEST", "HIDDEN_FEE_PATTERN"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "data_harvesting_form",
+      "clauses": [
+        ["DATA_HARVESTING"],
+        ["SUSPICIOUS_DOMAIN", "IDENTITY_UNVERIFIED", "LINK_DESTINATION_MISMATCH"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "customs_fee_phish",
+      "clauses": [
+        ["DELIVERY_CUSTOMS_FEE"],
+        ["PAYMENT_REQUEST", "URGENT_ACTION"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "health_fraud_pitch",
+      "clauses": [
+        ["MIRACLE_CURE_CLAIM"],
+        ["PAYMENT_REQUEST", "URGENT_ACTION"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
       "name": "sensitive_or_manipulative",
       "clauses": [
         [
@@ -21,7 +137,21 @@
           "TRACKING_OBSERVED",
           "CONSENT_DARK_PATTERN",
           "HIDDEN_FEE_PATTERN",
-          "USER_DEFINED_EXPOSURE_LIMIT"
+          "USER_DEFINED_EXPOSURE_LIMIT",
+          "LINK_DESTINATION_MISMATCH",
+          "SUSPICIOUS_DOMAIN",
+          "EXTORTION_LANGUAGE",
+          "SCAREWARE_CLAIM",
+          "PRIZE_LOTTERY_CLAIM",
+          "INVESTMENT_PROMISE",
+          "GIFT_CARD_PAYMENT",
+          "DELIVERY_CUSTOMS_FEE",
+          "AUTHORITY_IMPERSONATION",
+          "SCARCITY_PRESSURE",
+          "JOB_SCAM_OFFER",
+          "ROMANCE_BAIT",
+          "MIRACLE_CURE_CLAIM",
+          "DATA_HARVESTING"
         ]
       ],
       "risk_level": "elevated",
