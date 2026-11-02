@@ -212,6 +212,23 @@ components:
             tokens_input: {type: integer, minimum: 0}
             tokens_output: {type: integer, minimum: 0}
             cost_micro_usd: {type: integer, minimum: 0}
+        votes:
+          type: array
+          description: Council votes (ADR-0025) — one per serving voter. Optional; single-model verdicts omit it.
+          items:
+            type: object
+            properties:
+              voter: {type: string}
+              model_id: {type: string}
+              hypotheses: {type: array, items: {type: string}}
+              confidence_bp: {type: integer, minimum: 0, maximum: 10000}
+              provenance: {type: string}
+              usage:
+                type: object
+                properties:
+                  tokens_input: {type: integer, minimum: 0}
+                  tokens_output: {type: integer, minimum: 0}
+                  cost_micro_usd: {type: integer, minimum: 0}
     IntelPullReport:
       type: object
       properties:

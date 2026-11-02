@@ -510,6 +510,7 @@ impl InferenceGateway for StubGateway {
             confidence_bp: 6_000,
             provenance: "synthetic-test".into(),
             usage: None,
+            votes: None,
         })
     }
     fn serves(&self, mode: PrivacyMode) -> bool {

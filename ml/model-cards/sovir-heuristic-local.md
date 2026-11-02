@@ -2,7 +2,7 @@
 
 **Tipo:** tabla de evidencia ponderada determinista (NO es un modelo ML). Adapter `HeuristicLocalInferenceGateway` en `crates/sovir-adapters`.
 
-**Modo servido:** `Private` únicamente. `Standard` es rechazado estructuralmente — la ruta privada nunca egresa (ADR-0012).
+**Modo servido:** `Private` y `Standard` (ADR-0025): como votante del concilio solo lee señales tipadas y nunca egresa — un voto local sobre un sobre `Standard` es material de propuesta, no un cambio de privacidad.
 
 ## Qué hace
 

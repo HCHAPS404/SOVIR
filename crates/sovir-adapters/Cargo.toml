@@ -19,3 +19,9 @@ uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[features]
+default = []
+# ADR-0024: enables the ort runtime for OnnxVisualVoter once a licensed,
+# eval-gated artifact is approved (onnx = ["dep:ort"] when ort lands).
+onnx = []

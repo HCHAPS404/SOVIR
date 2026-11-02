@@ -1,0 +1,43 @@
+{
+  "$id": "sovir://ml/model-cards/registry.v1",
+  "description": "Machine-readable voter registry for the council (ADR-0025). Each council voter name in services/api wiring MUST appear here with a card file — the adapters test enforces coverage.",
+  "arbiter": {
+    "model_id": "sovir-council-v1",
+    "card": "sovir-council-v1.md",
+    "kind": "deterministic-compositor",
+    "modality": "n/a"
+  },
+  "voters": [
+    {
+      "name": "heuristic",
+      "model_id": "sovir-heuristic-local-0.2",
+      "card": "sovir-heuristic-local.md",
+      "kind": "deterministic-rules",
+      "modality": "typed-signals",
+      "tier": "base",
+      "serves": ["private", "standard"],
+      "egress": false
+    },
+    {
+      "name": "remote",
+      "model_id": "provider-configured",
+      "card": "sovir-remote-meta.md",
+      "kind": "remote-llm",
+      "modality": "typed-signals",
+      "tier": "deferred",
+      "serves": ["standard"],
+      "egress": true
+    },
+    {
+      "name": "onnx-visual",
+      "model_id": "pending-artifact",
+      "card": "sovir-vision-qr-v0.md",
+      "kind": "onnx-classifier",
+      "modality": "visual",
+      "tier": "base",
+      "serves": ["private", "standard"],
+      "egress": false,
+      "status": "seam-only — fails closed until ADR-0024 artifact is approved and licensed"
+    }
+  ]
+}

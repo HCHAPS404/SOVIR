@@ -22,6 +22,32 @@
         "tokens_output": {"type": "integer", "minimum": 0},
         "cost_micro_usd": {"type": "integer", "minimum": 0}
       }
+    },
+    "votes": {
+      "type": "array",
+      "description": "Council votes (ADR-0025): one entry per voter that served the request's privacy mode. Optional and additive — a single-model verdict simply omits it. Votes propose; policy arbitrates.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["voter", "model_id", "hypotheses", "confidence_bp"],
+        "properties": {
+          "voter": {"type": "string", "minLength": 1, "maxLength": 64},
+          "model_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "hypotheses": {"type": "array", "items": {"type": "string", "maxLength": 256}},
+          "confidence_bp": {"type": "integer", "minimum": 0, "maximum": 10000},
+          "provenance": {"type": "string", "maxLength": 256},
+          "usage": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tokens_input", "tokens_output"],
+            "properties": {
+              "tokens_input": {"type": "integer", "minimum": 0},
+              "tokens_output": {"type": "integer", "minimum": 0},
+              "cost_micro_usd": {"type": "integer", "minimum": 0}
+            }
+          }
+        }
+      }
     }
   }
 }

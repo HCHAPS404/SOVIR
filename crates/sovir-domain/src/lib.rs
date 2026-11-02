@@ -278,6 +278,76 @@ pub struct ReportedUsage {
     #[serde(default)]
     pub cost_micro_usd: Option<u64>,
 }
+/// One council member's vote (ADR-0025): the verdict a single voter
+/// produced, kept for arbitration audit and the votes breakdown surface.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VoterVerdict {
+    /// Voter label: "heuristic", "onnx-visual", "remote", ...
+    pub voter: String,
+    pub model_id: String,
+    pub hypotheses: Vec<String>,
+    pub confidence_bp: u16,
+    pub provenance: String,
+    #[serde(default)]
+    pub usage: Option<ReportedUsage>,
+}
+/// Council arbitration outcome (ADR-0025): the deterministic label the
+/// arbiter derives from votes. `Disputed` means no pair of voters shares
+/// a hypothesis — it is an explicit review marker, never a silent
+/// majority. `LocalSettled` means the local voters settled the case and
+/// deferred (remote) voters were never invoked — the honest token-saver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CouncilOutcome {
+    /// One voter answered — no corroboration exists.
+    Single,
+    /// At least two voters share a hypothesis.
+    Agree,
+    /// Multiple voters answered and no two share a hypothesis.
+    Disputed,
+    /// Local voters settled; deferred voters were intentionally skipped.
+    LocalSettled,
+}
+/// Deterministic arbitration over council votes — the single source of
+/// truth for the outcome label the gateway stamps into provenance. The
+/// rule is deliberately simple and inspectable: a pair sharing a
+/// hypothesis is agreement; several votes without a shared hypothesis is
+/// a dispute; one vote is single. A vote whose only hypothesis is
+/// `no_pattern_detected` counts as "no position" — it cannot create
+/// agreement and it cannot alone manufacture a dispute.
+pub fn arbitrate_votes(votes: &[VoterVerdict]) -> CouncilOutcome {
+    let positioned: Vec<&VoterVerdict> = votes
+        .iter()
+        .filter(|v| v.hypotheses.iter().any(|h| h != "no_pattern_detected"))
+        .collect();
+    if positioned.len() < 2 {
+        return CouncilOutcome::Single;
+    }
+    let shared = positioned.iter().enumerate().any(|(i, a)| {
+        positioned[i + 1..]
+            .iter()
+            .any(|b| a.hypotheses.iter().any(|h| b.hypotheses.contains(h)))
+    });
+    if shared {
+        CouncilOutcome::Agree
+    } else {
+        CouncilOutcome::Disputed
+    }
+}
+/// Whether the local vote set settles the case without consulting
+/// deferred (remote) voters: agreement already exists, or the strongest
+/// positioned local vote clears `settle_confidence_bp` on its own.
+pub fn local_votes_settle(votes: &[VoterVerdict], settle_confidence_bp: u16) -> bool {
+    if arbitrate_votes(votes) == CouncilOutcome::Agree {
+        return true;
+    }
+    votes
+        .iter()
+        .filter(|v| v.hypotheses.iter().any(|h| h != "no_pattern_detected"))
+        .map(|v| v.confidence_bp)
+        .max()
+        .is_some_and(|c| c >= settle_confidence_bp)
+}
 /// A model verdict: typed hypotheses and provenance, never an authorized
 /// action. Policy code decides what hypotheses may trigger.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -291,6 +361,10 @@ pub struct InferenceVerdict {
     /// Metering the provider itself reported (token counts, priced cost).
     #[serde(default)]
     pub usage: Option<ReportedUsage>,
+    /// Council votes (ADR-0025): populated only when a CouncilGateway
+    /// produced this verdict — None for single-gateway verdicts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub votes: Option<Vec<VoterVerdict>>,
 }
 
 /// Usage accounting for one inference call (B21). Populated at settle
@@ -1593,5 +1667,40 @@ mod tests {
         );
         assert_eq!(agree, total, "dev pack must match its labeled corpus");
         assert_eq!(fp, 0, "no false warns in dev corpus");
+    }
+    /// ADR-0025 contract: `votes` is additive — a v0 verdict JSON without
+    /// it must still deserialize (old producers / old stored payloads),
+    /// and a verdict with votes must round-trip losslessly.
+    #[test]
+    fn inference_verdict_votes_is_backward_compatible() {
+        let old_json = r#"{
+            "request_id":"r1","model_id":"m1",
+            "hypotheses":["credential_phishing"],
+            "confidence_bp":9000,"provenance":"p"
+        }"#;
+        let v: InferenceVerdict =
+            serde_json::from_str(old_json).expect("v0 verdict without votes must parse");
+        assert!(v.votes.is_none());
+        let council = InferenceVerdict {
+            request_id: "r2".into(),
+            model_id: "sovir-council-v1".into(),
+            hypotheses: vec!["payment_fraud_attempt".into()],
+            confidence_bp: 8000,
+            provenance: "council:agree; voters:2".into(),
+            usage: None,
+            votes: Some(vec![VoterVerdict {
+                voter: "heuristic".into(),
+                model_id: "sovir-heuristic-local-0.2".into(),
+                hypotheses: vec!["payment_fraud_attempt".into()],
+                confidence_bp: 9000,
+                provenance: "local_heuristic".into(),
+                usage: None,
+            }]),
+        };
+        let rt: InferenceVerdict = serde_json::from_str(
+            &serde_json::to_string(&council).expect("serialize council verdict"),
+        )
+        .expect("council verdict round-trips");
+        assert_eq!(rt.votes.as_ref().unwrap()[0].voter, "heuristic");
     }
 }

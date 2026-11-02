@@ -1299,10 +1299,14 @@ impl InferenceGateway for HeuristicLocalInferenceGateway {
             confidence_bp,
             provenance: "local_heuristic_weighted_rules; no model, no egress; deterministic".into(),
             usage: None,
+            votes: None,
         })
     }
     fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
-        mode == sovir_domain::PrivacyMode::Private
+        // Both modes (ADR-0025): as a council voter it only reads typed
+        // signals and never egresses — a local vote on a Standard
+        // envelope is proposal material, not a privacy change.
+        mode == sovir_domain::PrivacyMode::Private || mode == sovir_domain::PrivacyMode::Standard
     }
 }
 /// Privacy-mode router (ADR-0012): `Private` requests always go to the
@@ -1342,6 +1346,187 @@ impl InferenceGateway for CompositeInferenceGateway {
                 self.remote.as_ref().is_some_and(|r| r.serves(mode))
             }
         }
+    }
+}
+/// Council voter gateway (ADR-0025): fans the request out to every voter
+/// that serves the request's privacy mode, merges typed hypotheses
+/// deterministically and records each vote for audit. Models only
+/// propose — policy code still arbitrates action. Merge rules are fixed
+/// and inspectable: hypothesis union ranked by voter confidence,
+/// confidence = strongest single vote (conservative under dispute), and
+/// a `council:` provenance naming the agreement outcome. A voter that
+/// fails is skipped (its absence shows in `votes`), so a remote outage
+/// cannot block local voters — and under Private the remote is filtered
+/// by `serves` before any call happens.
+pub struct CouncilGateway {
+    /// Voters that always vote when they serve the privacy mode.
+    voters: Vec<(String, Arc<dyn InferenceGateway>)>,
+    /// Deferred voters (typically remote): invoked ONLY when the base
+    /// voters did not settle the case — the ADR-0025 token-saver. They
+    /// are still filtered by `serves(privacy)` before any call.
+    deferred: Vec<(String, Arc<dyn InferenceGateway>)>,
+    /// Local confidence that settles a case without deferred voters.
+    settle_confidence_bp: u16,
+}
+impl CouncilGateway {
+    /// Flat council: every serving voter votes on every request.
+    pub fn new(voters: Vec<(String, Arc<dyn InferenceGateway>)>) -> Self {
+        Self {
+            voters,
+            deferred: Vec::new(),
+            settle_confidence_bp: 10_000,
+        }
+    }
+    /// Two-tier council: `voters` always vote; `deferred` vote only when
+    /// the base votes do not settle (dispute, or under-confidence).
+    pub fn deferred(
+        voters: Vec<(String, Arc<dyn InferenceGateway>)>,
+        deferred: Vec<(String, Arc<dyn InferenceGateway>)>,
+        settle_confidence_bp: u16,
+    ) -> Self {
+        Self {
+            voters,
+            deferred,
+            settle_confidence_bp,
+        }
+    }
+    async fn collect(
+        group: &[(String, Arc<dyn InferenceGateway>)],
+        req: &sovir_domain::InferenceRequest,
+        votes: &mut Vec<sovir_domain::VoterVerdict>,
+    ) {
+        for (name, voter) in group {
+            if !voter.serves(req.privacy) {
+                continue;
+            }
+            if let Ok(v) = voter.assess(req).await {
+                votes.push(sovir_domain::VoterVerdict {
+                    voter: name.clone(),
+                    model_id: v.model_id,
+                    hypotheses: v.hypotheses,
+                    confidence_bp: v.confidence_bp,
+                    provenance: v.provenance,
+                    usage: v.usage,
+                });
+            }
+        }
+    }
+}
+#[async_trait]
+impl InferenceGateway for CouncilGateway {
+    async fn assess(
+        &self,
+        req: &sovir_domain::InferenceRequest,
+    ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+        let mut votes: Vec<sovir_domain::VoterVerdict> = Vec::new();
+        Self::collect(&self.voters, req, &mut votes).await;
+        if votes.is_empty() {
+            return Err(PortError::Unavailable); // no serving voter answered
+        }
+        let mut outcome = sovir_domain::arbitrate_votes(&votes);
+        // Deferred voters are consulted ONLY when the base votes did not
+        // settle — agreement or a confident local vote saves the call.
+        if !self.deferred.is_empty() {
+            if sovir_domain::local_votes_settle(&votes, self.settle_confidence_bp) {
+                outcome = sovir_domain::CouncilOutcome::LocalSettled;
+            } else {
+                Self::collect(&self.deferred, req, &mut votes).await;
+                outcome = sovir_domain::arbitrate_votes(&votes);
+            }
+        }
+        if votes.is_empty() {
+            return Err(PortError::Unavailable);
+        }
+        // Union of hypotheses ranked by the confidence of the voter that
+        // produced each (ties keep first-seen order — deterministic).
+        let mut ranked: Vec<(u16, String)> = Vec::new();
+        for v in &votes {
+            for h in &v.hypotheses {
+                if h != "no_pattern_detected" && !ranked.iter().any(|(_, x)| x == h) {
+                    ranked.push((v.confidence_bp, h.clone()));
+                }
+            }
+        }
+        ranked.sort_by(|a, b| b.0.cmp(&a.0));
+        let mut hypotheses: Vec<String> = ranked.into_iter().map(|(_, h)| h).collect();
+        if hypotheses.is_empty() {
+            hypotheses.push("no_pattern_detected".into());
+        }
+        let confidence_bp = votes.iter().map(|v| v.confidence_bp).max().unwrap_or(0);
+        let outcome_str = match outcome {
+            sovir_domain::CouncilOutcome::Single => "single",
+            sovir_domain::CouncilOutcome::Agree => "agree",
+            sovir_domain::CouncilOutcome::Disputed => "disputed:no_shared_hypothesis",
+            sovir_domain::CouncilOutcome::LocalSettled => "local_settled",
+        };
+        // Aggregate usage across voters — the reservation settles real
+        // cost when every voter reported a priced cost.
+        let mut usage: Option<sovir_domain::ReportedUsage> = None;
+        for v in &votes {
+            if let Some(u) = v.usage {
+                let agg = usage.get_or_insert(sovir_domain::ReportedUsage {
+                    tokens_input: 0,
+                    tokens_output: 0,
+                    cost_micro_usd: Some(0),
+                });
+                agg.tokens_input += u.tokens_input;
+                agg.tokens_output += u.tokens_output;
+                agg.cost_micro_usd = match (agg.cost_micro_usd, u.cost_micro_usd) {
+                    (Some(a), Some(b)) => Some(a + b),
+                    _ => None,
+                };
+            }
+        }
+        Ok(sovir_domain::InferenceVerdict {
+            request_id: req.request_id.clone(),
+            model_id: "sovir-council-v1".into(),
+            hypotheses,
+            confidence_bp,
+            provenance: format!("council:{outcome_str}; voters:{}", votes.len()),
+            usage,
+            votes: Some(votes),
+        })
+    }
+    fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+        self.voters.iter().any(|(_, v)| v.serves(mode))
+            || self.deferred.iter().any(|(_, v)| v.serves(mode))
+    }
+}
+/// Visual ONNX voter seam (ADR-0024 + ADR-0025). Fails CLOSED by
+/// construction: `serves()` is false until BOTH an approved, licensed
+/// artifact path is configured (`SOVIR_ONNX_VISION_MODEL`) AND the
+/// crate is built with the `onnx` feature that carries the `ort`
+/// runtime — a missing feature or missing artifact means the voter is
+/// registered but never votes. It also cannot vote until the request
+/// type carries a modality-typed visual payload (signals alone have no
+/// pixels); that contract change needs its own ADR-level review.
+/// Honest "not yet" — never a guessed `image_lure` label.
+pub struct OnnxVisualVoter {
+    artifact_present: bool,
+}
+impl OnnxVisualVoter {
+    /// Reads `SOVIR_ONNX_VISION_MODEL`; absent or non-file → no artifact.
+    pub fn from_env() -> Self {
+        let artifact_present = std::env::var("SOVIR_ONNX_VISION_MODEL")
+            .ok()
+            .map(std::path::PathBuf::from)
+            .is_some_and(|p| p.is_file());
+        Self { artifact_present }
+    }
+}
+#[async_trait]
+impl InferenceGateway for OnnxVisualVoter {
+    async fn assess(
+        &self,
+        _req: &sovir_domain::InferenceRequest,
+    ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+        // No runtime + no visual payload contract yet — refuse honestly.
+        Err(PortError::Unavailable)
+    }
+    fn serves(&self, _mode: sovir_domain::PrivacyMode) -> bool {
+        // The whole gate in one line: runtime feature AND artifact AND
+        // (future) request payload — false until every condition lands.
+        cfg!(feature = "onnx") && self.artifact_present
     }
 }
 /// Per-tenant inference budget in micro-USD (B4). Dev adapter: a shared
@@ -1696,6 +1881,7 @@ impl InferenceGateway for RemoteInferenceGateway {
             confidence_bp: v.confidence_bp.min(10_000),
             provenance: format!("remote:{host}"),
             usage: None,
+            votes: None,
         })
     }
     fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
@@ -1899,6 +2085,7 @@ impl InferenceGateway for ChatCompletionInferenceGateway {
                 tokens_output: u.completion_tokens,
                 cost_micro_usd: self.priced_cost(u.prompt_tokens, u.completion_tokens),
             }),
+            votes: None,
         })
     }
     fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
@@ -2491,9 +2678,11 @@ mod tests {
     async fn heuristic_local_serves_private_with_honest_hypotheses() {
         use sovir_domain::RiskSignal::*;
         let g = HeuristicLocalInferenceGateway;
-        // Private only.
+        // Both modes (ADR-0025): as a council voter it reads typed signals
+        // and never egresses — a Standard-mode vote is local proposal
+        // material, not a privacy change.
         assert!(g.serves(sovir_domain::PrivacyMode::Private));
-        assert!(!g.serves(sovir_domain::PrivacyMode::Standard));
+        assert!(g.serves(sovir_domain::PrivacyMode::Standard));
         // Credential + unverified identity -> phishing hypothesis.
         let v = g
             .assess(&inf_req(
@@ -2509,15 +2698,16 @@ mod tests {
         assert_eq!(v.request_id, "req-t");
         assert!(v.model_id.contains("heuristic"));
         assert!(v.provenance.contains("local_heuristic"));
-        // Standard mode refused outright: private path never egresses.
-        assert!(matches!(
-            g.assess(&inf_req(
-                &[PaymentRequest],
-                sovir_domain::PrivacyMode::Standard
+        // Standard mode produces the same deterministic local verdict —
+        // under the council that vote competes with remote hypotheses.
+        let v3 = g
+            .assess(&inf_req(
+                &[PaymentRequest, UrgentAction],
+                sovir_domain::PrivacyMode::Standard,
             ))
-            .await,
-            Err(PortError::Unavailable)
-        ));
+            .await
+            .unwrap();
+        assert!(v3.hypotheses.contains(&"payment_fraud_attempt".to_string()));
         // Empty signal set -> honest low-confidence negative.
         let v2 = g
             .assess(&inf_req(&[], sovir_domain::PrivacyMode::Private))
@@ -2560,6 +2750,276 @@ mod tests {
             .await
             .unwrap();
         assert!(v2.provenance.contains("local_heuristic"));
+    }
+    // ---- ADR-0025: CouncilGateway — multi-voter fan-out, typed votes ----
+
+    /// Programmable voter for council tests: fixed verdict or failure,
+    /// serves a chosen privacy-mode set.
+    struct StubVoter {
+        hypotheses: Vec<String>,
+        confidence_bp: u16,
+        usage: Option<sovir_domain::ReportedUsage>,
+        serve_standard: bool,
+        fail: bool,
+    }
+    #[async_trait]
+    impl InferenceGateway for StubVoter {
+        async fn assess(
+            &self,
+            req: &sovir_domain::InferenceRequest,
+        ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+            if self.fail {
+                return Err(PortError::Unavailable);
+            }
+            Ok(sovir_domain::InferenceVerdict {
+                request_id: req.request_id.clone(),
+                model_id: "stub-voter-1".into(),
+                hypotheses: self.hypotheses.clone(),
+                confidence_bp: self.confidence_bp,
+                provenance: "stub".into(),
+                usage: self.usage,
+                votes: None,
+            })
+        }
+        fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+            match mode {
+                sovir_domain::PrivacyMode::Private => true,
+                sovir_domain::PrivacyMode::Standard => self.serve_standard,
+            }
+        }
+    }
+    fn stub_voter(hypotheses: &[&str], confidence_bp: u16) -> StubVoter {
+        StubVoter {
+            hypotheses: hypotheses.iter().map(|s| s.to_string()).collect(),
+            confidence_bp,
+            usage: None,
+            serve_standard: true,
+            fail: false,
+        }
+    }
+    /// Private mode: the remote voter is filtered by `serves` BEFORE any
+    /// call — the egress recorder must stay empty (invariant: Private can
+    /// never reach a provider).
+    #[tokio::test]
+    async fn council_private_excludes_remote_before_call() {
+        use sovir_domain::RiskSignal::*;
+        let egress = Arc::new(RecordingHttpEgress::default());
+        let remote: Arc<dyn InferenceGateway> = Arc::new(RemoteInferenceGateway::new(
+            egress.clone(),
+            "https://provider.example/assess".to_string(),
+            "key".to_string(),
+            "model-x".to_string(),
+        ));
+        let council = CouncilGateway::new(vec![
+            (
+                "heuristic".into(),
+                Arc::new(HeuristicLocalInferenceGateway) as _,
+            ),
+            ("remote".into(), remote),
+        ]);
+        let v = council
+            .assess(&inf_req(
+                &[PaymentRequest, UrgentAction],
+                sovir_domain::PrivacyMode::Private,
+            ))
+            .await
+            .unwrap();
+        assert!(egress.0.lock().unwrap().is_empty()); // remote never called
+        let votes = v.votes.as_ref().unwrap();
+        assert_eq!(votes.len(), 1);
+        assert_eq!(votes[0].voter, "heuristic");
+        assert!(v.provenance.contains("council:single"));
+    }
+    /// Standard mode: local + remote both vote; the verdict merges the
+    /// hypothesis union (ranked by voter confidence) and records votes.
+    #[tokio::test]
+    async fn council_standard_merges_two_votes() {
+        use sovir_domain::RiskSignal::*;
+        let mut remote = stub_voter(&["payment_fraud_attempt", "romance_bait"], 8000);
+        remote.usage = Some(sovir_domain::ReportedUsage {
+            tokens_input: 100,
+            tokens_output: 50,
+            cost_micro_usd: Some(2000),
+        });
+        let council = CouncilGateway::new(vec![
+            (
+                "heuristic".into(),
+                Arc::new(HeuristicLocalInferenceGateway) as _,
+            ),
+            ("remote".into(), Arc::new(remote) as _),
+        ]);
+        let v = council
+            .assess(&inf_req(
+                &[PaymentRequest, UrgentAction],
+                sovir_domain::PrivacyMode::Standard,
+            ))
+            .await
+            .unwrap();
+        let votes = v.votes.as_ref().unwrap();
+        assert_eq!(votes.len(), 2);
+        assert!(votes.iter().any(|x| x.voter == "heuristic"));
+        assert!(votes.iter().any(|x| x.voter == "remote"));
+        // Shared hypothesis (payment_fraud_attempt) -> agree.
+        assert!(v.provenance.contains("council:agree"));
+        assert!(v.hypotheses.contains(&"payment_fraud_attempt".to_string()));
+        assert!(v.hypotheses.contains(&"romance_bait".to_string()));
+        // Aggregate usage = remote voter's priced cost.
+        assert_eq!(v.usage.unwrap().cost_micro_usd, Some(2000));
+    }
+    /// No shared hypothesis across voters -> disputed, not majority.
+    #[tokio::test]
+    async fn council_marks_dispute_on_disjoint_votes() {
+        use sovir_domain::RiskSignal::*;
+        let remote = stub_voter(&["benign_page"], 9000);
+        let council = CouncilGateway::new(vec![
+            (
+                "heuristic".into(),
+                Arc::new(HeuristicLocalInferenceGateway) as _,
+            ),
+            ("remote".into(), Arc::new(remote) as _),
+        ]);
+        let v = council
+            .assess(&inf_req(
+                &[PaymentRequest],
+                sovir_domain::PrivacyMode::Standard,
+            ))
+            .await
+            .unwrap();
+        assert!(v.provenance.contains("disputed"));
+        // Dispute does not drop votes — arbitration sees both positions.
+        assert_eq!(v.votes.as_ref().unwrap().len(), 2);
+    }
+    /// A failing voter is skipped: surviving voters still produce a
+    /// verdict (fail-open per voter, fail-closed when ALL fail).
+    #[tokio::test]
+    async fn council_survives_voter_failure_and_all_fail_refuses() {
+        use sovir_domain::RiskSignal::*;
+        let mut broken = stub_voter(&[], 0);
+        broken.fail = true;
+        let council = CouncilGateway::new(vec![
+            (
+                "heuristic".into(),
+                Arc::new(HeuristicLocalInferenceGateway) as _,
+            ),
+            ("remote".into(), Arc::new(broken) as _),
+        ]);
+        let v = council
+            .assess(&inf_req(
+                &[PaymentRequest],
+                sovir_domain::PrivacyMode::Standard,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(v.votes.as_ref().unwrap().len(), 1);
+        assert!(v.provenance.contains("council:single"));
+        // All voters fail -> Unavailable (no silent empty verdict).
+        let mut b1 = stub_voter(&[], 0);
+        b1.fail = true;
+        let dead = CouncilGateway::new(vec![("only".into(), Arc::new(b1) as _)]);
+        assert!(matches!(
+            dead.assess(&inf_req(
+                &[PaymentRequest],
+                sovir_domain::PrivacyMode::Standard
+            ))
+            .await,
+            Err(PortError::Unavailable)
+        ));
+    }
+    /// ADR-0025 token-saver: a confident local verdict settles the case —
+    /// the deferred remote voter is never invoked (egress stays empty).
+    #[tokio::test]
+    async fn council_confident_local_settles_without_remote_call() {
+        use sovir_domain::RiskSignal::*;
+        let egress = Arc::new(RecordingHttpEgress::default());
+        let remote: Arc<dyn InferenceGateway> = Arc::new(RemoteInferenceGateway::new(
+            egress.clone(),
+            "https://provider.example/assess".to_string(),
+            "key".to_string(),
+            "model-x".to_string(),
+        ));
+        let council = CouncilGateway::deferred(
+            vec![(
+                "heuristic".into(),
+                Arc::new(HeuristicLocalInferenceGateway) as _,
+            )],
+            vec![("remote".into(), remote)],
+            8_000,
+        );
+        // credential 5500 + identity 3500 = 9000 >= settle_bp -> settled.
+        let v = council
+            .assess(&inf_req(
+                &[CredentialRequest, IdentityUnverified],
+                sovir_domain::PrivacyMode::Standard,
+            ))
+            .await
+            .unwrap();
+        assert!(egress.0.lock().unwrap().is_empty()); // remote NEVER called
+        assert_eq!(v.votes.as_ref().unwrap().len(), 1);
+        assert!(v.provenance.contains("council:local_settled"));
+    }
+    /// Under-confidence local votes do NOT settle: the deferred remote
+    /// voter is consulted and its vote joins the verdict.
+    #[tokio::test]
+    async fn council_ambiguous_case_consults_deferred_remote() {
+        use sovir_domain::RiskSignal::*;
+        let mut remote = stub_voter(&["payment_fraud_attempt"], 7_500);
+        remote.usage = Some(sovir_domain::ReportedUsage {
+            tokens_input: 10,
+            tokens_output: 5,
+            cost_micro_usd: Some(100),
+        });
+        let council = CouncilGateway::deferred(
+            vec![(
+                "heuristic".into(),
+                Arc::new(HeuristicLocalInferenceGateway) as _,
+            )],
+            vec![("remote".into(), Arc::new(remote) as _)],
+            8_000,
+        );
+        // UrgentAction alone stays under the local threshold -> no
+        // settled position -> the remote vote is collected.
+        let v = council
+            .assess(&inf_req(
+                &[UrgentAction],
+                sovir_domain::PrivacyMode::Standard,
+            ))
+            .await
+            .unwrap();
+        let votes = v.votes.as_ref().unwrap();
+        assert!(votes.iter().any(|x| x.voter == "remote"));
+        assert!(!v.provenance.contains("local_settled"));
+        assert_eq!(v.usage.unwrap().cost_micro_usd, Some(100));
+    }
+    /// Registry coverage (ADR-0025): every voter NAME wired into the
+    /// council must have a model card in `ml/model-cards/` — a voter
+    /// without documented provenance is an audit gap.
+    #[test]
+    fn council_voter_names_have_model_cards() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../ml/model-cards");
+        let registry: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(format!("{dir}/registry.json")).expect("read voter registry"),
+        )
+        .expect("parse voter registry");
+        for voter in registry["voters"].as_array().unwrap() {
+            let card = voter["card"].as_str().unwrap();
+            assert!(
+                voter["status"].is_string()
+                    || std::path::Path::new(&format!("{dir}/{card}")).exists(),
+                "voter {:?} registered without an existing card file {card}",
+                voter["name"]
+            );
+        }
+        // The names wired in services/api must all be registered.
+        for wired in ["heuristic", "remote", "onnx-visual"] {
+            assert!(
+                registry["voters"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v["name"] == wired),
+                "wired voter {wired} missing from registry.json"
+            );
+        }
     }
     // ---- B21: RemoteInferenceGateway smoke against a real local stub ----
 
@@ -2869,8 +3329,9 @@ mod tests {
             misses.is_empty(),
             "hypothesis recall <100% — misses: {misses:?}"
         );
-        // Standard mode: the local gateway must serve 0% of requests.
-        assert!(!g.serves(PrivacyMode::Standard));
+        // Council voter (ADR-0025): serves both modes — the vote stays
+        // on-device and is proposal material for the arbiter.
+        assert!(g.serves(PrivacyMode::Standard));
     }
 
     /// B6 race parity: `insert_once` check+insert runs under one lock —

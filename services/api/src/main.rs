@@ -289,9 +289,31 @@ fn inference_gateway(
     } else {
         Arc::new(sovir_adapters::LocalOnlyInferenceGateway)
     };
-    Some(Arc::new(sovir_adapters::CompositeInferenceGateway::new(
-        local, remote,
-    )))
+    // ADR-0025: the inference seam is a council. The remote voter is
+    // DEFERRED — invoked only when local votes don't settle (dispute or
+    // under-confidence below SOVIR_COUNCIL_SETTLE_BP, default 8000bp) —
+    // so clear cases never spend remote tokens, and Private mode filters
+    // the remote out before any call. `votes` records who actually voted.
+    let voters: Vec<(String, Arc<dyn sovir_ports::InferenceGateway>)> = vec![
+        ("heuristic".into(), local),
+        // ADR-0024 seam: registered, fails closed until artifact+feature.
+        (
+            "onnx-visual".into(),
+            Arc::new(sovir_adapters::OnnxVisualVoter::from_env()),
+        ),
+    ];
+    let settle_bp: u16 = env::var("SOVIR_COUNCIL_SETTLE_BP")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8_000);
+    match remote {
+        Some(r) => Some(Arc::new(sovir_adapters::CouncilGateway::deferred(
+            voters,
+            vec![("remote".into(), r)],
+            settle_bp,
+        ))),
+        None => Some(Arc::new(sovir_adapters::CouncilGateway::new(voters))),
+    }
 }
 /// Loads a versioned policy pack from `SOVIR_POLICY_PACK` (JSON file path).
 /// Unset → `dev_pack()`; set-but-invalid → startup refuses (fail closed).
@@ -1247,14 +1269,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let deploy_mode = env::var("SOVIR_DEPLOY").unwrap_or_default();
     let private_overlay = deploy_mode == "private-overlay";
     if !addr.ip().is_loopback() && !private_overlay {
-        return Err("dev API must bind only to loopback (set SOVIR_DEPLOY=private-overlay to override)".into());
+        return Err(
+            "dev API must bind only to loopback (set SOVIR_DEPLOY=private-overlay to override)"
+                .into(),
+        );
     }
     // Dev sessions are the only auth path; they must never exist outside
     // local/test — and private-overlay deploy mode always disables them
     // (OIDC becomes the only auth path on a reachable interface).
     let sovir_env = env::var("SOVIR_ENV").unwrap_or_else(|_| "local".into());
-    let dev_session_enabled =
-        matches!(sovir_env.as_str(), "local" | "test") && !private_overlay;
+    let dev_session_enabled = matches!(sovir_env.as_str(), "local" | "test") && !private_overlay;
     if env::var("SOVIR_ALLOW_REMOTE_INFERENCE").unwrap_or_default() == "true" {
         return Err("remote inference not implemented; disable it (fail closed)".into());
     }
