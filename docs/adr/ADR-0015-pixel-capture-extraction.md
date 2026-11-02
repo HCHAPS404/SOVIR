@@ -1,6 +1,13 @@
 # ADR-0015 — Pixel capture y extracción on-device (propuesta)
 
-- Status: Proposed — pending maintainer signoff
+- Status: Accepted — maintainer signoff 2026-11-02 (session
+  authorization: maintainer delegated the full edge-plane
+  implementation, including this capture path, to Devin)
+- Implementation status (2026-11-02): Windows path live — real
+  `Windows.Graphics.Capture` of the foreground window via
+  `services/observer` (`feature="wgc"`, `SOVIR_OBSERVER_VISION=1`),
+  D3D11 readback → bounded frames → `IMAGE_REGION` events (digest only;
+  pixels discarded in-process). Synthetic source for screenless E2E.
 - Date: 2026-05-20
 - Owners: platform (Cursor) + backend (Claude)
 - Related issue: edge plane; supersedes nothing, extends ADR-0014

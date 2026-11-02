@@ -1,6 +1,13 @@
 # ADR-0020 — Clasificador de visión on-device (propuesta)
 
 - Status: Accepted — maintainer signoff 2026-11-02
+- Implementation status (2026-11-02): deterministic v0 live — `QR_PRESENT`
+  via finder-pattern signature (1:1:3:1:1 + cross-axis corner
+  confirmation) in `crates/sovir-edge-extract` and `apps/extension`,
+  corroboration rule `qr_phishing_lure` in policy pack `dev-2`. Model
+  card: `ml/model-cards/sovir-vision-qr-v0.md`. Learned classes
+  (`image_lure`, `brand_impersonation`) remain NOT_IMPLEMENTED — no
+  model artifact; selection/eval is still the separate ticket.
 - Date: 2026-10-29
 - Owners: backend (Claude) + platform (Cursor)
 - Related issue: edge plane v3; extends ADR-0015, ADR-0019

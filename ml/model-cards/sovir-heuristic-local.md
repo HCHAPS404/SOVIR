@@ -15,14 +15,14 @@ Suma pesos por señal presente (`RiskSignal` tipada) por hipótesis; emite la hi
 - `USER_DEFINED_EXPOSURE_LIMIT` no pesa en ninguna hipótesis: es gobernanza, no evidencia de amenaza.
 - Deduplicación antes de puntuar: un enum repetido no duplica evidencia (caso `dup_style_signal_set`).
 
-## Métricas (corpus sintético `eval-inference-heuristic.v1.json`, 18 casos)
+## Métricas (corpus sintético `eval-inference-heuristic.v1.json`, 66 casos)
 
 | Métrica | Valor | Nota |
 |---|---|---|
 | Hypothesis recall | 100% | gate — toda hipótesis esperada se produce |
-| Exact-set match | 18/18 | reportado, no gatillado a futuro |
-| Latencia p50 / p95 | 1µs / 68µs | en proceso, sin red |
-| Recall por clase | adversarial 2/2, ambiguous 7/7, benign 2/2, clear_positive 7/7 | sintético |
+| Exact-set match | 62/66 | reportado, no gatillado a futuro |
+| Latencia p50 / p95 | 17µs / 29µs | en proceso, sin red |
+| Recall por clase | adversarial 9/9, ambiguous 23/23, benign 2/2, clear_positive 32/32 | sintético |
 
 Verificado en `heuristic_eval_corpus_reports_metrics` (cargo test). **Corpus 100% sintético — no hay claim de precisión contra fraude real.**
 

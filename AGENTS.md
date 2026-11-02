@@ -62,10 +62,12 @@ Before changing UI read `docs/design/FRONTEND_MASTER_PLAN.md` and `FRONTEND_GOVE
 For work in `crates/`, `services/`, `infra/postgres/`, read
 `docs/backend/BACKEND_MASTER_PLAN.md` and ADR-0005. `make backend-check` must pass
 with Rust installed before a backend PR merges. The local demo cannot be deployed
-on the Internet. Auth is dev-session-only (OIDC seam unconfigured), remote
-inference is unwired by default, and there is no real model — only the local
-heuristic. Postgres persistence exists behind `DATABASE_URL` (unverified
-without a live database).
+on the Internet. Auth accepts dev-session plus OIDC JWTs verified against a local
+Keycloak (`SOVIR_OIDC_*` seam wired and tested, `JwksIdentityVerifier`), remote
+inference is wired behind `SOVIR_HTTP_EGRESS=real` + allowlist + hard budget cap,
+and there is no real local model — only the heuristic plus remote typed-signal
+hypotheses. Postgres persistence runs on `DATABASE_URL` against a local portable
+Postgres 17.6 (migrations applied, verified).
 
 
 ## Ownership definitivo del backend (2026-10-28)

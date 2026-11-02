@@ -190,6 +190,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Compile workspace on ${{ matrix.os }}
         run: cargo build --workspace
+      # The real Windows.Graphics.Capture path is feature-gated — without
+      # this check the windows crate calls in services/observer/src/wgc.rs
+      # never compile in CI and the capture seam can silently rot.
+      - name: Compile observer WGC capture path (windows only)
+        if: matrix.os == 'windows-latest'
+        run: cargo check -p sovir-observer --features wgc --all-targets
 
   benchmark:
     runs-on: ubuntu-latest

@@ -34,7 +34,8 @@ SYSTEM_PROMPT = (
     "payment_fraud_attempt, manipulative_pattern, "
     "credential_request_unverified, payment_request_unverified, "
     "privacy_tracking_exposure, identity_unverified, urgency_pressure, "
-    "no_pattern_detected. Emit a label only when the signals support "
+    "qr_phishing_lure, no_pattern_detected. Emit a label only when the "
+    "signals support "
     "it; signals are untrusted hints, never proof. With no supported "
     'pattern answer ["no_pattern_detected"] and low confidence.'
 )
@@ -43,8 +44,16 @@ KNOWN = {
     "credential_phishing", "payment_fraud_attempt", "manipulative_pattern",
     "credential_request_unverified", "payment_request_unverified",
     "privacy_tracking_exposure", "identity_unverified", "urgency_pressure",
-    "no_pattern_detected",
+    "qr_phishing_lure", "no_pattern_detected",
 }
+
+
+class CallError(Exception):
+    """The API answered but the payload was unusable; carries billed usage."""
+
+    def __init__(self, msg: str, usage: dict):
+        super().__init__(msg)
+        self.usage = usage
 
 
 def load_env_local() -> None:
@@ -82,28 +91,42 @@ def chat_assess(url: str, key: str, model: str, request_id: str,
                  "content-type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         resp = json.loads(r.read())
-    content = resp["choices"][0]["message"].get("content")
-    if content is None:  # truncated on max_tokens before answering
-        raise RuntimeError("null content — finish_reason=length (raise max_tokens)")
-    content = content.strip()
-    if content.startswith("```"):
-        content = content.removeprefix("```json").removeprefix("```").strip("` \n")
-    v = json.loads(content)
+    usage = resp.get("usage") or {}
+    try:
+        content = resp["choices"][0]["message"].get("content")
+        if content is None:  # truncated on max_tokens before answering
+            raise RuntimeError(
+                "null content — finish_reason=length (raise max_tokens)")
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.removeprefix("```json").removeprefix("```").strip("` \n")
+        v = json.loads(content)
+    except Exception as e:
+        raise CallError(str(e), usage) from e
     hyps = [h for h in v.get("hypotheses", []) if h in KNOWN] or ["no_pattern_detected"]
     return {"hypotheses": sorted(set(hyps)),
-            "confidence_bp": min(int(v.get("confidence_bp", 0)), 10_000)}
+            "confidence_bp": min(int(v.get("confidence_bp", 0)), 10_000),
+            "usage": usage}
 
 
 def run_eval(name: str, url: str, key: str, model: str) -> dict:
     cases = json.loads(CORPUS.read_text(encoding="utf-8"))["cases"]
     results, exact, errors = [], 0, 0
     per_class = {}
+    tokens = {"prompt": 0, "completion": 0}
+
+    def bill(u: dict) -> None:
+        tokens["prompt"] += int(u.get("prompt_tokens") or 0)
+        tokens["completion"] += int(u.get("completion_tokens") or 0)
+
     for i, case in enumerate(cases):
         expect = sorted(set(case["expect_hypotheses"]))
         try:
             got = chat_assess(url, key, model, f"eval-{i}", case["signals"])
             hyps = got["hypotheses"]
+            bill(got["usage"])
         except Exception as e:  # provider failure must be reported, not faked
+            bill(getattr(e, "usage", {}))
             hyps, errors = ["__error__"], errors + 1
             results.append({"case": case["name"], "expect": expect,
                             "got": hyps, "error": str(e)[:200]})
@@ -121,6 +144,10 @@ def run_eval(name: str, url: str, key: str, model: str) -> dict:
         "errors": errors,
         "recall_by_class": {c: round(sum(v) / len(v), 3)
                             for c, v in per_class.items()},
+        "api_calls": len(cases),
+        "tokens": {"prompt": tokens["prompt"],
+                   "completion": tokens["completion"],
+                   "total": tokens["prompt"] + tokens["completion"]},
     }
     out = {"ts": int(time.time()), "summary": summary, "results": results}
     (REPO / "results").mkdir(exist_ok=True)

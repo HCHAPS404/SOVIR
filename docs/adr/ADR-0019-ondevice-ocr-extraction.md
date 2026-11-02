@@ -1,6 +1,11 @@
 # ADR-0019 — OCR on-device como modalidad de extracción (propuesta)
 
 - Status: Accepted — maintainer signoff 2026-11-02
+- Implementation status (2026-11-02): live on Windows via
+  `Windows.Media.Ocr` (`SOVIR_OBSERVER_OCR=1`, `feature="wgc"`) — runs
+  ONLY on regions the structural/vision pass flagged (≤4 per frame),
+  never whole-screen. Text→signal mapping in
+  `sovir_edge_extract::ocr` was already in place.
 - Date: 2026-10-29
 - Owners: platform (Cursor) + backend (Claude)
 - Related issue: edge plane v2; extends ADR-0014, ADR-0015

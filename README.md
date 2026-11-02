@@ -1,4 +1,6 @@
 > **Auditoría de arranque (27 oct 2026):** este repositorio contiene un scaffold integral, NO una app multiplataforma lista. Antes de tratar como válido el backend, ejecutar `make backend-check` con Rust instalado. Hallazgos y proceso: [`docs/audits/AUDITORIA_PRECOMMIT_2026-10-27.md`](docs/audits/AUDITORIA_PRECOMMIT_2026-10-27.md).
+>
+> **Stack local-producción (2 nov 2026):** el API de desarrollo corre verificado contra Postgres 17.6 portable (`DATABASE_URL`, migraciones 0001–0012, RLS activo) y valida JWT OIDC reales emitidos por Keycloak 26.4.7 local (realm `sovir`, `JwksIdentityVerifier`, PKCE para extensión y consola). La inferencia remota Meta está cableada y probada con caps de presupuesto duros (`SOVIR_INFERENCE_BUDGET_USD`). Sigue siendo **local-only por diseño**: bind loopback obligatorio, dev-session y egress real solo en `SOVIR_ENV=local|test`, y la detección sigue siendo v0 heurística. Arranque: `scripts/` + `start-sovir.ps1` (ver `docs/operations/DEFERRED_TOOLCHAINS.md`).
 
 # SOVIR — Digital Autonomy Intelligence
 
