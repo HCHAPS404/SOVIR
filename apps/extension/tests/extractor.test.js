@@ -81,3 +81,323 @@ test("http with zero other signals → no IDENTITY_UNVERIFIED", () => {
   const { doc: d, loc } = doc("<p>texto</p>", "http:");
   assert.deepEqual(extract(d, loc), []);
 });
+
+// --- Deceptive-link and domain detectors (v0.3) ---
+
+test("link text domain ≠ href domain → LINK_DESTINATION_MISMATCH", () => {
+  const { doc: d, loc } = doc(
+    '<a href="http://secure-verify.tk/login">https://www.tubanco.com</a>',
+  );
+  assert.ok(extract(d, loc).includes("LINK_DESTINATION_MISMATCH"));
+});
+
+test("link text domain matching href domain → no mismatch", () => {
+  const { doc: d, loc } = doc(
+    '<a href="https://www.tubanco.com/login">https://www.tubanco.com</a>',
+  );
+  assert.ok(!extract(d, loc).includes("LINK_DESTINATION_MISMATCH"));
+});
+
+test("anchor text without a domain → no mismatch", () => {
+  const { doc: d, loc } = doc('<a href="https://otro.example/x">haz clic aquí</a>');
+  assert.ok(!extract(d, loc).includes("LINK_DESTINATION_MISMATCH"));
+});
+
+test("page on abusive TLD → SUSPICIOUS_DOMAIN", () => {
+  const { doc: d, loc } = doc("<p>x</p>", "https:", "login-banco.tk");
+  assert.ok(extract(d, loc).includes("SUSPICIOUS_DOMAIN"));
+});
+
+test("link href to abusive TLD → SUSPICIOUS_DOMAIN", () => {
+  const { doc: d, loc } = doc('<a href="http://verify.tk/x">verificar</a>');
+  assert.ok(extract(d, loc).includes("SUSPICIOUS_DOMAIN"));
+});
+
+test("punycode host → SUSPICIOUS_DOMAIN", () => {
+  const { doc: d, loc } = doc("<p>x</p>", "https:", "xn--bnk-9wa.example");
+  assert.ok(extract(d, loc).includes("SUSPICIOUS_DOMAIN"));
+});
+
+test("bare-IP host → SUSPICIOUS_DOMAIN", () => {
+  const { doc: d, loc } = doc("<p>x</p>", "http:", "192.168.0.50");
+  assert.ok(extract(d, loc).includes("SUSPICIOUS_DOMAIN"));
+});
+
+test("normal domain → no SUSPICIOUS_DOMAIN", () => {
+  const { doc: d, loc } = doc("<p>x</p>", "https:", "www.pinterest.com");
+  assert.ok(!extract(d, loc).includes("SUSPICIOUS_DOMAIN"));
+});
+
+test("sextortion phrasing → EXTORTION_LANGUAGE", () => {
+  const { doc: d, loc } = doc(
+    "<p>Tenemos tus videos. Paga ahora o publicamos todo a tus contactos.</p>",
+  );
+  assert.ok(extract(d, loc).includes("EXTORTION_LANGUAGE"));
+});
+
+test("ransom phrasing EN → EXTORTION_LANGUAGE", () => {
+  const { doc: d, loc } = doc(
+    "<p>Your files will be deleted unless you pay to this bitcoin wallet.</p>",
+  );
+  assert.ok(extract(d, loc).includes("EXTORTION_LANGUAGE"));
+});
+
+test("fake infection scare → SCAREWARE_CLAIM", () => {
+  const { doc: d, loc } = doc(
+    "<strong>Tu dispositivo está infectado. Llame ahora a soporte.</strong>",
+  );
+  assert.ok(extract(d, loc).includes("SCAREWARE_CLAIM"));
+});
+
+test("late fee disclosure → HIDDEN_FEE_PATTERN", () => {
+  const { doc: d, loc } = doc("<p>Total + $9.99 service fee al finalizar.</p>");
+  assert.ok(extract(d, loc).includes("HIDDEN_FEE_PATTERN"));
+});
+
+test("benign pricing text → no HIDDEN_FEE_PATTERN", () => {
+  const { doc: d, loc } = doc("<p>Envío gratis en pedidos superiores a 50€.</p>");
+  assert.ok(!extract(d, loc).includes("HIDDEN_FEE_PATTERN"));
+});
+
+// --- Multilingual coverage (v0.4): DE / FR / IT / PT / JA / ZH ---
+
+test("DE urgency → URGENT_ACTION", () => {
+  const { doc: d, loc } = doc(
+    "<h1>Ihr Konto wurde gesperrt. Handeln Sie jetzt zur Verifizierung.</h1>",
+  );
+  assert.ok(extract(d, loc).includes("URGENT_ACTION"));
+});
+
+test("FR scareware → SCAREWARE_CLAIM", () => {
+  const { doc: d, loc } = doc(
+    "<p>Virus détecté sur votre ordinateur. Appelez maintenant le support.</p>",
+  );
+  assert.ok(extract(d, loc).includes("SCAREWARE_CLAIM"));
+});
+
+test("IT prize → PRIZE_LOTTERY_CLAIM", () => {
+  const { doc: d, loc } = doc("<h2>Congratulazioni! Hai vinto il jackpot.</h2>");
+  assert.ok(extract(d, loc).includes("PRIZE_LOTTERY_CLAIM"));
+});
+
+test("PT gift card → GIFT_CARD_PAYMENT", () => {
+  const { doc: d, loc } = doc(
+    "<p>Para liberar sua conta, pague com cartão presente.</p>",
+  );
+  assert.ok(extract(d, loc).includes("GIFT_CARD_PAYMENT"));
+});
+
+test("JA scareware substring (no \b needed) → SCAREWARE_CLAIM", () => {
+  const { doc: d, loc } = doc(
+    "<p>ウイルスが検出されました。今すぐお電話ください。</p>",
+  );
+  const s = extract(d, loc);
+  assert.ok(s.includes("SCAREWARE_CLAIM"));
+  assert.ok(s.includes("URGENT_ACTION"));
+});
+
+test("ZH urgency substring → URGENT_ACTION", () => {
+  const { doc: d, loc } = doc("<h1>您的账户已冻结，请立即验证</h1>");
+  assert.ok(extract(d, loc).includes("URGENT_ACTION"));
+});
+
+test("ZH prize substring → PRIZE_LOTTERY_CLAIM", () => {
+  const { doc: d, loc } = doc("<p>恭喜中奖！请领取您的奖品。</p>");
+  assert.ok(extract(d, loc).includes("PRIZE_LOTTERY_CLAIM"));
+});
+
+test("JA prize substring → PRIZE_LOTTERY_CLAIM", () => {
+  const { doc: d, loc } = doc("<p>当選おめでとうございます！賞金を受け取る。</p>");
+  assert.ok(extract(d, loc).includes("PRIZE_LOTTERY_CLAIM"));
+});
+
+// --- New signal detectors ---
+
+test("investment promise EN → INVESTMENT_PROMISE", () => {
+  const { doc: d, loc } = doc(
+    "<p>Double your money with guaranteed returns in 30 days.</p>",
+  );
+  assert.ok(extract(d, loc).includes("INVESTMENT_PROMISE"));
+});
+
+test("honest risk disclosure → no INVESTMENT_PROMISE", () => {
+  const { doc: d, loc } = doc(
+    "<p>All investments carry risk of loss. Past performance varies.</p>",
+  );
+  assert.ok(!extract(d, loc).includes("INVESTMENT_PROMISE"));
+});
+
+test("seed phrase text ES → SEED_PHRASE_REQUEST", () => {
+  const { doc: d, loc } = doc(
+    "<p>Para recuperar tu billetera introduce la frase de recuperación de 24 palabras.</p>",
+  );
+  assert.ok(extract(d, loc).includes("SEED_PHRASE_REQUEST"));
+});
+
+test("seed phrase input placeholder → SEED_PHRASE_REQUEST", () => {
+  const { doc: d, loc } = doc(
+    '<input type="text" placeholder="Enter your seed phrase">',
+  );
+  assert.ok(extract(d, loc).includes("SEED_PHRASE_REQUEST"));
+});
+
+test("normal input → no SEED_PHRASE_REQUEST", () => {
+  const { doc: d, loc } = doc('<input type="text" name="username">');
+  assert.ok(!extract(d, loc).includes("SEED_PHRASE_REQUEST"));
+});
+
+test("customs parcel text → DELIVERY_CUSTOMS_FEE", () => {
+  const { doc: d, loc } = doc(
+    "<p>Your package is held at customs. Pay the customs fee to release it.</p>",
+  );
+  assert.ok(extract(d, loc).includes("DELIVERY_CUSTOMS_FEE"));
+});
+
+test("DE authority fine → AUTHORITY_IMPERSONATION", () => {
+  const { doc: d, loc } = doc(
+    "<p>Das Finanzamt hat eine offizielle Strafe gegen Sie verhängt.</p>",
+  );
+  assert.ok(extract(d, loc).includes("AUTHORITY_IMPERSONATION"));
+});
+
+test("scarcity text DE → SCARCITY_PRESSURE", () => {
+  const { doc: d, loc } = doc("<p>Nur noch wenige verfügbar — nur heute!</p>");
+  assert.ok(extract(d, loc).includes("SCARCITY_PRESSURE"));
+});
+
+test("countdown widget → SCARCITY_PRESSURE", () => {
+  const { doc: d, loc } = doc('<div class="countdown">04:59:58</div>');
+  assert.ok(extract(d, loc).includes("SCARCITY_PRESSURE"));
+});
+
+test("empty countdown widget → no SCARCITY_PRESSURE", () => {
+  const { doc: d, loc } = doc('<div class="countdown"></div>');
+  assert.ok(!extract(d, loc).includes("SCARCITY_PRESSURE"));
+});
+
+test("job scam pitch EN → JOB_SCAM_OFFER", () => {
+  const { doc: d, loc } = doc(
+    "<p>Work from home. No experience needed. Weekly payout guaranteed position.</p>",
+  );
+  assert.ok(extract(d, loc).includes("JOB_SCAM_OFFER"));
+});
+
+test("normal careers page → no JOB_SCAM_OFFER", () => {
+  const { doc: d, loc } = doc(
+    "<p>Our careers page lists open engineering positions in Madrid.</p>",
+  );
+  assert.ok(!extract(d, loc).includes("JOB_SCAM_OFFER"));
+});
+
+test("miracle cure EN → MIRACLE_CURE_CLAIM", () => {
+  const { doc: d, loc } = doc(
+    "<p>Doctors hate this miracle cure! Cures diabetes in 7 days.</p>",
+  );
+  assert.ok(extract(d, loc).includes("MIRACLE_CURE_CLAIM"));
+});
+
+test("love + money in same block → ROMANCE_BAIT", () => {
+  const { doc: d, loc } = doc(
+    "<p>My love, I want to meet you but I need money for the plane ticket.</p>",
+  );
+  assert.ok(extract(d, loc).includes("ROMANCE_BAIT"));
+});
+
+test("love without money → no ROMANCE_BAIT", () => {
+  const { doc: d, loc } = doc("<p>My love, I hope to meet you soon.</p>");
+  assert.ok(!extract(d, loc).includes("ROMANCE_BAIT"));
+});
+
+test("money ask without romance → no ROMANCE_BAIT", () => {
+  const { doc: d, loc } = doc(
+    "<p>Please send money for the emergency hospital bill.</p>",
+  );
+  assert.ok(!extract(d, loc).includes("ROMANCE_BAIT"));
+});
+
+test("password + ssn field → DATA_HARVESTING", () => {
+  const { doc: d, loc } = doc(
+    '<form><input type="password" name="p"><input type="text" name="ssn"></form>',
+  );
+  const s = extract(d, loc);
+  assert.ok(s.includes("CREDENTIAL_REQUEST"));
+  assert.ok(s.includes("DATA_HARVESTING"));
+});
+
+test("password + email field → no DATA_HARVESTING", () => {
+  const { doc: d, loc } = doc(
+    '<form><input type="password" name="p"><input type="email" name="e"></form>',
+  );
+  assert.ok(!extract(d, loc).includes("DATA_HARVESTING"));
+});
+
+test("DE extortion → EXTORTION_LANGUAGE", () => {
+  const { doc: d, loc } = doc(
+    "<p>Wir haben deine Videos. Zahl oder wir veröffentlichen alles.</p>",
+  );
+  assert.ok(extract(d, loc).includes("EXTORTION_LANGUAGE"));
+});
+
+test("FR extortion → EXTORTION_LANGUAGE", () => {
+  const { doc: d, loc } = doc(
+    "<p>Nous avons vos vidéos. Payez ou nous publions tout.</p>",
+  );
+  assert.ok(extract(d, loc).includes("EXTORTION_LANGUAGE"));
+});
+
+test("DE hidden fee → HIDDEN_FEE_PATTERN", () => {
+  const { doc: d, loc } = doc(
+    "<p>Zusätzliche Gebühren fallen an: Servicegebühr 4,99 €.</p>",
+  );
+  assert.ok(extract(d, loc).includes("HIDDEN_FEE_PATTERN"));
+});
+
+test("word-boundary: 'unlocked' must not match 'locked'", () => {
+  const { doc: d, loc } = doc("<p>Your account is now unlocked and active.</p>");
+  assert.ok(!extract(d, loc).includes("URGENT_ACTION"));
+});
+
+// --- Marketplace off-platform + bulk-buyer lures + wide selectors (v0.5) ---
+
+test("whatsapp move in a div (FB-style DOM) → OFF_PLATFORM_MOVE", () => {
+  const { doc: d, loc } = doc("<div>Escríbeme por whatsapp para coordinar</div>");
+  assert.ok(extract(d, loc).includes("OFF_PLATFORM_MOVE"));
+});
+
+test("hidden contact info in a span → OFF_PLATFORM_MOVE", () => {
+  const { doc: d, loc } = doc("<span>Teléfono: [hidden information]</span>");
+  assert.ok(extract(d, loc).includes("OFF_PLATFORM_MOVE"));
+});
+
+test("ZH off-platform move → OFF_PLATFORM_MOVE", () => {
+  const { doc: d, loc } = doc("<div>请加微信联系</div>");
+  assert.ok(extract(d, loc).includes("OFF_PLATFORM_MOVE"));
+});
+
+test("ES bulk-buyer lure → BULK_BUYER_LURE", () => {
+  const { doc: d, loc } = doc(
+    "<div>Compra inmediata pago de contado — te compramos toda clase de motos</div>",
+  );
+  assert.ok(extract(d, loc).includes("BULK_BUYER_LURE"));
+});
+
+test("JA bulk-buyer lure → BULK_BUYER_LURE", () => {
+  const { doc: d, loc } = doc("<div>何でも即金買取します</div>");
+  assert.ok(extract(d, loc).includes("BULK_BUYER_LURE"));
+});
+
+test("ordinary marketplace copy → neither lure", () => {
+  const { doc: d, loc } = doc(
+    "<div>Vendo bicicleta en buen estado, precio negociable</div>",
+  );
+  const s = extract(d, loc);
+  assert.ok(!s.includes("OFF_PLATFORM_MOVE"));
+  assert.ok(!s.includes("BULK_BUYER_LURE"));
+});
+
+test("span inside feed markup is now scanned (selector widening)", () => {
+  const { doc: d, loc } = doc(
+    "<article><div><span><span>Solo quedan 2 unidades</span></span></div></article>",
+  );
+  assert.ok(extract(d, loc).includes("SCARCITY_PRESSURE"));
+});

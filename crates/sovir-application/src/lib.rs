@@ -290,6 +290,30 @@ impl SovirService {
             return Err(AppError::Forbidden);
         }
         let now = self.clock.now_ms();
+        // Idempotent re-registration: a client that already knows its stable
+        // device_id may re-announce itself (e.g. service-worker restart).
+        // For a live device this is a heartbeat — refresh last_seen and
+        // return the existing record instead of erroring or duplicating.
+        // A revoked device deliberately falls through to `register`, which
+        // fails closed with Duplicate: re-registration must not resurrect
+        // an explicit revocation.
+        if let Some(id) = device_id {
+            if let Some(existing) = self
+                .devices
+                .get(&principal.tenant_id, &principal.principal_id, id)
+                .await?
+            {
+                if existing.revoked_at_ms.is_none() {
+                    self.devices
+                        .touch_seen(&principal.tenant_id, &principal.principal_id, id, now)
+                        .await?;
+                    return Ok(Device {
+                        last_seen_at_ms: Some(now),
+                        ..existing
+                    });
+                }
+            }
+        }
         let device = Device {
             device_id: device_id
                 .map(str::to_string)

@@ -38,6 +38,37 @@
         <button id="save" type="button">Guardar</button>
         <span id="saved" class="note"></span>
       </p>
+      <h2>Tu cuenta</h2>
+      <p>
+        La identidad con la que abres la consola (<code>http://127.0.0.1:3001</code>). Los eventos
+        que observe esta extensión aparecerán bajo esa misma cuenta.
+      </p>
+      <p>
+        <label>
+          Tu identidad en la consola
+          <input id="principal" type="text" placeholder="ext-demo" />
+        </label>
+        <button id="save-principal" type="button">Guardar</button>
+        <span id="saved-principal" class="note"></span>
+      </p>
+      <h2>Cuenta real (OIDC)</h2>
+      <p>
+        Si tienes un proveedor de identidad (p. ej. Keycloak local), configúralo aquí y la
+        extensión iniciará sesión contigo en vez de usar la cuenta de demostración. Vacío = modo
+        demo local.
+      </p>
+      <p>
+        <label>
+          Issuer OIDC (realm URL)
+          <input id="oidc-issuer" type="url" placeholder="http://127.0.0.1:8081/realms/sovir" />
+        </label>
+        <label>
+          Client ID
+          <input id="oidc-client" type="text" placeholder="sovir-extension" />
+        </label>
+        <button id="save-oidc" type="button">Guardar</button>
+        <span id="saved-oidc" class="note"></span>
+      </p>
       <script src="options.js"></script>
     </main>
   </body>

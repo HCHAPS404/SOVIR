@@ -32,6 +32,50 @@ pub enum RiskSignal {
     HiddenFeePattern,
     ConsentDarkPattern,
     UserDefinedExposureLimit,
+    /// Anchor text implies one destination while `href` points to a
+    /// different registrable domain — the classic fake-link phishing shape.
+    LinkDestinationMismatch,
+    /// Page or link target uses a high-abuse TLD, punycode lookalike or
+    /// bare IP host — domain itself is untrustworthy.
+    SuspiciousDomain,
+    /// "Pay or we publish/leak" — sextortion and ransomware phrasing.
+    ExtortionLanguage,
+    /// Fake infection/security scare ("your device is infected") used to
+    /// coerce action — scareware.
+    ScarewareClaim,
+    /// "You won a prize/lottery" — advance-fee fraud hook.
+    PrizeLotteryClaim,
+    /// "Guaranteed returns / double your money" — investment fraud promise.
+    InvestmentPromise,
+    /// Payment demanded via gift/prepaid cards — a near-certain scam tell.
+    GiftCardPayment,
+    /// Request for a crypto seed/recovery phrase or private key — direct
+    /// wallet theft; essentially never legitimate on a webpage.
+    SeedPhraseRequest,
+    /// "Parcel held — pay the customs/delivery fee" — package-fee phishing.
+    DeliveryCustomsFee,
+    /// The page claims to be police, tax authority, court or government —
+    /// authority impersonation used as coercion leverage.
+    AuthorityImpersonation,
+    /// "Only 3 left / offer ends tonight" plus countdown timers — scarcity
+    /// pressure distinct from generic urgency language.
+    ScarcityPressure,
+    /// "Work from home, no experience, guaranteed income" — job-fee scam.
+    JobScamOffer,
+    /// Love/relationship language fused with a money or emergency ask in
+    /// the same surface — romance-scam bait.
+    RomanceBait,
+    /// "Miracle cure / secret remedy doctors hide" — health-fraud pitch.
+    MiracleCureClaim,
+    /// Form harvesting an over-broad PII set (password plus national ID,
+    /// birth data, etc.) beyond what the context justifies.
+    DataHarvesting,
+    /// "Message me on WhatsApp/Telegram" or hidden contact info — moving
+    /// the conversation off-platform to evade marketplace protection.
+    OffPlatformMove,
+    /// "We buy all kinds, immediate purchase, cash payment" — bulk-buyer
+    /// lure used by fencing and advance-fee marketplace scams.
+    BulkBuyerLure,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -433,6 +477,23 @@ pub fn risk_signal_label(s: RiskSignal) -> &'static str {
         RiskSignal::HiddenFeePattern => "HIDDEN_FEE_PATTERN",
         RiskSignal::ConsentDarkPattern => "CONSENT_DARK_PATTERN",
         RiskSignal::UserDefinedExposureLimit => "USER_DEFINED_EXPOSURE_LIMIT",
+        RiskSignal::LinkDestinationMismatch => "LINK_DESTINATION_MISMATCH",
+        RiskSignal::SuspiciousDomain => "SUSPICIOUS_DOMAIN",
+        RiskSignal::ExtortionLanguage => "EXTORTION_LANGUAGE",
+        RiskSignal::ScarewareClaim => "SCAREWARE_CLAIM",
+        RiskSignal::PrizeLotteryClaim => "PRIZE_LOTTERY_CLAIM",
+        RiskSignal::InvestmentPromise => "INVESTMENT_PROMISE",
+        RiskSignal::GiftCardPayment => "GIFT_CARD_PAYMENT",
+        RiskSignal::SeedPhraseRequest => "SEED_PHRASE_REQUEST",
+        RiskSignal::DeliveryCustomsFee => "DELIVERY_CUSTOMS_FEE",
+        RiskSignal::AuthorityImpersonation => "AUTHORITY_IMPERSONATION",
+        RiskSignal::ScarcityPressure => "SCARCITY_PRESSURE",
+        RiskSignal::JobScamOffer => "JOB_SCAM_OFFER",
+        RiskSignal::RomanceBait => "ROMANCE_BAIT",
+        RiskSignal::MiracleCureClaim => "MIRACLE_CURE_CLAIM",
+        RiskSignal::DataHarvesting => "DATA_HARVESTING",
+        RiskSignal::OffPlatformMove => "OFF_PLATFORM_MOVE",
+        RiskSignal::BulkBuyerLure => "BULK_BUYER_LURE",
     }
 }
 /// Stable metadata label for a sensitive-data class (matches serde name).
@@ -509,6 +570,20 @@ pub fn detect_sequences(events: &[ObservedEvent]) -> Vec<SequenceFinding> {
         RiskSignal::ConsentDarkPattern,
         RiskSignal::HiddenFeePattern,
         RiskSignal::TrackingObserved,
+        RiskSignal::LinkDestinationMismatch,
+        RiskSignal::SuspiciousDomain,
+        RiskSignal::ExtortionLanguage,
+        RiskSignal::ScarewareClaim,
+        RiskSignal::PrizeLotteryClaim,
+        RiskSignal::InvestmentPromise,
+        RiskSignal::DeliveryCustomsFee,
+        RiskSignal::AuthorityImpersonation,
+        RiskSignal::ScarcityPressure,
+        RiskSignal::JobScamOffer,
+        RiskSignal::RomanceBait,
+        RiskSignal::MiracleCureClaim,
+        RiskSignal::OffPlatformMove,
+        RiskSignal::BulkBuyerLure,
     ];
     let has = |e: &ObservedEvent, s: RiskSignal| e.signals.contains(&s);
     // First pair (earlier, later) satisfying the pattern, scanned in the
@@ -615,6 +690,208 @@ impl PolicyPack {
                     risk_level: RiskLevel::High,
                     decision: DecisionKind::Warn,
                 },
+                // "Pay or we publish" — extortion language plus a demand for
+                // payment or manufactured urgency is a sextortion/ransom shape.
+                PolicyRule {
+                    name: "extortion_demand".into(),
+                    clauses: vec![
+                        vec![RiskSignal::ExtortionLanguage],
+                        vec![RiskSignal::PaymentRequest, RiskSignal::UrgentAction],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // Fake infection scare that immediately asks for an action
+                // (credentials, payment, urgent response) — scareware lure.
+                PolicyRule {
+                    name: "scareware_lure".into(),
+                    clauses: vec![
+                        vec![RiskSignal::ScarewareClaim],
+                        vec![
+                            RiskSignal::CredentialRequest,
+                            RiskSignal::PaymentRequest,
+                            RiskSignal::UrgentAction,
+                            RiskSignal::AuthorityImpersonation,
+                        ],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // Deceptive link surface (text/destination mismatch or abusive
+                // domain) wrapped around a credential or identity context —
+                // fake-page phishing.
+                PolicyRule {
+                    name: "link_spoofing".into(),
+                    clauses: vec![
+                        vec![
+                            RiskSignal::LinkDestinationMismatch,
+                            RiskSignal::SuspiciousDomain,
+                        ],
+                        vec![RiskSignal::CredentialRequest, RiskSignal::IdentityUnverified],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // A seed/recovery phrase ask on a webpage is wallet theft —
+                // damning enough to warn without corroboration.
+                PolicyRule {
+                    name: "seed_phrase_theft".into(),
+                    clauses: vec![vec![RiskSignal::SeedPhraseRequest]],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // Gift/prepaid card demanded under pressure, threat or fake
+                // authority — the canonical shakedown shape.
+                PolicyRule {
+                    name: "gift_card_shakedown".into(),
+                    clauses: vec![
+                        vec![RiskSignal::GiftCardPayment],
+                        vec![
+                            RiskSignal::UrgentAction,
+                            RiskSignal::ExtortionLanguage,
+                            RiskSignal::ScarewareClaim,
+                            RiskSignal::AuthorityImpersonation,
+                        ],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // "You won" plus any ask (fee, credentials, payment, urgency)
+                // — advance-fee prize fraud.
+                PolicyRule {
+                    name: "prize_advance_fee".into(),
+                    clauses: vec![
+                        vec![RiskSignal::PrizeLotteryClaim],
+                        vec![
+                            RiskSignal::PaymentRequest,
+                            RiskSignal::HiddenFeePattern,
+                            RiskSignal::DeliveryCustomsFee,
+                            RiskSignal::CredentialRequest,
+                            RiskSignal::UrgentAction,
+                        ],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // Guaranteed returns plus a money or credential ask.
+                PolicyRule {
+                    name: "guaranteed_investment".into(),
+                    clauses: vec![
+                        vec![RiskSignal::InvestmentPromise],
+                        vec![
+                            RiskSignal::PaymentRequest,
+                            RiskSignal::CredentialRequest,
+                            RiskSignal::UrgentAction,
+                            RiskSignal::GiftCardPayment,
+                        ],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // Fake authority plus a payment/threat hook — coercion.
+                PolicyRule {
+                    name: "authority_coercion".into(),
+                    clauses: vec![
+                        vec![RiskSignal::AuthorityImpersonation],
+                        vec![
+                            RiskSignal::PaymentRequest,
+                            RiskSignal::GiftCardPayment,
+                            RiskSignal::ExtortionLanguage,
+                            RiskSignal::UrgentAction,
+                        ],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // Love-bait fused with a payment demand — romance scam.
+                PolicyRule {
+                    name: "romance_money_bait".into(),
+                    clauses: vec![
+                        vec![RiskSignal::RomanceBait],
+                        vec![RiskSignal::PaymentRequest, RiskSignal::GiftCardPayment],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // Easy-money job plus a fee or credential ask — pay-to-work.
+                PolicyRule {
+                    name: "job_fee_bait".into(),
+                    clauses: vec![
+                        vec![RiskSignal::JobScamOffer],
+                        vec![
+                            RiskSignal::PaymentRequest,
+                            RiskSignal::CredentialRequest,
+                            RiskSignal::HiddenFeePattern,
+                        ],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // Over-broad PII form on a deceptive or unverified surface.
+                PolicyRule {
+                    name: "data_harvesting_form".into(),
+                    clauses: vec![
+                        vec![RiskSignal::DataHarvesting],
+                        vec![
+                            RiskSignal::SuspiciousDomain,
+                            RiskSignal::IdentityUnverified,
+                            RiskSignal::LinkDestinationMismatch,
+                        ],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // "Parcel held — pay the fee" plus a payment/urgency ask.
+                PolicyRule {
+                    name: "customs_fee_phish".into(),
+                    clauses: vec![
+                        vec![RiskSignal::DeliveryCustomsFee],
+                        vec![RiskSignal::PaymentRequest, RiskSignal::UrgentAction],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // Miracle-cure pitch monetized with payment or urgency.
+                PolicyRule {
+                    name: "health_fraud_pitch".into(),
+                    clauses: vec![
+                        vec![RiskSignal::MiracleCureClaim],
+                        vec![RiskSignal::PaymentRequest, RiskSignal::UrgentAction],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // Moving a money/credential conversation off-platform —
+                // "escríbeme por WhatsApp" wrapped around any ask or lure.
+                PolicyRule {
+                    name: "offplatform_lure".into(),
+                    clauses: vec![
+                        vec![RiskSignal::OffPlatformMove],
+                        vec![
+                            RiskSignal::PaymentRequest,
+                            RiskSignal::UrgentAction,
+                            RiskSignal::CredentialRequest,
+                            RiskSignal::BulkBuyerLure,
+                        ],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // Bulk-buyer pitch ("we buy anything, cash now") fused with
+                // urgency, payment or an off-platform move — fencing lure.
+                PolicyRule {
+                    name: "bulk_buyer_lure".into(),
+                    clauses: vec![
+                        vec![RiskSignal::BulkBuyerLure],
+                        vec![
+                            RiskSignal::UrgentAction,
+                            RiskSignal::PaymentRequest,
+                            RiskSignal::OffPlatformMove,
+                        ],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
                 PolicyRule {
                     name: "sensitive_or_manipulative".into(),
                     clauses: vec![vec![
@@ -624,6 +901,22 @@ impl PolicyPack {
                         RiskSignal::ConsentDarkPattern,
                         RiskSignal::HiddenFeePattern,
                         RiskSignal::UserDefinedExposureLimit,
+                        RiskSignal::LinkDestinationMismatch,
+                        RiskSignal::SuspiciousDomain,
+                        RiskSignal::ExtortionLanguage,
+                        RiskSignal::ScarewareClaim,
+                        RiskSignal::PrizeLotteryClaim,
+                        RiskSignal::InvestmentPromise,
+                        RiskSignal::GiftCardPayment,
+                        RiskSignal::DeliveryCustomsFee,
+                        RiskSignal::AuthorityImpersonation,
+                        RiskSignal::ScarcityPressure,
+                        RiskSignal::JobScamOffer,
+                        RiskSignal::RomanceBait,
+                        RiskSignal::MiracleCureClaim,
+                        RiskSignal::DataHarvesting,
+                        RiskSignal::OffPlatformMove,
+                        RiskSignal::BulkBuyerLure,
                     ]],
                     risk_level: RiskLevel::Elevated,
                     decision: DecisionKind::Review,
@@ -662,6 +955,41 @@ impl PolicyPack {
                     }
                     RiskSignal::UserDefinedExposureLimit => {
                         "Signal: user-defined exposure boundary"
+                    }
+                    RiskSignal::LinkDestinationMismatch => {
+                        "Signal: link text/destination mismatch"
+                    }
+                    RiskSignal::SuspiciousDomain => "Signal: suspicious domain",
+                    RiskSignal::ExtortionLanguage => "Signal: extortion language",
+                    RiskSignal::ScarewareClaim => "Signal: scareware claim",
+                    RiskSignal::PrizeLotteryClaim => "Signal: prize/lottery claim",
+                    RiskSignal::InvestmentPromise => {
+                        "Signal: guaranteed-investment promise"
+                    }
+                    RiskSignal::GiftCardPayment => {
+                        "Signal: gift/prepaid card payment demand"
+                    }
+                    RiskSignal::SeedPhraseRequest => {
+                        "Signal: seed/recovery phrase request"
+                    }
+                    RiskSignal::DeliveryCustomsFee => {
+                        "Signal: parcel-hold customs/delivery fee"
+                    }
+                    RiskSignal::AuthorityImpersonation => {
+                        "Signal: authority/government impersonation"
+                    }
+                    RiskSignal::ScarcityPressure => "Signal: scarcity pressure",
+                    RiskSignal::JobScamOffer => "Signal: easy-money job offer",
+                    RiskSignal::RomanceBait => "Signal: romance-and-money bait",
+                    RiskSignal::MiracleCureClaim => "Signal: miracle-cure claim",
+                    RiskSignal::DataHarvesting => {
+                        "Signal: over-broad personal-data harvesting"
+                    }
+                    RiskSignal::OffPlatformMove => {
+                        "Signal: conversation moved off-platform"
+                    }
+                    RiskSignal::BulkBuyerLure => {
+                        "Signal: bulk-buyer immediate-payment lure"
                     }
                 }
                 .to_string()
@@ -1069,7 +1397,12 @@ mod tests {
         let loaded = PolicyPack::from_json(&json).expect("parse policy pack");
         assert_eq!(loaded.version, PolicyPack::dev_pack().version);
         assert_eq!(loaded.rules.len(), PolicyPack::dev_pack().rules.len());
-        // Same verdicts across every possible signal combination.
+        // Same verdicts for every singleton and pair. This is *exact*, not
+        // a sample: every rule is an AND of at most two OR-clauses, so a
+        // rule matches a signal set iff some subset of size <= 2 matches
+        // it — and first-match-wins verdicts are fully determined by which
+        // <=2-subsets satisfy which rules. Enumerating pairs pins identical
+        // semantics on every possible combination.
         let all = [
             RiskSignal::CredentialRequest,
             RiskSignal::PaymentRequest,
@@ -1079,21 +1412,35 @@ mod tests {
             RiskSignal::HiddenFeePattern,
             RiskSignal::ConsentDarkPattern,
             RiskSignal::UserDefinedExposureLimit,
+            RiskSignal::LinkDestinationMismatch,
+            RiskSignal::SuspiciousDomain,
+            RiskSignal::ExtortionLanguage,
+            RiskSignal::ScarewareClaim,
+            RiskSignal::PrizeLotteryClaim,
+            RiskSignal::InvestmentPromise,
+            RiskSignal::GiftCardPayment,
+            RiskSignal::SeedPhraseRequest,
+            RiskSignal::DeliveryCustomsFee,
+            RiskSignal::AuthorityImpersonation,
+            RiskSignal::ScarcityPressure,
+            RiskSignal::JobScamOffer,
+            RiskSignal::RomanceBait,
+            RiskSignal::MiracleCureClaim,
+            RiskSignal::DataHarvesting,
+            RiskSignal::OffPlatformMove,
+            RiskSignal::BulkBuyerLure,
         ];
-        for mask in 0..256u16 {
-            let signals: Vec<RiskSignal> = all
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| mask & (1 << i) != 0)
-                .map(|(_, s)| *s)
-                .collect();
-            let a = loaded.evaluate(&signals);
-            let b = PolicyPack::dev_pack().evaluate(&signals);
-            assert_eq!(
-                (a.risk_level, a.decision),
-                (b.risk_level, b.decision),
-                "mask {mask}"
-            );
+        for (i, a) in all.iter().enumerate() {
+            for b in all.iter().skip(i) {
+                let signals = vec![*a, *b];
+                let x = loaded.evaluate(&signals);
+                let y = PolicyPack::dev_pack().evaluate(&signals);
+                assert_eq!(
+                    (x.risk_level, x.decision),
+                    (y.risk_level, y.decision),
+                    "pair {a:?}+{b:?}"
+                );
+            }
         }
     }
     #[test]

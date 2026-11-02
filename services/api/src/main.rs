@@ -49,8 +49,16 @@ struct AppState {
     /// Idempotency-Key store (B10). Durable in Postgres when DATABASE_URL is
     /// set (migration 0008), in-memory otherwise. Scoped by tenant+principal.
     idem: std::sync::Arc<dyn sovir_ports::IdempotencyStore>,
+    /// Per-tenant inference budget ledger — the same Arc that feeds
+    /// `ServicePorts.budget`, kept here so `/v1/me/budget` can read
+    /// settled spend and cap without reaching into service internals.
+    budget: std::sync::Arc<dyn sovir_ports::BudgetLedger>,
     /// Webhook egress allowlist (SSRF guard) for endpoint registration.
     webhook_allowlist: Vec<String>,
+    /// Principal ids marked admin via SOVIR_ADMIN_PRINCIPALS (comma list).
+    /// Surfaced to clients as `is_admin` on whoami — it is a UI hint only:
+    /// no endpoint authorizes on it until real admin surfaces exist.
+    admin_principals: std::collections::HashSet<String>,
     /// Internal counters for the local metrics endpoint (B-metrics). Cheap
     /// atomics, incremented at handler success points — not telemetry, they
     /// never leave the loopback API.
@@ -376,7 +384,11 @@ async fn compose_service(
     database_url: Option<&str>,
     webhook_allowlist: &[String],
     sovir_env: &str,
-) -> (SovirService, Option<PgStore>) {
+) -> (
+    SovirService,
+    Option<PgStore>,
+    std::sync::Arc<dyn sovir_ports::BudgetLedger>,
+) {
     if let Some(url) = database_url {
         // SOVIR_INFERENCE_BUDGET_USD: per-tenant hard cap in whole USD.
         // Default 0 = no inference spend allowed (ADR-0012).
@@ -395,6 +407,7 @@ async fn compose_service(
             .await
             .expect("DATABASE_URL is set but Postgres is unreachable; refusing to start")
             .with_budget_cap(budget_usd.saturating_mul(1_000_000));
+        let budget: std::sync::Arc<dyn sovir_ports::BudgetLedger> = Arc::new(pg.clone());
         // Durable webhook registry (migration 0007).
         let pg_wh: std::sync::Arc<dyn sovir_ports::WebhookRegistry> =
             std::sync::Arc::new(pg.clone());
@@ -418,7 +431,7 @@ async fn compose_service(
                 idem: Arc::new(pg.clone()),
                 audit: Arc::new(pg.clone()),
                 inference: inference_gateway(&egress, &transport_allowlist, sovir_env),
-                budget: Arc::new(pg.clone()),
+                budget: budget.clone(),
                 reservations: Arc::new(pg.clone()),
                 intel: intel_feed(Arc::new(pg.clone())),
                 investigations: Arc::new(pg.clone()),
@@ -426,13 +439,14 @@ async fn compose_service(
                 attester: Some(Arc::new(sovir_adapters::NoopAttester)),
             },
         );
-        return (service, Some(pg));
+        return (service, Some(pg), budget);
     }
     let registry: std::sync::Arc<dyn sovir_ports::WebhookRegistry> =
         std::sync::Arc::new(InMemoryWebhookRegistry::default());
     let transport_allowlist = egress_allowlist_env(webhook_allowlist);
     let egress = pick_egress(&transport_allowlist, sovir_env);
-    (dev_service_with(Some((registry, egress))).0, None)
+    let (service, _, budget) = dev_service_with(Some((registry, egress)));
+    (service, None, budget)
 }
 /// Builds the service; when a registry/egress pair is supplied the delivery
 /// channel fans out to the recording channel AND signed webhook egress.
@@ -444,8 +458,17 @@ fn dev_service_with(
 ) -> (
     SovirService,
     Option<std::sync::Arc<dyn sovir_ports::WebhookRegistry>>,
+    std::sync::Arc<dyn sovir_ports::BudgetLedger>,
 ) {
     let registry = webhooks.as_ref().map(|(r, _)| r.clone());
+    let budget: std::sync::Arc<dyn sovir_ports::BudgetLedger> =
+        Arc::new(InMemoryBudgetLedger::with_cap(
+            env::var("SOVIR_INFERENCE_BUDGET_USD")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0)
+                .saturating_mul(1_000_000),
+        ));
     let channel: Arc<dyn sovir_ports::DeliveryChannel> = match &webhooks {
         Some((r, e)) => Arc::new(CompositeDeliveryChannel(vec![
             Arc::new(RecordingDeliveryChannel::default()),
@@ -476,13 +499,7 @@ fn dev_service_with(
                     let sovir_env = env::var("SOVIR_ENV").unwrap_or_default();
                     inference_gateway(e, &allowlist, &sovir_env)
                 }),
-                budget: Arc::new(InMemoryBudgetLedger::with_cap(
-                    env::var("SOVIR_INFERENCE_BUDGET_USD")
-                        .ok()
-                        .and_then(|v| v.parse::<u64>().ok())
-                        .unwrap_or(0)
-                        .saturating_mul(1_000_000),
-                )),
+                budget: budget.clone(),
                 reservations: Arc::new(InMemoryBudgetReservations::with_cap(
                     env::var("SOVIR_INFERENCE_BUDGET_USD")
                         .ok()
@@ -497,6 +514,7 @@ fn dev_service_with(
             },
         ),
         registry,
+        budget,
     )
 }
 async fn live() -> Json<ApiMessage> {
@@ -565,11 +583,24 @@ async fn logout(State(s): State<AppState>, headers: HeaderMap) -> Result<StatusC
         false => Err(api_err(StatusCode::NOT_FOUND, "not_found", &headers, false)),
     }
 }
+#[derive(Serialize)]
+struct Whoami {
+    #[serde(flatten)]
+    principal: Principal,
+    /// UI hint derived from SOVIR_ADMIN_PRINCIPALS — admin surfaces in the
+    /// console unlock for these users. Not an authorization claim.
+    is_admin: bool,
+}
 async fn whoami(
     State(s): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<Principal>, ApiError> {
-    Ok(Json(require_principal(&headers, &s).await?))
+) -> Result<Json<Whoami>, ApiError> {
+    let principal = require_principal(&headers, &s).await?;
+    let is_admin = s.admin_principals.contains(&principal.principal_id);
+    Ok(Json(Whoami {
+        principal,
+        is_admin,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -1006,6 +1037,42 @@ async fn export_data(
             .map_err(|e| map_error(e, &headers))?,
     ))
 }
+#[derive(serde::Serialize)]
+struct BudgetView {
+    /// Spend cap is per-tenant (B21), not per-principal — reported as such.
+    tenant_id: String,
+    cap_micro_usd: u64,
+    spent_micro_usd: u64,
+    remaining_micro_usd: u64,
+    cap_usd: f64,
+    spent_usd: f64,
+    remaining_usd: f64,
+}
+/// Caller-visible inference budget meter (B4/B21): what the tenant's hard
+/// cap is, how much has actually settled, and what remains. Local-heuristic
+/// calls never spend — only real provider egress counts.
+async fn me_budget(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<BudgetView>, ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    let (cap, spent) = tokio::try_join!(
+        s.budget.cap_micro_usd(&p.tenant_id),
+        s.budget.spent_micro_usd(&p.tenant_id),
+    )
+    .map_err(|_| api_err(StatusCode::INTERNAL_SERVER_ERROR, "internal", &headers, true))?;
+    let remaining = cap.saturating_sub(spent);
+    const M: f64 = 1_000_000.0;
+    Ok(Json(BudgetView {
+        tenant_id: p.tenant_id,
+        cap_micro_usd: cap,
+        spent_micro_usd: spent,
+        remaining_micro_usd: remaining,
+        cap_usd: cap as f64 / M,
+        spent_usd: spent as f64 / M,
+        remaining_usd: remaining as f64 / M,
+    }))
+}
 async fn purge_data(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -1055,6 +1122,7 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/interventions", get(list_interventions))
         .route("/v1/interventions/dispatch", post(dispatch))
         .route("/v1/me/data", get(export_data).delete(purge_data))
+        .route("/v1/me/budget", get(me_budget))
         .route("/v1/me/audit", get(list_audit))
         .route("/v1/inference/assess", post(assess_inference))
         .route("/v1/intel/pull", post(pull_intel))
@@ -1150,8 +1218,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let (service, pg) =
+    let (service, pg, budget) =
         compose_service(database_url.as_deref(), &webhook_allowlist, &sovir_env).await;
+    // Master-user mapping: comma-separated principal ids that carry the
+    // admin flag in whoami (console unlocks developer surfaces for them).
+    let admin_principals: std::collections::HashSet<String> =
+        env::var("SOVIR_ADMIN_PRINCIPALS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
     let rate_limit_per_min = env::var("SOVIR_RATE_LIMIT_PER_MIN")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -1275,7 +1352,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         limits: std::sync::Arc::new(Mutex::new(HashMap::new())),
         rate_limit_per_min,
         idem: idem_store,
+        budget,
         webhook_allowlist,
+        admin_principals,
         counters: std::sync::Arc::new(Counters::default()),
     };
     let app = build_router(state);
@@ -1322,14 +1401,17 @@ mod tests {
             std::sync::Arc::new(InMemoryWebhookRegistry::default());
         let egress: std::sync::Arc<dyn sovir_ports::HttpEgress> =
             std::sync::Arc::new(RecordingHttpEgress::default());
+        let (service, _, budget) = dev_service_with(Some((registry, egress)));
         AppState {
-            service: dev_service_with(Some((registry, egress))).0,
+            service,
             dev_session_enabled: true,
             pg: None,
             limits: std::sync::Arc::new(Mutex::new(HashMap::new())),
             rate_limit_per_min: 60,
             idem: std::sync::Arc::new(InMemoryIdempotencyStore::default()),
+            budget,
             webhook_allowlist: vec!["127.0.0.1".to_string(), "localhost".to_string()],
+            admin_principals: std::collections::HashSet::new(),
             counters: std::sync::Arc::new(Counters::default()),
         }
     }

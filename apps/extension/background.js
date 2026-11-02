@@ -8,6 +8,7 @@
 
 const DEFAULT_API = "http://127.0.0.1:8787";
 const API_URL_KEY = "sovir-api-url"; // storage.local — user setting
+const PRINCIPAL_KEY = "sovir-principal"; // storage.local — console identity
 const SOURCE = "screen-observer:ext";
 const DEVICE = "ext-web";
 const GRANT = "ext-observer-grant";
@@ -18,6 +19,71 @@ const SEEN_TTL_MS = 60_000;
 async function apiBase() {
   const s = await chrome.storage.local.get(API_URL_KEY);
   return s[API_URL_KEY] ?? DEFAULT_API;
+}
+
+// The console principal this extension reports under — configurable in
+// options so observations land on the user's own account, not a demo one.
+async function principalId() {
+  const s = await chrome.storage.local.get(PRINCIPAL_KEY);
+  return s[PRINCIPAL_KEY] || "ext-demo";
+}
+
+// ---------------------------------------------------------------------------
+// OIDC Authorization Code + PKCE via chrome.identity.launchWebAuthFlow.
+// Enabled only when issuer + client id are set in options — with neither,
+// the extension keeps using the local dev-session path. The flow runs in
+// the IdP's own web UI; the extension never sees the user's password.
+// ---------------------------------------------------------------------------
+const OIDC_ISSUER_KEY = "sovir-oidc-issuer";
+const OIDC_CLIENT_KEY = "sovir-oidc-client";
+
+const b64url = (bytes) =>
+  btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+async function oidcConfig() {
+  const s = await chrome.storage.local.get([OIDC_ISSUER_KEY, OIDC_CLIENT_KEY]);
+  const issuer = (s[OIDC_ISSUER_KEY] || "").replace(/\/+$/, "");
+  const clientId = s[OIDC_CLIENT_KEY] || "";
+  return issuer && clientId ? { issuer, clientId } : null;
+}
+
+async function oidcLogin() {
+  const cfg = await oidcConfig();
+  if (!cfg || typeof chrome.identity?.launchWebAuthFlow !== "function") return null;
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const challenge = b64url(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))),
+  );
+  const redirectUri = chrome.identity.getRedirectURL();
+  const url = new URL(`${cfg.issuer}/protocol/openid-connect/auth`);
+  url.search = new URLSearchParams({
+    client_id: cfg.clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "openid profile",
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+  }).toString();
+  const redirected = await chrome.identity.launchWebAuthFlow({
+    url: url.toString(),
+    interactive: true,
+  });
+  const code = redirected ? new URL(redirected).searchParams.get("code") : null;
+  if (!code) return null;
+  const res = await fetch(`${cfg.issuer}/protocol/openid-connect/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: cfg.clientId,
+      redirect_uri: redirectUri,
+      code,
+      code_verifier: verifier,
+    }),
+  });
+  if (!res.ok) return null;
+  const tokens = await res.json();
+  return tokens.access_token || null;
 }
 
 async function api(path, { token, method = "GET", body, idem } = {}) {
@@ -64,18 +130,32 @@ async function setState(patch) {
   return next;
 }
 
-// Mint a dev session + register device + consent for this source. Runs
-// once per worker lifetime; safe to call again (409s are tolerated).
+// Mint a session + register device + consent for this source. Runs once
+// per worker lifetime; re-calls are idempotent (stable device_id). When
+// OIDC is configured the real IdP token is the bearer; otherwise the
+// local dev-session path mints one.
 async function connect() {
-  const session = await api("/v1/auth/dev-session", {
-    method: "POST",
-    body: { principal_id: "ext-demo", device_id: DEVICE, tenant_id: "dev" },
-  });
-  const token = session.token;
+  let token;
+  let principal;
+  const oidcToken = await oidcLogin().catch(() => null);
+  if (oidcToken) {
+    token = oidcToken;
+    principal = "oidc";
+  } else {
+    const session = await api("/v1/auth/dev-session", {
+      method: "POST",
+      body: { principal_id: await principalId(), device_id: DEVICE, tenant_id: "dev" },
+    });
+    token = session.token;
+    principal = session.principal_id;
+  }
+  // Stable device_id: re-registration of the same id returns 409 and is
+  // tolerated — the alternative (server-generated ids per connect) made
+  // the device list grow without bound.
   await api("/v1/devices", {
     token,
     method: "POST",
-    body: { platform: "BROWSER_EXTENSION", label: "Extensión de navegador" },
+    body: { device_id: DEVICE, platform: "BROWSER_EXTENSION", label: "Extensión de navegador" },
   }).catch((e) => {
     if (e.status !== 409) throw e;
   });
@@ -90,7 +170,7 @@ async function connect() {
   }).catch((e) => {
     if (e.code !== "duplicate_event" && e.status !== 409) throw e;
   });
-  return setState({ token, principal: session.principal_id, ready: true, lastError: null });
+  return setState({ token, principal, ready: true, lastError: null });
 }
 
 async function ensureConnected() {

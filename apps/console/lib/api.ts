@@ -17,6 +17,8 @@ export interface Principal {
   device_id: string;
   session_id: string;
   scopes: Scope[];
+  // Admin flag from SOVIR_ADMIN_PRINCIPALS — UI hint, not authorization.
+  is_admin?: boolean;
 }
 
 export interface DevSessionResponse {
@@ -37,6 +39,7 @@ export interface Device {
   platform: string;
   label: string;
   registered_at_ms: number;
+  last_seen_at_ms?: number | null;
   revoked_at_ms: number | null;
 }
 
@@ -92,6 +95,39 @@ export interface PrincipalDataExport {
   interventions: Intervention[];
   deletion_receipts: unknown[];
   audit_events: AuditEvent[];
+}
+
+export type PrivacyMode = "private" | "standard";
+
+export interface InferenceVerdict {
+  request_id: string;
+  model_id: string;
+  hypotheses: string[];
+  confidence_bp: number;
+  provenance: string;
+}
+
+export interface InvestigationFact {
+  kind: "signal_observed" | "data_class_observed";
+  subject: string;
+  count: number;
+}
+
+export interface SequenceFinding {
+  pattern: string;
+  span_ms: number;
+  event_ids: string[];
+}
+
+export interface Investigation {
+  investigation_id: string;
+  tenant_id: string;
+  principal_id: string;
+  window_ms: number;
+  events_examined: number;
+  facts: InvestigationFact[];
+  hypotheses: SequenceFinding[];
+  created_at_ms: number;
 }
 
 export interface ApiErrorBody {
@@ -150,6 +186,17 @@ export const listInterventions = (t: string, limit = 50) =>
 export const listAudit = (t: string, limit = 50) =>
   call<AuditEvent[]>(`/v1/me/audit?limit=${limit}`, t);
 export const exportData = (t: string) => call<PrincipalDataExport>("/v1/me/data", t);
+
+export interface BudgetView {
+  tenant_id: string;
+  cap_micro_usd: number;
+  spent_micro_usd: number;
+  remaining_micro_usd: number;
+  cap_usd: number;
+  spent_usd: number;
+  remaining_usd: number;
+}
+export const getBudget = (t: string) => call<BudgetView>("/v1/me/budget", t);
 export const listEvents = (t: string, limit = 50) =>
   call<ObservedEvent[]>(`/v1/events?limit=${limit}`, t);
 
@@ -164,6 +211,43 @@ export const grantConsent = (t: string, grantId: string, sourceId: string, ttlMs
     method: "POST",
     body: JSON.stringify({ grant_id: grantId, source_id: sourceId, expires_at_ms: Date.now() + ttlMs }),
   });
+
+export const revokeConsent = (t: string, grantId: string) =>
+  call<void>(`/v1/consents/${encodeURIComponent(grantId)}/revoke`, t, { method: "POST" });
+
+export const revokeDevice = (t: string, deviceId: string) =>
+  call<void>(`/v1/devices/${encodeURIComponent(deviceId)}/revoke`, t, { method: "POST" });
+
+export const dispatchInterventions = (t: string) =>
+  call<{ delivered: number }>("/v1/interventions/dispatch", t, { method: "POST" });
+
+export const listInvestigations = (t: string, limit = 25) =>
+  call<Investigation[]>(`/v1/investigations?limit=${limit}`, t);
+
+export const runInvestigation = (t: string, windowMs = 60 * 60 * 1000) =>
+  call<Investigation>("/v1/investigations", t, {
+    method: "POST",
+    body: JSON.stringify({ window_ms: windowMs }),
+  });
+
+export const assessInference = (
+  t: string,
+  requestId: string,
+  signals: string[],
+  privacy: PrivacyMode,
+) =>
+  call<InferenceVerdict>("/v1/inference/assess", t, {
+    method: "POST",
+    body: JSON.stringify({ request_id: requestId, signals, privacy }),
+  });
+
+export const enforceRetention = (t: string) =>
+  call<{ events_removed: number; interventions_removed: number }>("/v1/me/retention", t, {
+    method: "POST",
+  });
+
+export const purgeData = (t: string) =>
+  call<{ receipt_id: string }>("/v1/me/data", t, { method: "DELETE" });
 
 export const ingestEvent = (t: string, event: ObservedEvent, idemKey: string) =>
   call<unknown>("/v1/events", t, {

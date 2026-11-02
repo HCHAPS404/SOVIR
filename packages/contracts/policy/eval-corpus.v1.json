@@ -2,19 +2,438 @@
   "corpus_version": "dev-eval-1",
   "description": "Labeled synthetic signal sets for the dev risk policy pack. Labels are policy expectations, not ground-truth threats. Used by the domain eval test to report agreement/precision metrics.",
   "cases": [
-    {"name": "benign_tracking_notice", "signals": [], "expect_risk": "unknown", "expect_decision": "observe"},
-    {"name": "payment_plus_unverified", "signals": ["PAYMENT_REQUEST", "IDENTITY_UNVERIFIED"], "expect_risk": "high", "expect_decision": "warn"},
-    {"name": "credential_plus_urgency", "signals": ["CREDENTIAL_REQUEST", "URGENT_ACTION"], "expect_risk": "high", "expect_decision": "warn"},
-    {"name": "payment_alone", "signals": ["PAYMENT_REQUEST"], "expect_risk": "elevated", "expect_decision": "review"},
-    {"name": "credential_alone", "signals": ["CREDENTIAL_REQUEST"], "expect_risk": "elevated", "expect_decision": "review"},
-    {"name": "dark_pattern_alone", "signals": ["CONSENT_DARK_PATTERN"], "expect_risk": "elevated", "expect_decision": "review"},
-    {"name": "hidden_fee_alone", "signals": ["HIDDEN_FEE_PATTERN"], "expect_risk": "elevated", "expect_decision": "review"},
-    {"name": "tracking_alone", "signals": ["TRACKING_OBSERVED"], "expect_risk": "elevated", "expect_decision": "review"},
-    {"name": "exposure_limit_alone", "signals": ["USER_DEFINED_EXPOSURE_LIMIT"], "expect_risk": "elevated", "expect_decision": "review"},
-    {"name": "unverified_alone", "signals": ["IDENTITY_UNVERIFIED"], "expect_risk": "unknown", "expect_decision": "observe"},
-    {"name": "urgency_alone", "signals": ["URGENT_ACTION"], "expect_risk": "unknown", "expect_decision": "observe"},
-    {"name": "urgency_plus_tracking", "signals": ["URGENT_ACTION", "TRACKING_OBSERVED"], "expect_risk": "elevated", "expect_decision": "review"},
-    {"name": "payment_plus_urgency", "signals": ["PAYMENT_REQUEST", "URGENT_ACTION"], "expect_risk": "high", "expect_decision": "warn"},
-    {"name": "full_scam_pattern", "signals": ["PAYMENT_REQUEST", "IDENTITY_UNVERIFIED", "URGENT_ACTION", "CONSENT_DARK_PATTERN"], "expect_risk": "high", "expect_decision": "warn"}
+    {
+      "name": "benign_tracking_notice",
+      "signals": [],
+      "expect_risk": "unknown",
+      "expect_decision": "observe"
+    },
+    {
+      "name": "payment_plus_unverified",
+      "signals": [
+        "PAYMENT_REQUEST",
+        "IDENTITY_UNVERIFIED"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "credential_plus_urgency",
+      "signals": [
+        "CREDENTIAL_REQUEST",
+        "URGENT_ACTION"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "payment_alone",
+      "signals": [
+        "PAYMENT_REQUEST"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "credential_alone",
+      "signals": [
+        "CREDENTIAL_REQUEST"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "dark_pattern_alone",
+      "signals": [
+        "CONSENT_DARK_PATTERN"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "hidden_fee_alone",
+      "signals": [
+        "HIDDEN_FEE_PATTERN"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "tracking_alone",
+      "signals": [
+        "TRACKING_OBSERVED"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "exposure_limit_alone",
+      "signals": [
+        "USER_DEFINED_EXPOSURE_LIMIT"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "unverified_alone",
+      "signals": [
+        "IDENTITY_UNVERIFIED"
+      ],
+      "expect_risk": "unknown",
+      "expect_decision": "observe"
+    },
+    {
+      "name": "urgency_alone",
+      "signals": [
+        "URGENT_ACTION"
+      ],
+      "expect_risk": "unknown",
+      "expect_decision": "observe"
+    },
+    {
+      "name": "urgency_plus_tracking",
+      "signals": [
+        "URGENT_ACTION",
+        "TRACKING_OBSERVED"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "payment_plus_urgency",
+      "signals": [
+        "PAYMENT_REQUEST",
+        "URGENT_ACTION"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "full_scam_pattern",
+      "signals": [
+        "PAYMENT_REQUEST",
+        "IDENTITY_UNVERIFIED",
+        "URGENT_ACTION",
+        "CONSENT_DARK_PATTERN"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "extortion_plus_payment",
+      "signals": [
+        "EXTORTION_LANGUAGE",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "extortion_plus_urgency",
+      "signals": [
+        "EXTORTION_LANGUAGE",
+        "URGENT_ACTION"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "extortion_alone",
+      "signals": [
+        "EXTORTION_LANGUAGE"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "scareware_plus_payment",
+      "signals": [
+        "SCAREWARE_CLAIM",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "scareware_plus_credential",
+      "signals": [
+        "SCAREWARE_CLAIM",
+        "CREDENTIAL_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "scareware_alone",
+      "signals": [
+        "SCAREWARE_CLAIM"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "link_mismatch_plus_credential",
+      "signals": [
+        "LINK_DESTINATION_MISMATCH",
+        "CREDENTIAL_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "suspicious_domain_plus_identity",
+      "signals": [
+        "SUSPICIOUS_DOMAIN",
+        "IDENTITY_UNVERIFIED"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "link_mismatch_alone",
+      "signals": [
+        "LINK_DESTINATION_MISMATCH"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "suspicious_domain_alone",
+      "signals": [
+        "SUSPICIOUS_DOMAIN"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "seed_phrase_alone_warns",
+      "signals": [
+        "SEED_PHRASE_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "gift_card_plus_urgency",
+      "signals": [
+        "GIFT_CARD_PAYMENT",
+        "URGENT_ACTION"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "gift_card_alone",
+      "signals": [
+        "GIFT_CARD_PAYMENT"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "prize_plus_fee",
+      "signals": [
+        "PRIZE_LOTTERY_CLAIM",
+        "HIDDEN_FEE_PATTERN"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "prize_alone",
+      "signals": [
+        "PRIZE_LOTTERY_CLAIM"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "investment_plus_payment",
+      "signals": [
+        "INVESTMENT_PROMISE",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "investment_alone",
+      "signals": [
+        "INVESTMENT_PROMISE"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "authority_plus_giftcard",
+      "signals": [
+        "AUTHORITY_IMPERSONATION",
+        "GIFT_CARD_PAYMENT"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "authority_alone",
+      "signals": [
+        "AUTHORITY_IMPERSONATION"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "romance_plus_payment",
+      "signals": [
+        "ROMANCE_BAIT",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "romance_alone",
+      "signals": [
+        "ROMANCE_BAIT"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "job_plus_credential",
+      "signals": [
+        "JOB_SCAM_OFFER",
+        "CREDENTIAL_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "job_alone",
+      "signals": [
+        "JOB_SCAM_OFFER"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "harvest_plus_suspicious",
+      "signals": [
+        "DATA_HARVESTING",
+        "SUSPICIOUS_DOMAIN"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "harvest_alone",
+      "signals": [
+        "DATA_HARVESTING"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "customs_plus_payment",
+      "signals": [
+        "DELIVERY_CUSTOMS_FEE",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "customs_alone",
+      "signals": [
+        "DELIVERY_CUSTOMS_FEE"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "miracle_plus_payment",
+      "signals": [
+        "MIRACLE_CURE_CLAIM",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "miracle_alone",
+      "signals": [
+        "MIRACLE_CURE_CLAIM"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "scarcity_alone",
+      "signals": [
+        "SCARCITY_PRESSURE"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "scareware_plus_authority",
+      "signals": [
+        "SCAREWARE_CLAIM",
+        "AUTHORITY_IMPERSONATION"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "offplatform_plus_payment",
+      "signals": [
+        "OFF_PLATFORM_MOVE",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "offplatform_plus_bulk",
+      "signals": [
+        "OFF_PLATFORM_MOVE",
+        "BULK_BUYER_LURE"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "offplatform_plus_urgency",
+      "signals": [
+        "OFF_PLATFORM_MOVE",
+        "URGENT_ACTION"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "offplatform_alone",
+      "signals": [
+        "OFF_PLATFORM_MOVE"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    },
+    {
+      "name": "bulk_plus_urgency",
+      "signals": [
+        "BULK_BUYER_LURE",
+        "URGENT_ACTION"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "bulk_alone",
+      "signals": [
+        "BULK_BUYER_LURE"
+      ],
+      "expect_risk": "elevated",
+      "expect_decision": "review"
+    }
   ]
 }

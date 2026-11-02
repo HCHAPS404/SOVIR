@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-type Item = { href: string; label: string };
-type Group = { label: string; items: readonly Item[] };
+export type NavItem = { href: string; label: string; badge?: number | string };
+export type NavGroup = { label: string; items: readonly NavItem[] };
 
 const glyphs: Record<string, string> = {
   "/": "M4 11.2 12 4.5l8 6.7V20H4v-8.8Z",
@@ -38,7 +38,7 @@ function NavGlyph({ href }: { href: string }) {
   );
 }
 
-export function RailNav({ groups, current }: { groups: readonly Group[]; current: string }) {
+export function RailNav({ groups, current }: { groups: readonly NavGroup[]; current: string }) {
   const [query, setQuery] = useState("");
   const visible = useMemo(() => {
     const q = query.trim().toLocaleLowerCase("es");
@@ -53,13 +53,23 @@ export function RailNav({ groups, current }: { groups: readonly Group[]; current
   return (
     <>
       <label className="rail-find">
-        <span>Buscar</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Zm6.2.8 3.3 3.3"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+          />
+        </svg>
+        <span>Buscar sección</span>
         <input
           type="search"
+          placeholder="Buscar vista..."
           value={query}
-          placeholder="Buscar"
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(e) => setQuery(e.target.value)}
         />
+        <kbd aria-hidden="true">/</kbd>
       </label>
       <div className="rail-scroll">
         {visible.map((group) => (
@@ -67,15 +77,22 @@ export function RailNav({ groups, current }: { groups: readonly Group[]; current
             <h2>{group.label}</h2>
             <nav aria-label={group.label}>
               {group.items.map((item) => (
-                <Link key={item.href} href={item.href} aria-current={item.href === current ? "page" : undefined}>
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={item.href === current ? "page" : undefined}
+                >
                   <NavGlyph href={item.href} />
                   <span>{item.label}</span>
+                  {item.badge !== undefined ? (
+                    <span className="nav-badge">{item.badge}</span>
+                  ) : null}
                 </Link>
               ))}
             </nav>
           </div>
         ))}
-        {visible.length === 0 ? <p className="rail-empty">Ninguna sección</p> : null}
+        {visible.length === 0 ? <p className="rail-empty">Ninguna sección coincide</p> : null}
       </div>
     </>
   );

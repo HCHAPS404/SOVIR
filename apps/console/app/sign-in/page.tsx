@@ -1,14 +1,16 @@
+import { oidcConfig } from "../../lib/oidc";
+
 export const metadata = { title: "Entrar", robots: { index: false, follow: false } };
 
 const errors: Record<string, string> = {
-  backend: "La API dev no responde en 127.0.0.1:8787 — arranca cargo run -p sovir-api.",
-  session: "La sesión no es válida o expiró — entra de nuevo.",
+  backend: "El servicio local de SOVIR no está encendido en 127.0.0.1:8787.",
+  session: "Tu sesión terminó — vuelve a escribir tu nombre para entrar.",
+  name: "Usa solo letras, números, punto o guion (sin espacios especiales).",
+  oidc_denied: "Cancelaste el acceso en el proveedor de identidad.",
+  oidc_state: "El intento de acceso expiró — vuelve a intentarlo.",
+  oidc_exchange: "No pudimos completar el acceso con tu cuenta.",
+  oidc_token: "El proveedor no entregó una credencial válida.",
 };
-
-const profiles = [
-  { intent: "synthetic", label: "Sesión demo", note: "principal console-demo" },
-  { intent: "developer", label: "Sesión desarrollador", note: "principal console-dev" },
-] as const;
 
 export default async function SignInPage({
   searchParams,
@@ -17,6 +19,7 @@ export default async function SignInPage({
 }) {
   const { error } = await searchParams;
   const note = error ? errors[error] : null;
+  const oidc = oidcConfig();
   return (
     <main className="register-stage">
       <div className="register-card">
@@ -24,25 +27,41 @@ export default async function SignInPage({
           <span className="mark" aria-hidden="true" />
           <span className="brand-name">SOVIR</span>
         </p>
-        <h1>Entrar</h1>
+        <h1>Tu protección personal</h1>
         {note ? <p role="alert">{note}</p> : null}
         <p>
-          La consola local autentica contra la API dev (<code>POST /v1/auth/dev-session</code>). El
-          token queda en una cookie <code>httpOnly</code>: el navegador nunca lo toca.
+          SOVIR te ayuda a detectar estafas, cobros engañosos y mensajes de presión antes de que
+          tomes una decisión apresurada. Todo funciona en tu propio equipo.
         </p>
-        <div className="register-options">
-          {profiles.map((p) => (
-            <form key={p.intent} className="dev-profile" action="/api/session" method="post">
-              <input type="hidden" name="intent" value={p.intent} />
-              <button className="register-option" type="submit">
-                {p.label} · {p.note}
-              </button>
-            </form>
-          ))}
-        </div>
+        <form className="register-email" action="/api/session" method="post">
+          <label>
+            Escribe tu nombre para abrir tu espacio
+            <input
+              name="principal"
+              type="text"
+              required
+              minLength={1}
+              maxLength={40}
+              pattern="[A-Za-z0-9._\-\s]+"
+              placeholder="p. ej. Ana"
+              autoComplete="username"
+            />
+          </label>
+          <button className="button" type="submit">
+            Entrar a mi panel
+          </button>
+        </form>
+        {oidc ? (
+          <form action="/api/auth/oidc/login" method="get">
+            <button className="button" type="submit">
+              Entrar con mi cuenta
+            </button>
+          </form>
+        ) : null}
         <p className="register-note">
-          Autenticación sintética de desarrollo — no hay registro ni proveedores externos en la API
-          local.
+          Cada nombre tiene su propio espacio privado de avisos, dispositivos y permisos. Entorno
+          local de demostración (sesión aislada en <code>httpOnly</code>, sin contraseñas ni envío
+          de datos a terceros).
         </p>
       </div>
     </main>

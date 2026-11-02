@@ -19,7 +19,12 @@ export async function POST(request: Request) {
     redirect("/sign-in");
   }
 
-  const principal = intent === "developer" ? "console-dev" : "console-demo";
+  // Any typed name mints its own isolated principal (console-<name>) so each
+  // user keeps separate consents, events, devices and audit across sessions.
+  const raw = String(form.get("principal") ?? "");
+  const name = raw.toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 40);
+  if (!name) redirect("/sign-in?error=name");
+  const principal = `console-${name}`;
   try {
     const session = await devSession(principal, "console-web");
     const opts = { httpOnly: true, sameSite: "lax" as const, secure: false, path: "/" };

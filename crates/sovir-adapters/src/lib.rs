@@ -1016,6 +1016,186 @@ impl HeuristicLocalInferenceGateway {
                 (sovir_domain::RiskSignal::CredentialRequest, 5500),
                 (sovir_domain::RiskSignal::IdentityUnverified, 3500),
                 (sovir_domain::RiskSignal::UrgentAction, 1000),
+                (sovir_domain::RiskSignal::SuspiciousDomain, 1000),
+                (sovir_domain::RiskSignal::LinkDestinationMismatch, 1000),
+                (sovir_domain::RiskSignal::SeedPhraseRequest, 1500),
+                (sovir_domain::RiskSignal::AuthorityImpersonation, 1000),
+            ],
+        },
+        // Fake-link phishing: a deceptive destination alone is not a verdict
+        // (mismatch 5500 < 6000); corroborated by an abusive domain or an
+        // identity context it graduates.
+        WeightedHypothesis {
+            label: "link_spoofing",
+            threshold: 6000,
+            weights: &[
+                (sovir_domain::RiskSignal::LinkDestinationMismatch, 5500),
+                (sovir_domain::RiskSignal::SuspiciousDomain, 5000),
+                (sovir_domain::RiskSignal::IdentityUnverified, 2000),
+                (sovir_domain::RiskSignal::CredentialRequest, 1500),
+            ],
+        },
+        // Sextortion/ransom shape: threat language alone stays silent; a
+        // payment demand or manufactured urgency is what makes it an attempt.
+        WeightedHypothesis {
+            label: "extortion_attempt",
+            threshold: 7000,
+            weights: &[
+                (sovir_domain::RiskSignal::ExtortionLanguage, 5000),
+                (sovir_domain::RiskSignal::PaymentRequest, 3000),
+                (sovir_domain::RiskSignal::UrgentAction, 2000),
+                (sovir_domain::RiskSignal::CredentialRequest, 500),
+            ],
+        },
+        // Scareware: a fake infection scare needs an action hook (urgency,
+        // credentials, payment or fake authority) to be a lure, not noise.
+        WeightedHypothesis {
+            label: "scareware_lure",
+            threshold: 6000,
+            weights: &[
+                (sovir_domain::RiskSignal::ScarewareClaim, 4500),
+                (sovir_domain::RiskSignal::UrgentAction, 2500),
+                (sovir_domain::RiskSignal::CredentialRequest, 2000),
+                (sovir_domain::RiskSignal::PaymentRequest, 2000),
+                (sovir_domain::RiskSignal::AuthorityImpersonation, 2000),
+            ],
+        },
+        // Wallet theft: asking for a seed/recovery phrase is damning alone —
+        // no legitimate webpage requests it.
+        WeightedHypothesis {
+            label: "seed_phrase_theft",
+            threshold: 6500,
+            weights: &[(sovir_domain::RiskSignal::SeedPhraseRequest, 7000)],
+        },
+        // "You won — pay/claim now": prize claim alone stays silent; any
+        // monetary or credential hook graduates it to advance-fee fraud.
+        WeightedHypothesis {
+            label: "prize_advance_fee",
+            threshold: 6500,
+            weights: &[
+                (sovir_domain::RiskSignal::PrizeLotteryClaim, 4500),
+                (sovir_domain::RiskSignal::PaymentRequest, 2500),
+                (sovir_domain::RiskSignal::HiddenFeePattern, 2000),
+                (sovir_domain::RiskSignal::DeliveryCustomsFee, 2000),
+                (sovir_domain::RiskSignal::UrgentAction, 2000),
+                (sovir_domain::RiskSignal::CredentialRequest, 1500),
+            ],
+        },
+        // Parcel-hold phishing: a customs/delivery fee claim alone is noise;
+        // a payment or urgency hook makes it the classic fee phish.
+        WeightedHypothesis {
+            label: "customs_fee_phish",
+            threshold: 6500,
+            weights: &[
+                (sovir_domain::RiskSignal::DeliveryCustomsFee, 4500),
+                (sovir_domain::RiskSignal::PaymentRequest, 3000),
+                (sovir_domain::RiskSignal::UrgentAction, 2000),
+                (sovir_domain::RiskSignal::PrizeLotteryClaim, 1500),
+            ],
+        },
+        // Guaranteed-returns pitch: the promise alone stays silent; a money
+        // or credential ask is what turns it into investment fraud.
+        WeightedHypothesis {
+            label: "guaranteed_investment",
+            threshold: 6500,
+            weights: &[
+                (sovir_domain::RiskSignal::InvestmentPromise, 4000),
+                (sovir_domain::RiskSignal::PaymentRequest, 3000),
+                (sovir_domain::RiskSignal::CredentialRequest, 2000),
+                (sovir_domain::RiskSignal::UrgentAction, 2000),
+                (sovir_domain::RiskSignal::GiftCardPayment, 2000),
+            ],
+        },
+        // Fake authority + a demand (payment, gift card, threat, urgency).
+        WeightedHypothesis {
+            label: "authority_coercion",
+            threshold: 6500,
+            weights: &[
+                (sovir_domain::RiskSignal::AuthorityImpersonation, 4000),
+                (sovir_domain::RiskSignal::GiftCardPayment, 3000),
+                (sovir_domain::RiskSignal::ExtortionLanguage, 3000),
+                (sovir_domain::RiskSignal::UrgentAction, 2500),
+                (sovir_domain::RiskSignal::PaymentRequest, 2500),
+            ],
+        },
+        // Love-bait fused with a money demand — romance-scam shape.
+        WeightedHypothesis {
+            label: "romance_money_bait",
+            threshold: 7000,
+            weights: &[
+                (sovir_domain::RiskSignal::RomanceBait, 5000),
+                (sovir_domain::RiskSignal::PaymentRequest, 3000),
+                (sovir_domain::RiskSignal::GiftCardPayment, 2500),
+            ],
+        },
+        // Easy-money job plus a fee or credential ask — pay-to-work scam.
+        WeightedHypothesis {
+            label: "job_fee_bait",
+            threshold: 6500,
+            weights: &[
+                (sovir_domain::RiskSignal::JobScamOffer, 4000),
+                (sovir_domain::RiskSignal::PaymentRequest, 3000),
+                (sovir_domain::RiskSignal::CredentialRequest, 2500),
+                (sovir_domain::RiskSignal::HiddenFeePattern, 2500),
+            ],
+        },
+        // Health fraud: miracle-cure claim monetized by payment or urgency.
+        WeightedHypothesis {
+            label: "health_fraud_pitch",
+            threshold: 6500,
+            weights: &[
+                (sovir_domain::RiskSignal::MiracleCureClaim, 4500),
+                (sovir_domain::RiskSignal::PaymentRequest, 3000),
+                (sovir_domain::RiskSignal::UrgentAction, 2000),
+            ],
+        },
+        // Gift-card demand under pressure/threat/fake-authority — shakedown.
+        WeightedHypothesis {
+            label: "gift_card_shakedown",
+            threshold: 7000,
+            weights: &[
+                (sovir_domain::RiskSignal::GiftCardPayment, 4500),
+                (sovir_domain::RiskSignal::AuthorityImpersonation, 3000),
+                (sovir_domain::RiskSignal::ExtortionLanguage, 3000),
+                (sovir_domain::RiskSignal::UrgentAction, 2500),
+                (sovir_domain::RiskSignal::ScarewareClaim, 2500),
+            ],
+        },
+        // Over-broad PII harvesting on a deceptive or unverified surface.
+        WeightedHypothesis {
+            label: "data_harvesting",
+            threshold: 6500,
+            weights: &[
+                (sovir_domain::RiskSignal::DataHarvesting, 4500),
+                (sovir_domain::RiskSignal::SuspiciousDomain, 3000),
+                (sovir_domain::RiskSignal::IdentityUnverified, 2500),
+                (sovir_domain::RiskSignal::LinkDestinationMismatch, 2000),
+                (sovir_domain::RiskSignal::CredentialRequest, 1000),
+            ],
+        },
+        // "Escríbeme por WhatsApp" fused with any money/credential ask or
+        // a bulk-buyer lure — the marketplace off-platform shakedown.
+        WeightedHypothesis {
+            label: "offplatform_lure",
+            threshold: 6000,
+            weights: &[
+                (sovir_domain::RiskSignal::OffPlatformMove, 3500),
+                (sovir_domain::RiskSignal::BulkBuyerLure, 3000),
+                (sovir_domain::RiskSignal::PaymentRequest, 3000),
+                (sovir_domain::RiskSignal::CredentialRequest, 2500),
+                (sovir_domain::RiskSignal::UrgentAction, 2500),
+            ],
+        },
+        // Bulk-buyer pitch fused with off-platform move, urgency or a
+        // payment ask — fencing / advance-fee marketplace lure.
+        WeightedHypothesis {
+            label: "bulk_buyer_lure",
+            threshold: 6000,
+            weights: &[
+                (sovir_domain::RiskSignal::BulkBuyerLure, 3500),
+                (sovir_domain::RiskSignal::OffPlatformMove, 3000),
+                (sovir_domain::RiskSignal::PaymentRequest, 2500),
+                (sovir_domain::RiskSignal::UrgentAction, 1500),
             ],
         },
         WeightedHypothesis {
@@ -1035,6 +1215,8 @@ impl HeuristicLocalInferenceGateway {
                 (sovir_domain::RiskSignal::ConsentDarkPattern, 6500),
                 (sovir_domain::RiskSignal::HiddenFeePattern, 6500),
                 (sovir_domain::RiskSignal::UrgentAction, 1000),
+                (sovir_domain::RiskSignal::ScarcityPressure, 1500),
+                (sovir_domain::RiskSignal::PrizeLotteryClaim, 1500),
             ],
         },
         WeightedHypothesis {
