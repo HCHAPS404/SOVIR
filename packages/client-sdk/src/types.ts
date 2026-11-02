@@ -91,6 +91,16 @@ export interface DispatchResult {
   delivered: number;
 }
 
+export interface BudgetView {
+  tenant_id?: string;
+  cap_micro_usd?: number;
+  spent_micro_usd?: number;
+  remaining_micro_usd?: number;
+  cap_usd?: number;
+  spent_usd?: number;
+  remaining_usd?: number;
+}
+
 export interface PrincipalDataExport {
   principal_id?: string;
   grants?: ConsentGrant[];

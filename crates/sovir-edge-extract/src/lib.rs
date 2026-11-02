@@ -19,6 +19,10 @@
 use sha2::{Digest, Sha256};
 use sovir_domain::RiskSignal;
 
+/// OCR-text → signals surface (ADR-0019): the platform adapter owns the
+/// OCR engine and the gating; this module owns text→hypothesis mapping.
+pub mod ocr;
+
 /// Maximum regions processed per frame — extra regions are ignored.
 pub const MAX_REGIONS: usize = 64;
 /// Pixels sampled per axis inside a region (stride sampling keeps the

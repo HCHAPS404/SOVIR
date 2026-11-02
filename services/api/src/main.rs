@@ -591,10 +591,7 @@ struct Whoami {
     /// console unlock for these users. Not an authorization claim.
     is_admin: bool,
 }
-async fn whoami(
-    State(s): State<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<Whoami>, ApiError> {
+async fn whoami(State(s): State<AppState>, headers: HeaderMap) -> Result<Json<Whoami>, ApiError> {
     let principal = require_principal(&headers, &s).await?;
     let is_admin = s.admin_principals.contains(&principal.principal_id);
     Ok(Json(Whoami {
@@ -1060,7 +1057,14 @@ async fn me_budget(
         s.budget.cap_micro_usd(&p.tenant_id),
         s.budget.spent_micro_usd(&p.tenant_id),
     )
-    .map_err(|_| api_err(StatusCode::INTERNAL_SERVER_ERROR, "internal", &headers, true))?;
+    .map_err(|_| {
+        api_err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            &headers,
+            true,
+        )
+    })?;
     let remaining = cap.saturating_sub(spent);
     const M: f64 = 1_000_000.0;
     Ok(Json(BudgetView {
@@ -1222,13 +1226,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         compose_service(database_url.as_deref(), &webhook_allowlist, &sovir_env).await;
     // Master-user mapping: comma-separated principal ids that carry the
     // admin flag in whoami (console unlocks developer surfaces for them).
-    let admin_principals: std::collections::HashSet<String> =
-        env::var("SOVIR_ADMIN_PRINCIPALS")
-            .unwrap_or_default()
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+    let admin_principals: std::collections::HashSet<String> = env::var("SOVIR_ADMIN_PRINCIPALS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
     let rate_limit_per_min = env::var("SOVIR_RATE_LIMIT_PER_MIN")
         .ok()
         .and_then(|v| v.parse().ok())

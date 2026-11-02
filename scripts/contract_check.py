@@ -180,7 +180,10 @@ def console_client_checks(doc: dict) -> None:
 
     called: dict[str, str] = {}
     for m in re.finditer(r'call<[^>]*>\(\s*[`"]([^`"]+)', src):
-        norm = re.sub(r"\$\{[^}]*\}", "", m.group(1)).split("?")[0]
+        # Template holes carry path params — normalize them to the contract
+        # "{id}" segment shape instead of deleting them, or revoke-style
+        # paths normalize to a bogus "//revoke".
+        norm = re.sub(r"\$\{[^}]*\}", "{id}", m.group(1)).split("?")[0]
         called[norm] = m.group(1)
         check(norm in paths, f"console: client path {norm} exists in OpenAPI")
 
