@@ -99,12 +99,24 @@ export interface PrincipalDataExport {
 
 export type PrivacyMode = "private" | "standard";
 
+export interface VoterVerdict {
+  voter: string;
+  model_id: string;
+  hypotheses: string[];
+  confidence_bp: number;
+  provenance: string;
+  usage?: { tokens_input: number; tokens_output: number; cost_micro_usd?: number };
+}
+
 export interface InferenceVerdict {
   request_id: string;
   model_id: string;
   hypotheses: string[];
   confidence_bp: number;
   provenance: string;
+  usage?: { tokens_input: number; tokens_output: number; cost_micro_usd?: number };
+  /** Council votes (ADR-0025) — present only for council verdicts. */
+  votes?: VoterVerdict[];
 }
 
 export interface InvestigationFact {

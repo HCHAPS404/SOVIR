@@ -428,6 +428,19 @@ export default async function IncidentsPage() {
                               <span>Provenance</span>
                               <strong>{lastInference.verdict.provenance}</strong>
                             </li>
+                            {lastInference.verdict.votes?.length ? (
+                              <li>
+                                <span>Concilio</span>
+                                <strong>
+                                  {lastInference.verdict.votes
+                                    .map(
+                                      (v) =>
+                                        `${v.voter} → ${v.hypotheses.map(describeHypothesis).join("+") || "—"} (${(v.confidence_bp / 100).toFixed(1)}%)`,
+                                    )
+                                    .join(" · ")}
+                                </strong>
+                              </li>
+                            ) : null}
                           </ul>
                         ) : null}
                       </div>
