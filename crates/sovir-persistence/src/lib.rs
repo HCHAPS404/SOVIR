@@ -325,6 +325,7 @@ fn signal_str(s: RiskSignal) -> &'static str {
         RiskSignal::DataHarvesting => "DATA_HARVESTING",
         RiskSignal::OffPlatformMove => "OFF_PLATFORM_MOVE",
         RiskSignal::BulkBuyerLure => "BULK_BUYER_LURE",
+        RiskSignal::QrPresent => "QR_PRESENT",
     }
 }
 fn scope_str(s: Scope) -> &'static str {
@@ -408,6 +409,7 @@ fn signal_from(s: &str) -> Option<RiskSignal> {
         "DATA_HARVESTING" => Some(RiskSignal::DataHarvesting),
         "OFF_PLATFORM_MOVE" => Some(RiskSignal::OffPlatformMove),
         "BULK_BUYER_LURE" => Some(RiskSignal::BulkBuyerLure),
+        "QR_PRESENT" => Some(RiskSignal::QrPresent),
         _ => None,
     }
 }
@@ -2083,6 +2085,22 @@ impl BudgetReservations for PgStore {
     }
     /// Global refund sweep (privileged path — deliberately unscoped, like
     /// `delete_expired`/`pull`): orphans hold no tenant lock.
+    async fn spent_since(&self, tenant_id: &str, since_ms: u64) -> Result<u64, PortError> {
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let spent: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(COALESCE(actual_micro_usd, est_micro_usd)),0)::bigint
+             FROM inference_reservations
+             WHERE tenant_id = $1 AND state IN ('pending','settled')
+               AND created_at_ms >= $2",
+        )
+        .bind(tenant_id)
+        .bind(since_ms as i64)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_storage)?;
+        tx.commit().await.map_err(map_storage)?;
+        Ok(spent.max(0) as u64)
+    }
     async fn refund_expired(&self, cutoff_ms: u64) -> Result<u64, PortError> {
         let n = sqlx::query(
             "UPDATE inference_reservations SET state = 'refunded'

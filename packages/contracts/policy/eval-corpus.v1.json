@@ -1,5 +1,5 @@
 {
-  "corpus_version": "dev-eval-1",
+  "corpus_version": "dev-eval-2",
   "description": "Labeled synthetic signal sets for the dev risk policy pack. Labels are policy expectations, not ground-truth threats. Used by the domain eval test to report agreement/precision metrics.",
   "cases": [
     {
@@ -434,6 +434,50 @@
       ],
       "expect_risk": "elevated",
       "expect_decision": "review"
+    },
+    {
+      "name": "qr_alone_silent",
+      "signals": [
+        "QR_PRESENT"
+      ],
+      "expect_risk": "unknown",
+      "expect_decision": "observe"
+    },
+    {
+      "name": "qr_plus_payment",
+      "signals": [
+        "QR_PRESENT",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "qr_plus_credential",
+      "signals": [
+        "QR_PRESENT",
+        "CREDENTIAL_REQUEST"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "qr_plus_offplatform",
+      "signals": [
+        "QR_PRESENT",
+        "OFF_PLATFORM_MOVE"
+      ],
+      "expect_risk": "high",
+      "expect_decision": "warn"
+    },
+    {
+      "name": "qr_plus_urgency_silent",
+      "signals": [
+        "QR_PRESENT",
+        "URGENT_ACTION"
+      ],
+      "expect_risk": "unknown",
+      "expect_decision": "observe"
     }
   ]
 }

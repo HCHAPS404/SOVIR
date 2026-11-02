@@ -1198,6 +1198,19 @@ impl HeuristicLocalInferenceGateway {
                 (sovir_domain::RiskSignal::UrgentAction, 1500),
             ],
         },
+        // QR code on a money, credential, off-platform or unverified
+        // surface — "quishing". QrPresent alone is weak evidence and its
+        // weight stays below threshold: corroboration is mandatory.
+        WeightedHypothesis {
+            label: "qr_phishing_lure",
+            threshold: 6000,
+            weights: &[
+                (sovir_domain::RiskSignal::QrPresent, 3500),
+                (sovir_domain::RiskSignal::PaymentRequest, 3000),
+                (sovir_domain::RiskSignal::CredentialRequest, 2500),
+                (sovir_domain::RiskSignal::OffPlatformMove, 2500),
+            ],
+        },
         WeightedHypothesis {
             label: "payment_fraud_attempt",
             threshold: 7000,
@@ -1285,6 +1298,7 @@ impl InferenceGateway for HeuristicLocalInferenceGateway {
             hypotheses: hypotheses.into_iter().map(str::to_string).collect(),
             confidence_bp,
             provenance: "local_heuristic_weighted_rules; no model, no egress; deterministic".into(),
+            usage: None,
         })
     }
     fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
@@ -1333,14 +1347,27 @@ impl InferenceGateway for CompositeInferenceGateway {
 /// Per-tenant inference budget in micro-USD (B4). Dev adapter: a shared
 /// cap for every tenant; production needs per-plan caps (B7 decision).
 pub struct InMemoryBudgetLedger {
-    spend: RwLock<std::collections::HashMap<String, u64>>,
+    spend: std::sync::Arc<RwLock<std::collections::HashMap<String, u64>>>,
     cap_micro_usd: u64,
 }
 impl InMemoryBudgetLedger {
     /// `cap_micro_usd`: 1_000_000 = USD 1.00.
     pub fn with_cap(cap_micro_usd: u64) -> Self {
         Self {
-            spend: RwLock::new(std::collections::HashMap::new()),
+            spend: std::sync::Arc::new(RwLock::new(std::collections::HashMap::new())),
+            cap_micro_usd,
+        }
+    }
+    /// Ledger reporting over a shared spend counter. Pair with
+    /// `InMemoryBudgetReservations::spend_handle()` so `me_budget` reports
+    /// the same spend the reservation gate enforces — without it the
+    /// ledger reports $0 while actual spend accrues elsewhere.
+    pub fn with_shared_spend(
+        spend: std::sync::Arc<RwLock<std::collections::HashMap<String, u64>>>,
+        cap_micro_usd: u64,
+    ) -> Self {
+        Self {
+            spend,
             cap_micro_usd,
         }
     }
@@ -1376,19 +1403,31 @@ impl BudgetLedger for InMemoryBudgetLedger {
 /// transaction version, so the concurrency test is meaningful here too.
 pub struct InMemoryBudgetReservations {
     inner: RwLock<InMemoryReservationState>,
+    // Settled spend lives behind its own handle so the reporting ledger
+    // (BudgetLedger::spent_micro_usd) reads the SAME counter the cap gate
+    // enforces — the PG adapter gets this for free from one table; the
+    // in-memory pair must share it explicitly or spend reports as $0.
+    // Lock order is always `inner` → `spent` — never the reverse.
+    spent: std::sync::Arc<RwLock<std::collections::HashMap<String, u64>>>,
     cap_micro_usd: u64,
 }
 #[derive(Default)]
 struct InMemoryReservationState {
-    spent: std::collections::HashMap<String, u64>,
     rows: std::collections::HashMap<(String, String), InferenceReservation>,
 }
 impl InMemoryBudgetReservations {
     pub fn with_cap(cap_micro_usd: u64) -> Self {
         Self {
             inner: RwLock::new(InMemoryReservationState::default()),
+            spent: std::sync::Arc::new(RwLock::new(std::collections::HashMap::new())),
             cap_micro_usd,
         }
+    }
+    /// Shared spend view for pairing with `InMemoryBudgetLedger`
+    /// (`with_shared_spend`) — the enforced counter becomes the reported
+    /// counter, matching the single-table semantics of the PG adapter.
+    pub fn spend_handle(&self) -> std::sync::Arc<RwLock<std::collections::HashMap<String, u64>>> {
+        self.spent.clone()
     }
 }
 impl Default for InMemoryBudgetReservations {
@@ -1411,7 +1450,13 @@ impl sovir_ports::BudgetReservations for InMemoryBudgetReservations {
                 existing.clone(),
             )));
         }
-        let spent = g.spent.get(tenant_id).copied().unwrap_or(0);
+        let spent = self
+            .spent
+            .read()
+            .map_err(|_| PortError::Storage)?
+            .get(tenant_id)
+            .copied()
+            .unwrap_or(0);
         let pending: u64 = g
             .rows
             .values()
@@ -1456,7 +1501,12 @@ impl sovir_ports::BudgetReservations for InMemoryBudgetReservations {
         r.state = ReservationState::Settled;
         r.actual_micro_usd = Some(actual_micro_usd);
         r.usage = Some(usage);
-        *g.spent.entry(tenant_id.to_string()).or_insert(0) += actual_micro_usd;
+        *self
+            .spent
+            .write()
+            .map_err(|_| PortError::Storage)?
+            .entry(tenant_id.to_string())
+            .or_insert(0) += actual_micro_usd;
         Ok(())
     }
     async fn refund(&self, tenant_id: &str, request_id: &str) -> Result<(), PortError> {
@@ -1468,6 +1518,18 @@ impl sovir_ports::BudgetReservations for InMemoryBudgetReservations {
             }
         }
         Ok(())
+    }
+    async fn spent_since(&self, tenant_id: &str, since_ms: u64) -> Result<u64, PortError> {
+        let g = self.inner.read().map_err(|_| PortError::Storage)?;
+        Ok(g.rows
+            .values()
+            .filter(|r| {
+                r.tenant_id == tenant_id
+                    && r.created_at_ms >= since_ms
+                    && r.state != ReservationState::Refunded
+            })
+            .map(|r| r.actual_micro_usd.unwrap_or(r.est_micro_usd))
+            .sum())
     }
     async fn refund_expired(&self, cutoff_ms: u64) -> Result<u64, PortError> {
         let mut g = self.inner.write().map_err(|_| PortError::Storage)?;
@@ -1633,6 +1695,7 @@ impl InferenceGateway for RemoteInferenceGateway {
             hypotheses: v.hypotheses,
             confidence_bp: v.confidence_bp.min(10_000),
             provenance: format!("remote:{host}"),
+            usage: None,
         })
     }
     fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
@@ -1653,6 +1716,7 @@ pub const KNOWN_HYPOTHESIS_LABELS: &[&str] = &[
     "privacy_tracking_exposure",
     "identity_unverified",
     "urgency_pressure",
+    "qr_phishing_lure",
     "no_pattern_detected",
 ];
 /// OpenAI-compatible chat/completions inference gateway (Baseten deployments,
@@ -1666,6 +1730,12 @@ pub struct ChatCompletionInferenceGateway {
     endpoint: String,
     api_key: String,
     model_id: String,
+    /// Optional micro-USD per million input/output tokens — when set, the
+    /// gateway prices each call from the provider's `usage` counters and
+    /// the reservation settles at the real cost instead of the flat
+    /// per-request estimate. Unset means "price unknown, charge estimate".
+    price_in_micros_per_mtok: Option<u64>,
+    price_out_micros_per_mtok: Option<u64>,
 }
 impl ChatCompletionInferenceGateway {
     pub fn new(
@@ -1673,13 +1743,28 @@ impl ChatCompletionInferenceGateway {
         endpoint: String,
         api_key: String,
         model_id: String,
+        price_in_micros_per_mtok: Option<u64>,
+        price_out_micros_per_mtok: Option<u64>,
     ) -> Self {
         Self {
             egress,
             endpoint,
             api_key,
             model_id,
+            price_in_micros_per_mtok,
+            price_out_micros_per_mtok,
         }
+    }
+    /// Cost in micro-USD for a token pair; ceil-div so partial usage never
+    /// rounds down to free. None when pricing is unconfigured.
+    fn priced_cost(&self, tokens_in: u32, tokens_out: u32) -> Option<u64> {
+        let (pin, pout) = (
+            self.price_in_micros_per_mtok?,
+            self.price_out_micros_per_mtok?,
+        );
+        let in_cost = (u64::from(tokens_in) * pin).div_ceil(1_000_000);
+        let out_cost = (u64::from(tokens_out) * pout).div_ceil(1_000_000);
+        Some(in_cost.saturating_add(out_cost))
     }
 }
 /// Wire format of an OpenAI-compatible chat/completions response — only the
@@ -1687,6 +1772,17 @@ impl ChatCompletionInferenceGateway {
 #[derive(serde::Deserialize)]
 struct ChatCompletionResponse {
     choices: Vec<ChatChoice>,
+    /// Provider metering — the honest cost signal. Absent on some
+    /// providers; verdict then reports usage None and settles at estimate.
+    #[serde(default)]
+    usage: Option<ChatUsage>,
+}
+#[derive(serde::Deserialize)]
+struct ChatUsage {
+    #[serde(default)]
+    prompt_tokens: u32,
+    #[serde(default)]
+    completion_tokens: u32,
 }
 #[derive(serde::Deserialize)]
 struct ChatChoice {
@@ -1798,6 +1894,11 @@ impl InferenceGateway for ChatCompletionInferenceGateway {
             hypotheses,
             confidence_bp: v.confidence_bp.min(10_000),
             provenance: format!("remote:{host}"),
+            usage: resp.usage.map(|u| sovir_domain::ReportedUsage {
+                tokens_input: u.prompt_tokens,
+                tokens_output: u.completion_tokens,
+                cost_micro_usd: self.priced_cost(u.prompt_tokens, u.completion_tokens),
+            }),
         })
     }
     fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
@@ -2013,6 +2114,8 @@ mod tests {
             "https://inference.baseten.co/v1/chat/completions".into(),
             "k".into(),
             "muse-spark-1.3".into(),
+            None,
+            None,
         )
     }
 
@@ -2043,6 +2146,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_gateway_reports_metered_usage_and_priced_cost() {
+        let egress = Arc::new(FakeEgress {
+            response: r#"{"choices":[{"message":{"content":"{\"request_id\":\"r-1\",\"hypotheses\":[\"urgency_pressure\"],\"confidence_bp\":4100}"}}],"usage":{"prompt_tokens":320,"completion_tokens":180}}"#
+                .into(),
+            sent: StdMutex::new(vec![]),
+        });
+        let gw = ChatCompletionInferenceGateway::new(
+            egress,
+            "https://inference.baseten.co/v1/chat/completions".into(),
+            "k".into(),
+            "m".into(),
+            Some(2_000_000), // $2 per Mtok input
+            Some(6_000_000), // $6 per Mtok output
+        );
+        let v = gw.assess(&req()).await.unwrap();
+        let u = v.usage.expect("usage present in provider response");
+        assert_eq!(u.tokens_input, 320);
+        assert_eq!(u.tokens_output, 180);
+        // 320*$2/M + 180*$6/M = 640 + 1080 = 1720 micro-USD
+        assert_eq!(u.cost_micro_usd, Some(1_720));
+    }
+
+    #[tokio::test]
+    async fn chat_gateway_unpriced_provider_reports_tokens_not_cost() {
+        let egress = Arc::new(FakeEgress {
+            response: r#"{"choices":[{"message":{"content":"{\"request_id\":\"r-1\",\"hypotheses\":[\"urgency_pressure\"],\"confidence_bp\":4100}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5}}"#
+                .into(),
+            sent: StdMutex::new(vec![]),
+        });
+        let gw = ChatCompletionInferenceGateway::new(
+            egress,
+            "https://inference.baseten.co/v1/chat/completions".into(),
+            "k".into(),
+            "m".into(),
+            None,
+            None,
+        );
+        let v = gw.assess(&req()).await.unwrap();
+        let u = v.usage.expect("usage present");
+        assert_eq!(u.tokens_input, 10);
+        assert_eq!(u.cost_micro_usd, None); // price unknown → settle at estimate
+    }
+
+    #[tokio::test]
     async fn chat_gateway_sends_signals_never_content() {
         let egress = Arc::new(FakeEgress {
             response:
@@ -2055,6 +2202,8 @@ mod tests {
             "https://inference.baseten.co/v1/chat/completions".into(),
             "k".into(),
             "m".into(),
+            None,
+            None,
         );
         let _ = gw.assess(&req()).await.unwrap();
         let sent = egress.sent.lock().unwrap();
@@ -2803,5 +2952,36 @@ mod tests {
         assert!(repo.get("t", "g-1").await.unwrap().unwrap().revoked);
         // Re-put after revoke still dedupes — the row exists.
         assert!(matches!(repo.put(mk()).await, Err(PortError::Duplicate)));
+    }
+
+    /// B21 parity with the PG store: `settle` credits the SAME spend the
+    /// reporting ledger reads — one backing counter, like the
+    /// `inference_budget` table. Pin the regression where the in-memory
+    /// ledger reported $0 while reservations accrued real spend.
+    #[tokio::test]
+    async fn shared_spend_makes_ledger_report_settled_actuals() {
+        use sovir_ports::{BudgetLedger, BudgetReservations};
+        let rsv = InMemoryBudgetReservations::with_cap(1_000_000);
+        let ledger = InMemoryBudgetLedger::with_shared_spend(rsv.spend_handle(), 1_000_000);
+        let usage = sovir_domain::InferenceUsage {
+            provider: "remote:test".into(),
+            model: "stub".into(),
+            tokens_est: 0,
+            tokens_actual: None,
+            cache_hit: false,
+            redaction_tier: "standard".into(),
+        };
+        assert!(matches!(
+            rsv.reserve("t", "req-1", 10_000).await.unwrap(),
+            sovir_ports::ReserveOutcome::Reserved(_)
+        ));
+        rsv.settle("t", "req-1", 10_000, usage).await.unwrap();
+        assert_eq!(ledger.spent_micro_usd("t").await.unwrap(), 10_000);
+        // The cap gate counts the same counter: $1 cap − $0.01 settled
+        // − $1 new estimate would exceed → refused.
+        assert!(matches!(
+            rsv.reserve("t", "req-2", 1_000_000).await.unwrap(),
+            sovir_ports::ReserveOutcome::BudgetExceeded
+        ));
     }
 }

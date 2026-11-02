@@ -133,6 +133,10 @@ pub struct SovirService {
     investigations: Arc<dyn sovir_ports::InvestigationStore>,
     identity: Option<Arc<dyn sovir_ports::IdentityVerifier>>,
     attester: Option<Arc<dyn sovir_ports::DeviceAttester>>,
+    /// Rolling-window caps (window_ms, cap_micro_usd) — e.g. per-day and
+    /// per-user-month. Advisory pre-check before the atomic reservation;
+    /// `reserve`'s all-time check remains the race-safe floor.
+    window_caps: Vec<(u64, u64)>,
 }
 impl SovirService {
     pub fn new(clock: Arc<dyn Clock>, ports: ServicePorts) -> Self {
@@ -155,7 +159,14 @@ impl SovirService {
             investigations: ports.investigations,
             identity: ports.identity,
             attester: ports.attester,
+            window_caps: Vec::new(),
         }
+    }
+    /// Attaches rolling-window budget caps after construction (env-driven,
+    /// so they stay out of ServicePorts for every test fixture).
+    pub fn with_window_caps(mut self, caps: Vec<(u64, u64)>) -> Self {
+        self.window_caps = caps;
+        self
     }
 
     /// Random token/id derivation (UUIDv4). The parts are accepted for
@@ -983,6 +994,19 @@ impl SovirService {
             .await?;
             return Err(AppError::ProviderUnavailable);
         };
+        // Rolling-window caps (SOVIR_MAX_USD_PER_DAY / _PER_USER_MONTH):
+        // advisory pre-check ahead of the reservation; the atomic gate
+        // below remains the race-safe floor for the all-time cap.
+        let now_ms = self.clock.now_ms();
+        for (window_ms, cap) in &self.window_caps {
+            let spent = self
+                .reservations
+                .spent_since(&principal.tenant_id, now_ms.saturating_sub(*window_ms))
+                .await?;
+            if spent.saturating_add(req.est_cost_micro_usd) > *cap {
+                return Err(AppError::BudgetExceeded);
+            }
+        }
         // Durable reservation gate (B21): atomic cap check + pending row
         // in one transaction — no check-then-act window. Same request_id
         // is idempotent, so replayed ingress reuses its reservation.
@@ -1008,14 +1032,20 @@ impl SovirService {
                 return Err(e.into());
             }
         };
-        // Without provider metering, actuals equal the estimate. Usage
-        // still records what the gateway itself reported (model,
-        // provenance, redaction tier) so accounting is honest, not fake.
+        // Actuals prefer provider-reported metering (priced from its own
+        // per-token rates when the gateway is configured with them); when
+        // the provider reports nothing the honest value is the estimate.
+        // The cap gate stays prospective at reserve time — actual may
+        // exceed est and that overage is recorded, not hidden.
+        let actual_micros = verdict
+            .usage
+            .and_then(|u| u.cost_micro_usd)
+            .unwrap_or(req.est_cost_micro_usd);
         let usage = sovir_domain::InferenceUsage {
             provider: verdict.provenance.clone(),
             model: verdict.model_id.clone(),
             tokens_est: 0,
-            tokens_actual: None,
+            tokens_actual: verdict.usage.map(|u| u.tokens_input + u.tokens_output),
             cache_hit: false,
             redaction_tier: match req.privacy {
                 sovir_domain::PrivacyMode::Private => "private".to_string(),
@@ -1023,12 +1053,7 @@ impl SovirService {
             },
         };
         self.reservations
-            .settle(
-                &principal.tenant_id,
-                &req.request_id,
-                req.est_cost_micro_usd,
-                usage,
-            )
+            .settle(&principal.tenant_id, &req.request_id, actual_micros, usage)
             .await?;
         self.audit(
             &principal.tenant_id,
@@ -1036,7 +1061,7 @@ impl SovirService {
             AuditAction::InferenceCalled,
             &format!(
                 "ok req:{} micros:{} model:{}",
-                req.request_id, req.est_cost_micro_usd, verdict.model_id
+                req.request_id, actual_micros, verdict.model_id
             ),
         )
         .await?;

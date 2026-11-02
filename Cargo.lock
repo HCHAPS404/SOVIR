@@ -2077,6 +2077,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "sovir-domain",
+ "sovir-edge-extract",
  "sovir-edge-store",
  "tokio",
  "tracing",

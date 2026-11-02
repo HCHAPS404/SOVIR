@@ -22,6 +22,9 @@ use sovir_domain::RiskSignal;
 /// OCR-text → signals surface (ADR-0019): the platform adapter owns the
 /// OCR engine and the gating; this module owns text→hypothesis mapping.
 pub mod ocr;
+/// Vision classifier surface (ADR-0020): closed-taxonomy deterministic
+/// structure detection; learned-model labels stay NOT_IMPLEMENTED.
+pub mod vision;
 
 /// Maximum regions processed per frame — extra regions are ignored.
 pub const MAX_REGIONS: usize = 64;
@@ -88,7 +91,7 @@ pub fn extract(frame: &PixelFrame<'_>, regions: &[Rect]) -> Option<Extraction> {
     let content_digest = format!("sha256:{:x}", Sha256::digest(frame.rgba));
     let mut signals = Vec::new();
     for region in regions.iter().take(MAX_REGIONS) {
-        let r = clamp(*region, frame.width, frame.height);
+        let r = clamp_rect(*region, frame.width, frame.height);
         if r.w == 0 || r.h == 0 {
             continue;
         }
@@ -117,7 +120,7 @@ pub fn extract(frame: &PixelFrame<'_>, regions: &[Rect]) -> Option<Extraction> {
     })
 }
 
-fn clamp(r: Rect, w: u32, h: u32) -> Rect {
+pub(crate) fn clamp_rect(r: Rect, w: u32, h: u32) -> Rect {
     let x = r.x.min(w);
     let y = r.y.min(h);
     Rect {

@@ -1,5 +1,5 @@
 {
-  "version": "dev-1",
+  "version": "dev-2",
   "default_risk": "unknown",
   "default_decision": "observe",
   "rules": [
@@ -142,6 +142,15 @@
       "clauses": [
         ["BULK_BUYER_LURE"],
         ["URGENT_ACTION", "PAYMENT_REQUEST", "OFF_PLATFORM_MOVE"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "qr_phishing_lure",
+      "clauses": [
+        ["QR_PRESENT"],
+        ["CREDENTIAL_REQUEST", "PAYMENT_REQUEST", "OFF_PLATFORM_MOVE"]
       ],
       "risk_level": "high",
       "decision": "warn"

@@ -339,6 +339,10 @@ pub trait BudgetReservations: Send + Sync {
     /// tenant's cap forever. Cross-tenant by design; only the scheduled
     /// sweep calls it (privileged path, like other `*_any` ops).
     async fn refund_expired(&self, cutoff_ms: u64) -> Result<u64, PortError>;
+    /// Windowed spend: settled actuals + pending estimates created at or
+    /// after `since_ms`. Backs per-day/per-month caps; the all-time check
+    /// inside `reserve` stays the atomic floor.
+    async fn spent_since(&self, tenant_id: &str, since_ms: u64) -> Result<u64, PortError>;
 }
 /// Threat-intel feed boundary (B5). `pull` returns candidate indicators
 /// from a configured source; `record`/`list` persist the ones that pass

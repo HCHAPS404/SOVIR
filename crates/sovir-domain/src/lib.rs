@@ -76,6 +76,10 @@ pub enum RiskSignal {
     /// "We buy all kinds, immediate purchase, cash payment" — bulk-buyer
     /// lure used by fencing and advance-fee marketplace scams.
     BulkBuyerLure,
+    /// Finder-pattern signature of a QR code inside a gated image region
+    /// (ADR-0020) — the "quishing" carrier. Weak alone: policy requires a
+    /// corroborating DOM/OCR signal before it may warn.
+    QrPresent,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,6 +266,18 @@ pub struct InferenceRequest {
     pub est_cost_micro_usd: u64,
 }
 
+/// Provider-reported metering for one verdict (B21 honest accounting).
+/// Optional — heuristic/local verdicts and providers without usage fields
+/// carry None and the reservation settles at the configured estimate.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ReportedUsage {
+    pub tokens_input: u32,
+    pub tokens_output: u32,
+    /// Provider-priced cost when the gateway can compute it from its own
+    /// per-token prices; None means "usage seen but price unknown".
+    #[serde(default)]
+    pub cost_micro_usd: Option<u64>,
+}
 /// A model verdict: typed hypotheses and provenance, never an authorized
 /// action. Policy code decides what hypotheses may trigger.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -272,6 +288,9 @@ pub struct InferenceVerdict {
     /// Confidence in basis points (0–10_000), no float money/precision.
     pub confidence_bp: u16,
     pub provenance: String,
+    /// Metering the provider itself reported (token counts, priced cost).
+    #[serde(default)]
+    pub usage: Option<ReportedUsage>,
 }
 
 /// Usage accounting for one inference call (B21). Populated at settle
@@ -494,6 +513,50 @@ pub fn risk_signal_label(s: RiskSignal) -> &'static str {
         RiskSignal::DataHarvesting => "DATA_HARVESTING",
         RiskSignal::OffPlatformMove => "OFF_PLATFORM_MOVE",
         RiskSignal::BulkBuyerLure => "BULK_BUYER_LURE",
+        RiskSignal::QrPresent => "QR_PRESENT",
+    }
+}
+
+/// Contract bound shared with `observed-event.schema.json`
+/// (`maxItems`): an `ObservedEvent` carries at most this many signals —
+/// enough for any real page, small enough to stay a bounded event.
+/// `validate_event` enforces it; emitters bound before they post.
+pub const MAX_EVENT_SIGNALS: usize = 8;
+
+/// Evidence ranking used when an emitter must fit `MAX_EVENT_SIGNALS`:
+/// lower number = keep first. Corroborants that can actually escalate a
+/// policy decision rank highest; weak single signals (image-derived,
+/// ambient) rank last — dropping them loses the least evidence. The
+/// ordering is declared once here; JS emitters mirror it verbatim
+/// (apps/extension/background.js SIGNAL_PRIORITY).
+pub fn risk_signal_priority(s: RiskSignal) -> u8 {
+    match s {
+        RiskSignal::SeedPhraseRequest => 0,
+        RiskSignal::ExtortionLanguage => 1,
+        RiskSignal::PaymentRequest => 2,
+        RiskSignal::CredentialRequest => 3,
+        RiskSignal::GiftCardPayment => 4,
+        RiskSignal::AuthorityImpersonation => 5,
+        RiskSignal::OffPlatformMove => 6,
+        RiskSignal::LinkDestinationMismatch => 7,
+        RiskSignal::DataHarvesting => 8,
+        RiskSignal::SuspiciousDomain => 9,
+        RiskSignal::ScarewareClaim => 10,
+        RiskSignal::PrizeLotteryClaim => 11,
+        RiskSignal::DeliveryCustomsFee => 12,
+        RiskSignal::InvestmentPromise => 13,
+        RiskSignal::HiddenFeePattern => 14,
+        RiskSignal::JobScamOffer => 15,
+        RiskSignal::RomanceBait => 16,
+        RiskSignal::MiracleCureClaim => 17,
+        RiskSignal::BulkBuyerLure => 18,
+        RiskSignal::ScarcityPressure => 19,
+        RiskSignal::ConsentDarkPattern => 20,
+        RiskSignal::QrPresent => 21,
+        RiskSignal::UrgentAction => 22,
+        RiskSignal::IdentityUnverified => 23,
+        RiskSignal::TrackingObserved => 24,
+        RiskSignal::UserDefinedExposureLimit => 25,
     }
 }
 /// Stable metadata label for a sensitive-data class (matches serde name).
@@ -679,7 +742,7 @@ impl PolicyPack {
     /// hardcoded `evaluate_signals` table.
     pub fn dev_pack() -> Self {
         Self {
-            version: "dev-1".into(),
+            version: "dev-2".into(),
             rules: vec![
                 PolicyRule {
                     name: "compounded_sensitive_request".into(),
@@ -895,6 +958,23 @@ impl PolicyPack {
                     risk_level: RiskLevel::High,
                     decision: DecisionKind::Warn,
                 },
+                // A QR code on a payment, credential, off-platform or
+                // unverified surface — "quishing". The code itself is weak
+                // evidence, so the AND-clause makes corroboration
+                // structural: QrPresent alone can never reach this rule.
+                PolicyRule {
+                    name: "qr_phishing_lure".into(),
+                    clauses: vec![
+                        vec![RiskSignal::QrPresent],
+                        vec![
+                            RiskSignal::CredentialRequest,
+                            RiskSignal::PaymentRequest,
+                            RiskSignal::OffPlatformMove,
+                        ],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
                 PolicyRule {
                     name: "sensitive_or_manipulative".into(),
                     clauses: vec![vec![
@@ -978,6 +1058,7 @@ impl PolicyPack {
                     RiskSignal::DataHarvesting => "Signal: over-broad personal-data harvesting",
                     RiskSignal::OffPlatformMove => "Signal: conversation moved off-platform",
                     RiskSignal::BulkBuyerLure => "Signal: bulk-buyer immediate-payment lure",
+                    RiskSignal::QrPresent => "Signal: QR code in observed region",
                 }
                 .to_string()
             })
@@ -1185,7 +1266,7 @@ pub fn validate_event(event: &ObservedEvent, now_ms: u64) -> Result<(), DomainEr
     {
         return Err(DomainError::InvalidIdentifier);
     }
-    if event.signals.len() > 8 {
+    if event.signals.len() > MAX_EVENT_SIGNALS {
         return Err(DomainError::InvalidIdentifier);
     }
     if event.sensitive_data_class == SensitiveDataClass::Secret {
@@ -1250,6 +1331,29 @@ mod tests {
         assert_eq!(
             validate_consent(&event(), &grant, 1000),
             Err(DomainError::ConsentRequired)
+        );
+    }
+    #[test]
+    fn event_signal_bound_is_enforced() {
+        // Contract bound (observed-event.schema.json maxItems): an
+        // event may carry at most MAX_EVENT_SIGNALS; more is a contract
+        // error, never a truncation — emitters bound before posting.
+        let mut e = event();
+        e.signals = vec![
+            RiskSignal::CredentialRequest,
+            RiskSignal::PaymentRequest,
+            RiskSignal::UrgentAction,
+            RiskSignal::IdentityUnverified,
+            RiskSignal::TrackingObserved,
+            RiskSignal::HiddenFeePattern,
+            RiskSignal::ConsentDarkPattern,
+            RiskSignal::UserDefinedExposureLimit,
+        ];
+        assert!(validate_event(&e, 1000).is_ok());
+        e.signals.push(RiskSignal::LinkDestinationMismatch);
+        assert_eq!(
+            validate_event(&e, 1000),
+            Err(DomainError::InvalidIdentifier)
         );
     }
     #[test]
@@ -1416,6 +1520,7 @@ mod tests {
             RiskSignal::DataHarvesting,
             RiskSignal::OffPlatformMove,
             RiskSignal::BulkBuyerLure,
+            RiskSignal::QrPresent,
         ];
         for (i, a) in all.iter().enumerate() {
             for b in all.iter().skip(i) {

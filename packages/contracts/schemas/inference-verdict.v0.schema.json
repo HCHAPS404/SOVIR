@@ -10,6 +10,18 @@
     "request_id": {"type": "string", "minLength": 1, "maxLength": 128},
     "model_id": {"type": "string", "minLength": 1, "maxLength": 128},
     "hypotheses": {"type": "array", "items": {"type": "string", "maxLength": 256}},
-    "confidence_bp": {"type": "integer", "minimum": 0, "maximum": 10000}
+    "confidence_bp": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "provenance": {"type": "string", "maxLength": 256},
+    "usage": {
+      "type": "object",
+      "description": "Provider-reported metering; absent when the provider returns no usage or for local heuristic verdicts.",
+      "additionalProperties": false,
+      "required": ["tokens_input", "tokens_output"],
+      "properties": {
+        "tokens_input": {"type": "integer", "minimum": 0},
+        "tokens_output": {"type": "integer", "minimum": 0},
+        "cost_micro_usd": {"type": "integer", "minimum": 0}
+      }
+    }
   }
 }

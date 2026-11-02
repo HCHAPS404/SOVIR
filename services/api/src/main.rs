@@ -247,7 +247,18 @@ fn remote_inference_gateway(
         .as_str()
     {
         "openai-chat" => Some(Arc::new(
-            sovir_adapters::ChatCompletionInferenceGateway::new(egress.clone(), url, key, model),
+            sovir_adapters::ChatCompletionInferenceGateway::new(
+                egress.clone(),
+                url,
+                key,
+                model,
+                env::var("SOVIR_INFERENCE_PRICE_IN_MICROS_PER_MTOK")
+                    .ok()
+                    .and_then(|v| v.parse().ok()),
+                env::var("SOVIR_INFERENCE_PRICE_OUT_MICROS_PER_MTOK")
+                    .ok()
+                    .and_then(|v| v.parse().ok()),
+            ),
         )),
         _ => Some(Arc::new(sovir_adapters::RemoteInferenceGateway::new(
             egress.clone(),
@@ -438,7 +449,8 @@ async fn compose_service(
                 identity: identity_verifier(&egress),
                 attester: Some(Arc::new(sovir_adapters::NoopAttester)),
             },
-        );
+        )
+        .with_window_caps(window_caps_env());
         return (service, Some(pg), budget);
     }
     let registry: std::sync::Arc<dyn sovir_ports::WebhookRegistry> =
@@ -447,6 +459,25 @@ async fn compose_service(
     let egress = pick_egress(&transport_allowlist, sovir_env);
     let (service, _, budget) = dev_service_with(Some((registry, egress)));
     (service, None, budget)
+}
+/// Rolling-window inference caps from env (USD → micro-USD). Absent/0
+/// means no window limit; the all-time SOVIR_INFERENCE_BUDGET_USD cap
+/// still applies inside the atomic reservation.
+fn window_caps_env() -> Vec<(u64, u64)> {
+    let usd = |key: &str| {
+        env::var(key)
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|v| *v > 0)
+            .map(|v| v.saturating_mul(1_000_000))
+    };
+    [
+        usd("SOVIR_MAX_USD_PER_DAY").map(|c| (86_400_000, c)),
+        usd("SOVIR_MAX_USD_PER_USER_MONTH").map(|c| (30 * 86_400_000, c)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 /// Builds the service; when a registry/egress pair is supplied the delivery
 /// channel fans out to the recording channel AND signed webhook egress.
@@ -461,8 +492,19 @@ fn dev_service_with(
     std::sync::Arc<dyn sovir_ports::BudgetLedger>,
 ) {
     let registry = webhooks.as_ref().map(|(r, _)| r.clone());
+    // The reporting ledger and the enforcement gate share ONE spend
+    // counter (same semantics the PG store gets from inference_budget):
+    // without it /v1/me/budget reports $0 while spend actually accrues.
+    let reservations = std::sync::Arc::new(InMemoryBudgetReservations::with_cap(
+        env::var("SOVIR_INFERENCE_BUDGET_USD")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0)
+            .saturating_mul(1_000_000),
+    ));
     let budget: std::sync::Arc<dyn sovir_ports::BudgetLedger> =
-        Arc::new(InMemoryBudgetLedger::with_cap(
+        Arc::new(InMemoryBudgetLedger::with_shared_spend(
+            reservations.spend_handle(),
             env::var("SOVIR_INFERENCE_BUDGET_USD")
                 .ok()
                 .and_then(|v| v.parse::<u64>().ok())
@@ -500,19 +542,15 @@ fn dev_service_with(
                     inference_gateway(e, &allowlist, &sovir_env)
                 }),
                 budget: budget.clone(),
-                reservations: Arc::new(InMemoryBudgetReservations::with_cap(
-                    env::var("SOVIR_INFERENCE_BUDGET_USD")
-                        .ok()
-                        .and_then(|v| v.parse::<u64>().ok())
-                        .unwrap_or(0)
-                        .saturating_mul(1_000_000),
-                )),
+                reservations: reservations.clone()
+                    as std::sync::Arc<dyn sovir_ports::BudgetReservations>,
                 intel: intel_feed(Arc::new(InMemoryThreatIntel::default())),
                 investigations: Arc::new(sovir_adapters::InMemoryInvestigationStore::default()),
                 identity: webhooks.as_ref().and_then(|(_, e)| identity_verifier(e)),
                 attester: Some(Arc::new(sovir_adapters::NoopAttester)),
             },
-        ),
+        )
+        .with_window_caps(window_caps_env()),
         registry,
         budget,
     )

@@ -5,6 +5,29 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+# Real OS capture (Windows.Graphics.Capture) + on-device OCR
+# (Windows.Media.Ocr). Off by default: the pipeline runs and is tested
+# with the synthetic source without touching any screen.
+wgc = [
+    "windows/Win32_Graphics_Direct3D",
+    "windows/Win32_Graphics_Direct3D11",
+    "windows/Win32_Graphics_Dxgi",
+    "windows/Win32_Graphics_Dxgi_Common",
+    "windows/Win32_System_WinRT",
+    "windows/Win32_System_WinRT_Direct3D11",
+    "windows/Win32_System_WinRT_Graphics",
+    "windows/Win32_System_WinRT_Graphics_Capture",
+    "windows/Graphics_Capture",
+    "windows/Graphics_DirectX",
+    "windows/Graphics_DirectX_Direct3D11",
+    "windows/Graphics_Imaging",
+    "windows/Media_Ocr",
+    "windows/Globalization",
+    "windows/Storage_Streams",
+    "windows/Foundation_Collections",
+]
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
@@ -15,6 +38,8 @@ uuid.workspace = true
 reqwest.workspace = true
 sha2 = "0.10"
 anyhow = "1"
+sovir-domain = { path = "../../crates/sovir-domain" }
+sovir-edge-extract = { path = "../../crates/sovir-edge-extract" }
 sovir-edge-store = { path = "../../crates/sovir-edge-store" }
 
 [target.'cfg(windows)'.dependencies]

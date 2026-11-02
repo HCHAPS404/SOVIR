@@ -509,6 +509,7 @@ impl InferenceGateway for StubGateway {
             hypotheses: vec!["possible-urgency".into()],
             confidence_bp: 6_000,
             provenance: "synthetic-test".into(),
+            usage: None,
         })
     }
     fn serves(&self, mode: PrivacyMode) -> bool {

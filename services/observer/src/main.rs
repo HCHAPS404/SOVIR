@@ -21,13 +21,25 @@
 //! Durable outbox (optional): SOVIR_OBSERVER_STORE_PATH +
 //! SOVIR_OBSERVER_STORE_KEY enable the encrypted SQLite queue
 //! (sovir-edge-store) so queued events survive restarts. Unset = in-memory.
+//!
+//! Vision mode (opt-in, ADR-0015/0019/0020): SOVIR_OBSERVER_VISION=1
+//! enables pixel observation under its own consent grant;
+//! SOVIR_OBSERVER_VISION_SOURCE picks `wgc` (real capture, feature
+//! "wgc") or `synthetic` (procedural dev frame — default off);
+//! SOVIR_OBSERVER_VISION_MS sets the scan interval (default 5000);
+//! SOVIR_OBSERVER_OCR=1 runs on-device OCR only on flagged frames.
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::env;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
+
+mod vision;
+#[cfg(all(windows, feature = "wgc"))]
+mod wgc;
+use vision::{analyze_frame, make_source, FrameSource, VISION_GRANT};
 
 const SOURCE: &str = "screen-observer:windows";
 const GRANT: &str = "win-observer-grant";
@@ -60,6 +72,33 @@ fn excluded_processes() -> Vec<String> {
 }
 fn disabled() -> bool {
     env::var("SOVIR_OBSERVER_DISABLE").unwrap_or_default() == "1"
+}
+
+/// Pixel observation is opt-in and carries its own consent grant — a
+/// stronger claim than title metadata, scoped and revocable separately.
+/// `SOVIR_EDGE_VISION=0` is the ADR-0020 reversion kill-switch: it wins
+/// over the opt-in so a deployed classifier can be shut off without
+/// touching user configuration.
+fn vision_enabled() -> bool {
+    env::var("SOVIR_EDGE_VISION").unwrap_or_default() != "0"
+        && env::var("SOVIR_OBSERVER_VISION").unwrap_or_default() == "1"
+}
+/// `wgc` = real capture (feature "wgc"); `synthetic` = procedural dev
+/// frame. Unset defaults to wgc so the flag alone selects the real path
+/// when the feature is compiled in.
+fn vision_source_name() -> String {
+    env::var("SOVIR_OBSERVER_VISION_SOURCE").unwrap_or_else(|_| "wgc".into())
+}
+fn vision_ms() -> u64 {
+    env::var("SOVIR_OBSERVER_VISION_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5_000)
+        .clamp(1_000, 60_000)
+}
+#[cfg(all(windows, feature = "wgc"))]
+fn ocr_enabled() -> bool {
+    env::var("SOVIR_OBSERVER_OCR").unwrap_or_default() == "1"
 }
 
 /// Bounded FIFO push: beyond `max` the OLDEST queued event is dropped so
@@ -142,6 +181,15 @@ impl Outbox {
             }
         }
     }
+    /// A 4xx (except 401/408/429) is a permanent contract rejection — the
+    /// event will NEVER ingest, so it must be dropped, not retried:
+    /// otherwise one poisoned event blocks the outbox forever.
+    fn permanent(e: &anyhow::Error) -> bool {
+        e.downcast_ref::<reqwest::Error>()
+            .and_then(|r| r.status())
+            .is_some_and(|s| s.is_client_error() && !matches!(s.as_u16(), 401 | 408 | 429))
+    }
+
     /// Drain FIFO to the API until empty or the client dies. Returns
     /// false when a post fails (caller reconnects).
     async fn drain(&mut self, client: &Client) -> bool {
@@ -150,6 +198,10 @@ impl Outbox {
                 while let Some(ev) = q.front().cloned() {
                     match client.post("/v1/events", &ev).await {
                         Ok(()) => {
+                            q.pop_front();
+                        }
+                        Err(e) if Self::permanent(&e) => {
+                            tracing::error!("event permanently rejected ({e}); dropped");
                             q.pop_front();
                         }
                         Err(e) => {
@@ -167,6 +219,10 @@ impl Outbox {
                 for item in items {
                     match client.post("/v1/events", &item.payload).await {
                         Ok(()) => {
+                            let _ = q.ack(&[item.row_id]);
+                        }
+                        Err(e) if Self::permanent(&e) => {
+                            tracing::error!("event permanently rejected ({e}); dropped");
                             let _ = q.ack(&[item.row_id]);
                         }
                         Err(e) => {
@@ -192,7 +248,7 @@ struct Client {
 }
 
 impl Client {
-    async fn connect() -> anyhow::Result<Self> {
+    async fn connect(extra_grants: &[&str]) -> anyhow::Result<Self> {
         let http = reqwest::Client::new();
         let base = api_base();
         let session: DevSession = http
@@ -230,6 +286,18 @@ impl Client {
         )
         .await
         .ok(); // duplicate = already granted
+        for grant in extra_grants {
+            c.post(
+                "/v1/consents",
+                &serde_json::json!({
+                    "grant_id": grant,
+                    "source_id": SOURCE,
+                    "expires_at_ms": now_ms() + 86_400_000,
+                }),
+            )
+            .await
+            .ok();
+        }
         Ok(c)
     }
 
@@ -456,6 +524,43 @@ async fn main() -> anyhow::Result<()> {
     );
     let excluded = excluded_processes();
 
+    // Pixel observation: opt-in source under its own grant. `wgc` needs
+    // the feature compiled in; `synthetic` works anywhere (dev E2E).
+    let mut vision_source: Option<Box<dyn FrameSource>> = if vision_enabled() {
+        let name = vision_source_name();
+        let src = make_source(&name);
+        if src.is_none() {
+            tracing::warn!(source = %name, "vision source unavailable — disabled (build with --features wgc or use 'synthetic')");
+        } else {
+            tracing::info!(source = %name, interval_ms = vision_ms(), "vision enabled");
+        }
+        src
+    } else {
+        None
+    };
+    let extra_grants: Vec<&str> = if vision_source.is_some() {
+        vec![VISION_GRANT]
+    } else {
+        vec![]
+    };
+    #[cfg(all(windows, feature = "wgc"))]
+    let ocr_engine: Option<wgc::WinOcr> = if vision_source.is_some() && ocr_enabled() {
+        match wgc::WinOcr::new() {
+            Ok(e) => {
+                tracing::info!("on-device OCR enabled (flagged frames only)");
+                Some(e)
+            }
+            Err(e) => {
+                tracing::warn!("ocr init failed ({e}); disabled");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let mut last_vision_scan = Instant::now() - Duration::from_millis(vision_ms());
+    let mut last_vision_key: Option<String> = None;
+
     // Bounded offline outbox: API-down events are retried, never silently
     // dropped. Encrypted durable store when configured, else in-memory.
     let mut outbox = Outbox::open();
@@ -466,7 +571,7 @@ async fn main() -> anyhow::Result<()> {
     loop {
         // Ensure a live session — reconnect with exponential backoff.
         if client.is_none() {
-            match Client::connect().await {
+            match Client::connect(&extra_grants).await {
                 Ok(c) => {
                     tracing::info!("connected to {}", api_base());
                     client = Some(c);
@@ -509,6 +614,9 @@ async fn main() -> anyhow::Result<()> {
                         });
                         match client.as_ref().unwrap().post("/v1/events", &body).await {
                             Ok(()) => tracing::info!(?signals, %process, %class, "emitted"),
+                            Err(e) if Outbox::permanent(&e) => {
+                                tracing::error!("event permanently rejected ({e}); dropped");
+                            }
                             Err(e) => {
                                 tracing::warn!(
                                     "ingest failed ({e}); queued ({}/{})",
@@ -520,6 +628,111 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // Pixel pass — opt-in, own cadence, own consent grant. The frame
+        // is consumed in-process and discarded; only enums + digest may
+        // ever cross to the API (ADR-0014/0020).
+        if let Some(src) = vision_source.as_mut() {
+            if last_vision_scan.elapsed() >= Duration::from_millis(vision_ms()) {
+                last_vision_scan = Instant::now();
+                match src.capture() {
+                    Ok(Some(frame)) => {
+                        tracing::debug!(w = frame.width, h = frame.height, "frame captured");
+                        if let Some((signals0, flagged, digest)) = analyze_frame(&frame) {
+                            // Mutated only when the wgc+OCR merge below is
+                            // compiled in — the allow keeps non-wgc builds
+                            // warning-free without a second binding.
+                            #[allow(unused_mut)]
+                            let mut signals = signals0;
+                            // Region list is consumed only by the wgc+OCR
+                            // path; the allow keeps default builds
+                            // warning-free like `signals` above.
+                            #[allow(unused_variables)]
+                            let flagged_regions = &flagged;
+                            // OCR gate (ADR-0019): on-device OCR runs ONLY
+                            // on the flagged regions of an already-flagged
+                            // frame — never a whole-screen text vacuum.
+                            #[cfg(all(windows, feature = "wgc"))]
+                            if !signals.is_empty() {
+                                if let Some(ocr) = ocr_engine.as_ref() {
+                                    for &region in flagged_regions.iter() {
+                                        match ocr.recognize_region(&frame, region) {
+                                            Ok(text) => {
+                                                let out =
+                                                    sovir_edge_extract::ocr::extract_from_ocr(&[
+                                                        sovir_edge_extract::ocr::OcrRegion {
+                                                            text: &text,
+                                                            region,
+                                                        },
+                                                    ]);
+                                                for s in out.signals {
+                                                    if !signals.contains(&s.signal) {
+                                                        signals.push(s.signal);
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!("ocr failed ({e}); region skipped")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if !signals.is_empty() {
+                                // Contract bound (MAX_EVENT_SIGNALS): when
+                                // OCR+vision together overflow the event,
+                                // keep the highest-evidence signals — the
+                                // domain ranking decides, not emit order.
+                                signals.sort_by_key(|s| sovir_domain::risk_signal_priority(*s));
+                                signals.truncate(sovir_domain::MAX_EVENT_SIGNALS);
+                                let labels: Vec<&str> = signals
+                                    .iter()
+                                    .map(|s| sovir_domain::risk_signal_label(*s))
+                                    .collect();
+                                // Dedupe binds frame digest + emitted set —
+                                // an OCR-enriched set must not be eaten by
+                                // the pixel-only twin of the same frame.
+                                let key = format!("{digest}|{}", labels.join(","));
+                                if last_vision_key.as_deref() != Some(key.as_str()) {
+                                    last_vision_key = Some(key);
+                                    let body = serde_json::json!({
+                                        "event_id": format!("win-{}", short_id()),
+                                        "source_id": SOURCE,
+                                        "observed_at_ms": now_ms(),
+                                        "modality": "IMAGE_REGION",
+                                        "content_digest": digest,
+                                        "consent_grant_id": VISION_GRANT,
+                                        "sensitive_data_class": "PUBLIC",
+                                        "signals": labels,
+                                    });
+                                    match client.as_ref().unwrap().post("/v1/events", &body).await {
+                                        Ok(()) => {
+                                            tracing::info!(
+                                                ?labels,
+                                                modality = "IMAGE_REGION",
+                                                "emitted"
+                                            )
+                                        }
+                                        Err(e) if Outbox::permanent(&e) => {
+                                            tracing::error!(
+                                                "vision event permanently rejected ({e}); dropped"
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!("vision ingest failed ({e}); queued");
+                                            outbox.push(queue_max(), body);
+                                            client = None;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => tracing::warn!("vision capture failed ({e}); skipped"),
                 }
             }
         }
