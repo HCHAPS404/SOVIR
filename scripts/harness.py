@@ -62,8 +62,30 @@ def evaluate():
             return 1
         seen.add(case['id'])
     print(f'PASS: {len(cases)} synthetic scenario definitions validated')
-    print('NOT_IMPLEMENTED: no model was run; no accuracy, precision or recall is claimed')
-    return 0
+    # Real model evals now exist as Rust tests. When cargo is present we
+    # run them and surface their metrics; when it is not we stay honest
+    # instead of pretending the corpus alone is an eval.
+    if not shutil.which('cargo'):
+        print('NOT_IMPLEMENTED: cargo unavailable — Rust model evals not run')
+        return 0
+    evals = (
+        ('sovir-domain', 'eval_corpus_reports_agreement_metrics', 'policy-pack agreement'),
+        ('sovir-adapters', 'heuristic_eval_corpus_reports_metrics', 'local heuristic inference'),
+    )
+    failed = False
+    for crate, test, label in evals:
+        print(f'--- {label} (cargo test -p {crate} {test}) ---')
+        out = subprocess.run(
+            ['cargo', 'test', '-p', crate, test, '--', '--nocapture'],
+            cwd=ROOT, check=False, capture_output=True, text=True,
+        )
+        for line in (out.stdout + out.stderr).splitlines():
+            if 'eval' in line or 'agreement' in line or 'recall' in line or 'latency' in line:
+                print('   ', line.strip())
+        if out.returncode != 0:
+            print(f'FAIL: {label} eval failed')
+            failed = True
+    return 1 if failed else 0
 
 
 def benchmark():
