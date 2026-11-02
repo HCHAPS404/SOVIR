@@ -129,6 +129,24 @@
       "decision": "warn"
     },
     {
+      "name": "offplatform_lure",
+      "clauses": [
+        ["OFF_PLATFORM_MOVE"],
+        ["PAYMENT_REQUEST", "URGENT_ACTION", "CREDENTIAL_REQUEST", "BULK_BUYER_LURE"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
+      "name": "bulk_buyer_lure",
+      "clauses": [
+        ["BULK_BUYER_LURE"],
+        ["URGENT_ACTION", "PAYMENT_REQUEST", "OFF_PLATFORM_MOVE"]
+      ],
+      "risk_level": "high",
+      "decision": "warn"
+    },
+    {
       "name": "sensitive_or_manipulative",
       "clauses": [
         [
@@ -151,7 +169,9 @@
           "JOB_SCAM_OFFER",
           "ROMANCE_BAIT",
           "MIRACLE_CURE_CLAIM",
-          "DATA_HARVESTING"
+          "DATA_HARVESTING",
+          "OFF_PLATFORM_MOVE",
+          "BULK_BUYER_LURE"
         ]
       ],
       "risk_level": "elevated",

@@ -1173,6 +1173,31 @@ impl HeuristicLocalInferenceGateway {
                 (sovir_domain::RiskSignal::CredentialRequest, 1000),
             ],
         },
+        // "Escríbeme por WhatsApp" fused with any money/credential ask or
+        // a bulk-buyer lure — the marketplace off-platform shakedown.
+        WeightedHypothesis {
+            label: "offplatform_lure",
+            threshold: 6000,
+            weights: &[
+                (sovir_domain::RiskSignal::OffPlatformMove, 3500),
+                (sovir_domain::RiskSignal::BulkBuyerLure, 3000),
+                (sovir_domain::RiskSignal::PaymentRequest, 3000),
+                (sovir_domain::RiskSignal::CredentialRequest, 2500),
+                (sovir_domain::RiskSignal::UrgentAction, 2500),
+            ],
+        },
+        // Bulk-buyer pitch fused with off-platform move, urgency or a
+        // payment ask — fencing / advance-fee marketplace lure.
+        WeightedHypothesis {
+            label: "bulk_buyer_lure",
+            threshold: 6000,
+            weights: &[
+                (sovir_domain::RiskSignal::BulkBuyerLure, 3500),
+                (sovir_domain::RiskSignal::OffPlatformMove, 3000),
+                (sovir_domain::RiskSignal::PaymentRequest, 2500),
+                (sovir_domain::RiskSignal::UrgentAction, 1500),
+            ],
+        },
         WeightedHypothesis {
             label: "payment_fraud_attempt",
             threshold: 7000,

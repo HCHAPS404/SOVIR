@@ -356,3 +356,48 @@ test("word-boundary: 'unlocked' must not match 'locked'", () => {
   const { doc: d, loc } = doc("<p>Your account is now unlocked and active.</p>");
   assert.ok(!extract(d, loc).includes("URGENT_ACTION"));
 });
+
+// --- Marketplace off-platform + bulk-buyer lures + wide selectors (v0.5) ---
+
+test("whatsapp move in a div (FB-style DOM) → OFF_PLATFORM_MOVE", () => {
+  const { doc: d, loc } = doc("<div>Escríbeme por whatsapp para coordinar</div>");
+  assert.ok(extract(d, loc).includes("OFF_PLATFORM_MOVE"));
+});
+
+test("hidden contact info in a span → OFF_PLATFORM_MOVE", () => {
+  const { doc: d, loc } = doc("<span>Teléfono: [hidden information]</span>");
+  assert.ok(extract(d, loc).includes("OFF_PLATFORM_MOVE"));
+});
+
+test("ZH off-platform move → OFF_PLATFORM_MOVE", () => {
+  const { doc: d, loc } = doc("<div>请加微信联系</div>");
+  assert.ok(extract(d, loc).includes("OFF_PLATFORM_MOVE"));
+});
+
+test("ES bulk-buyer lure → BULK_BUYER_LURE", () => {
+  const { doc: d, loc } = doc(
+    "<div>Compra inmediata pago de contado — te compramos toda clase de motos</div>",
+  );
+  assert.ok(extract(d, loc).includes("BULK_BUYER_LURE"));
+});
+
+test("JA bulk-buyer lure → BULK_BUYER_LURE", () => {
+  const { doc: d, loc } = doc("<div>何でも即金買取します</div>");
+  assert.ok(extract(d, loc).includes("BULK_BUYER_LURE"));
+});
+
+test("ordinary marketplace copy → neither lure", () => {
+  const { doc: d, loc } = doc(
+    "<div>Vendo bicicleta en buen estado, precio negociable</div>",
+  );
+  const s = extract(d, loc);
+  assert.ok(!s.includes("OFF_PLATFORM_MOVE"));
+  assert.ok(!s.includes("BULK_BUYER_LURE"));
+});
+
+test("span inside feed markup is now scanned (selector widening)", () => {
+  const { doc: d, loc } = doc(
+    "<article><div><span><span>Solo quedan 2 unidades</span></span></div></article>",
+  );
+  assert.ok(extract(d, loc).includes("SCARCITY_PRESSURE"));
+});

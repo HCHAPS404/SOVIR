@@ -2,61 +2,765 @@
   "corpus_version": "inference-heuristic-dev-2",
   "description": "Labeled synthetic cases for HeuristicLocalInferenceGateway v0.2 (Private mode, weighted evidence). expect_hypotheses is the FULL hypothesis set the weighted table should produce — recall is gated at 100%, precision is reported per case. Includes ambiguous, adversarial, near-threshold and governance-boundary combinations. Labels are eval expectations, not ground truth.",
   "cases": [
-    {"name": "classic_credential_phish", "signals": ["CREDENTIAL_REQUEST", "IDENTITY_UNVERIFIED"], "expect_hypotheses": ["credential_phishing", "credential_request_unverified", "identity_unverified"], "class": "clear_positive"},
-    {"name": "payment_fraud_pressure", "signals": ["PAYMENT_REQUEST", "URGENT_ACTION"], "expect_hypotheses": ["payment_fraud_attempt", "payment_request_unverified", "urgency_pressure"], "class": "clear_positive"},
-    {"name": "full_scam_stack", "signals": ["CREDENTIAL_REQUEST", "PAYMENT_REQUEST", "URGENT_ACTION", "IDENTITY_UNVERIFIED"], "expect_hypotheses": ["credential_phishing", "payment_fraud_attempt", "credential_request_unverified", "payment_request_unverified", "identity_unverified", "urgency_pressure"], "class": "clear_positive"},
-    {"name": "dark_pattern_consent", "signals": ["CONSENT_DARK_PATTERN"], "expect_hypotheses": ["manipulative_pattern"], "class": "clear_positive"},
-    {"name": "hidden_fee", "signals": ["HIDDEN_FEE_PATTERN"], "expect_hypotheses": ["manipulative_pattern"], "class": "clear_positive"},
-    {"name": "lone_credential_prompt", "signals": ["CREDENTIAL_REQUEST"], "expect_hypotheses": ["credential_request_unverified"], "class": "ambiguous"},
-    {"name": "lone_payment_prompt", "signals": ["PAYMENT_REQUEST"], "expect_hypotheses": ["payment_request_unverified"], "class": "ambiguous"},
-    {"name": "tracking_only", "signals": ["TRACKING_OBSERVED"], "expect_hypotheses": ["privacy_tracking_exposure"], "class": "clear_positive"},
-    {"name": "lone_urgency", "signals": ["URGENT_ACTION"], "expect_hypotheses": ["urgency_pressure"], "class": "ambiguous"},
-    {"name": "lone_unverified", "signals": ["IDENTITY_UNVERIFIED"], "expect_hypotheses": ["identity_unverified"], "class": "ambiguous"},
-    {"name": "empty_benign", "signals": [], "expect_hypotheses": ["no_pattern_detected"], "class": "benign"},
-    {"name": "benign_tracking_with_urgency", "signals": ["TRACKING_OBSERVED", "URGENT_ACTION"], "expect_hypotheses": ["privacy_tracking_exposure", "urgency_pressure"], "class": "ambiguous"},
-    {"name": "exposure_limit_user_set", "signals": ["USER_DEFINED_EXPOSURE_LIMIT"], "expect_hypotheses": ["no_pattern_detected"], "class": "benign", "note": "user-imposed limit is governance, not a threat pattern"},
-    {"name": "adversarial_everything", "signals": ["CREDENTIAL_REQUEST", "PAYMENT_REQUEST", "URGENT_ACTION", "IDENTITY_UNVERIFIED", "TRACKING_OBSERVED", "HIDDEN_FEE_PATTERN", "CONSENT_DARK_PATTERN", "USER_DEFINED_EXPOSURE_LIMIT"], "expect_hypotheses": ["credential_phishing", "payment_fraud_attempt", "manipulative_pattern", "credential_request_unverified", "payment_request_unverified", "privacy_tracking_exposure", "identity_unverified", "urgency_pressure"], "class": "adversarial"},
-    {"name": "cred_plus_urgency_no_identity", "signals": ["CREDENTIAL_REQUEST", "URGENT_ACTION"], "expect_hypotheses": ["credential_request_unverified", "urgency_pressure"], "class": "ambiguous", "note": "phishing rule needs IDENTITY_UNVERIFIED; without it the weaker hypotheses apply"},
-    {"name": "payment_plus_identity_no_urgency", "signals": ["PAYMENT_REQUEST", "IDENTITY_UNVERIFIED"], "expect_hypotheses": ["payment_request_unverified", "identity_unverified"], "class": "ambiguous"},
-    {"name": "dup_style_signal_set", "signals": ["URGENT_ACTION", "URGENT_ACTION"], "expect_hypotheses": ["urgency_pressure"], "class": "adversarial", "note": "repeated enum — dedup behavior under malformed-ish input"},
-    {"name": "consent_plus_tracking", "signals": ["CONSENT_DARK_PATTERN", "TRACKING_OBSERVED"], "expect_hypotheses": ["manipulative_pattern", "privacy_tracking_exposure"], "class": "clear_positive"},
-    {"name": "near_threshold_cred_pay_urgent", "signals": ["CREDENTIAL_REQUEST", "PAYMENT_REQUEST", "URGENT_ACTION"], "expect_hypotheses": ["payment_fraud_attempt", "credential_request_unverified", "payment_request_unverified", "urgency_pressure"], "class": "adversarial", "note": "full pressure stack WITHOUT unverified identity — phishing must NOT fire (6500 < 7000)"},
-    {"name": "near_threshold_pay_fee", "signals": ["PAYMENT_REQUEST", "HIDDEN_FEE_PATTERN"], "expect_hypotheses": ["manipulative_pattern", "payment_request_unverified"], "class": "adversarial", "note": "fraud 5000+1500=6500 < 7000 — fee alone fires the weaker pattern"},
-    {"name": "identity_noise_only", "signals": ["IDENTITY_UNVERIFIED", "URGENT_ACTION", "TRACKING_OBSERVED"], "expect_hypotheses": ["identity_unverified", "urgency_pressure", "privacy_tracking_exposure"], "class": "adversarial", "note": "three corroborating signals, no anchor pair — only weak hypotheses"},
-    {"name": "governance_no_suppress", "signals": ["USER_DEFINED_EXPOSURE_LIMIT", "CREDENTIAL_REQUEST"], "expect_hypotheses": ["credential_request_unverified"], "class": "adversarial", "note": "governance signal adds no weight and must not suppress threat evidence"},
-    {"name": "dup_triple_phish", "signals": ["CREDENTIAL_REQUEST", "CREDENTIAL_REQUEST", "IDENTITY_UNVERIFIED", "IDENTITY_UNVERIFIED"], "expect_hypotheses": ["credential_phishing", "credential_request_unverified", "identity_unverified"], "class": "adversarial", "note": "dedup before scoring — repeats must not inflate evidence"},
-    {"name": "fee_plus_identity", "signals": ["HIDDEN_FEE_PATTERN", "IDENTITY_UNVERIFIED"], "expect_hypotheses": ["manipulative_pattern", "identity_unverified"], "class": "ambiguous", "note": "fraud 1500+1000=2500 — corroborating signals alone never reach threshold"},
-    {"name": "tracking_plus_governance", "signals": ["TRACKING_OBSERVED", "USER_DEFINED_EXPOSURE_LIMIT"], "expect_hypotheses": ["privacy_tracking_exposure"], "class": "ambiguous", "note": "exposure limit is governance, contributes nothing"},
-    {"name": "fake_link_on_abusive_domain_with_cred", "signals": ["LINK_DESTINATION_MISMATCH", "SUSPICIOUS_DOMAIN", "CREDENTIAL_REQUEST"], "expect_hypotheses": ["credential_phishing", "link_spoofing", "credential_request_unverified"], "class": "clear_positive", "note": "spoofed link + abusive TLD + credential ask — full phish shape"},
-    {"name": "suspicious_domain_plus_cred", "signals": ["SUSPICIOUS_DOMAIN", "CREDENTIAL_REQUEST"], "expect_hypotheses": ["link_spoofing", "credential_request_unverified"], "class": "clear_positive", "note": ".tk-style host serving a login — spoofing fires, phishing stays below its 7000 bar (6500)"},
-    {"name": "link_mismatch_alone", "signals": ["LINK_DESTINATION_MISMATCH"], "expect_hypotheses": ["no_pattern_detected"], "class": "ambiguous", "note": "deceptive link alone stays a silent hint — needs corroboration"},
-    {"name": "suspicious_domain_alone", "signals": ["SUSPICIOUS_DOMAIN"], "expect_hypotheses": ["no_pattern_detected"], "class": "ambiguous", "note": "sketchy TLD alone never convicts"},
-    {"name": "sextortion_demand", "signals": ["EXTORTION_LANGUAGE", "PAYMENT_REQUEST"], "expect_hypotheses": ["extortion_attempt", "payment_request_unverified"], "class": "clear_positive"},
-    {"name": "extortion_with_urgency_no_pay", "signals": ["EXTORTION_LANGUAGE", "URGENT_ACTION"], "expect_hypotheses": ["extortion_attempt", "urgency_pressure"], "class": "clear_positive", "note": "threat + deadline pressure fires at exactly 7000"},
-    {"name": "extortion_alone_silent", "signals": ["EXTORTION_LANGUAGE"], "expect_hypotheses": ["no_pattern_detected"], "class": "ambiguous", "note": "threat language without a demand stays a hint"},
-    {"name": "scareware_plus_urgency", "signals": ["SCAREWARE_CLAIM", "URGENT_ACTION"], "expect_hypotheses": ["scareware_lure", "urgency_pressure"], "class": "clear_positive"},
-    {"name": "scareware_plus_payment", "signals": ["SCAREWARE_CLAIM", "PAYMENT_REQUEST"], "expect_hypotheses": ["scareware_lure", "payment_request_unverified"], "class": "clear_positive"},
-    {"name": "scareware_alone_silent", "signals": ["SCAREWARE_CLAIM"], "expect_hypotheses": ["no_pattern_detected"], "class": "ambiguous", "note": "infection claim without an action hook is noise, not a lure"},
-    {"name": "adversarial_new_signals_no_anchors", "signals": ["LINK_DESTINATION_MISMATCH", "SUSPICIOUS_DOMAIN", "EXTORTION_LANGUAGE", "SCAREWARE_CLAIM"], "expect_hypotheses": ["link_spoofing"], "class": "adversarial", "note": "link_spoofing 5500+5000 fires; extortion 5000<7000 and scareware 4500<6000 stay silent without a demand/action hook — deception anchors alone do not graduate every row"},
-    {"name": "seed_phrase_alone_convicts", "signals": ["SEED_PHRASE_REQUEST"], "expect_hypotheses": ["seed_phrase_theft"], "class": "clear_positive", "note": "a seed-phrase ask is damning alone — no legit page requests it"},
-    {"name": "prize_plus_payment", "signals": ["PRIZE_LOTTERY_CLAIM", "PAYMENT_REQUEST"], "expect_hypotheses": ["prize_advance_fee", "payment_request_unverified"], "class": "clear_positive"},
-    {"name": "prize_alone_silent", "signals": ["PRIZE_LOTTERY_CLAIM"], "expect_hypotheses": ["no_pattern_detected"], "class": "ambiguous", "note": "4500 < 6500 — a prize claim without an ask stays a hint"},
-    {"name": "giftcard_plus_authority", "signals": ["GIFT_CARD_PAYMENT", "AUTHORITY_IMPERSONATION"], "expect_hypotheses": ["gift_card_shakedown", "authority_coercion"], "class": "clear_positive", "note": "gift card demanded under fake authority fires both rows — honest overlap"},
-    {"name": "authority_plus_urgency", "signals": ["AUTHORITY_IMPERSONATION", "URGENT_ACTION"], "expect_hypotheses": ["authority_coercion", "urgency_pressure"], "class": "clear_positive"},
-    {"name": "giftcard_plus_urgency_only", "signals": ["GIFT_CARD_PAYMENT", "URGENT_ACTION"], "expect_hypotheses": ["gift_card_shakedown", "urgency_pressure"], "class": "clear_positive", "note": "4500+2500=7000 exactly at threshold"},
-    {"name": "investment_plus_payment", "signals": ["INVESTMENT_PROMISE", "PAYMENT_REQUEST"], "expect_hypotheses": ["guaranteed_investment", "payment_request_unverified"], "class": "clear_positive"},
-    {"name": "investment_alone_silent", "signals": ["INVESTMENT_PROMISE"], "expect_hypotheses": ["no_pattern_detected"], "class": "ambiguous"},
-    {"name": "romance_plus_payment", "signals": ["ROMANCE_BAIT", "PAYMENT_REQUEST"], "expect_hypotheses": ["romance_money_bait", "payment_request_unverified"], "class": "clear_positive"},
-    {"name": "romance_alone_silent", "signals": ["ROMANCE_BAIT"], "expect_hypotheses": ["no_pattern_detected"], "class": "ambiguous", "note": "love-and-money text without a payment demand stays a hint"},
-    {"name": "job_plus_credential", "signals": ["JOB_SCAM_OFFER", "CREDENTIAL_REQUEST"], "expect_hypotheses": ["job_fee_bait", "credential_request_unverified"], "class": "clear_positive", "note": "4000+2500=6500 exactly at threshold"},
-    {"name": "job_alone_silent", "signals": ["JOB_SCAM_OFFER"], "expect_hypotheses": ["no_pattern_detected"], "class": "ambiguous"},
-    {"name": "harvest_plus_suspicious", "signals": ["DATA_HARVESTING", "SUSPICIOUS_DOMAIN"], "expect_hypotheses": ["data_harvesting"], "class": "clear_positive"},
-    {"name": "harvest_alone_silent", "signals": ["DATA_HARVESTING"], "expect_hypotheses": ["no_pattern_detected"], "class": "ambiguous", "note": "over-broad form alone needs a deceptive surface to convict"},
-    {"name": "customs_plus_payment", "signals": ["DELIVERY_CUSTOMS_FEE", "PAYMENT_REQUEST"], "expect_hypotheses": ["customs_fee_phish", "payment_request_unverified"], "class": "clear_positive"},
-    {"name": "customs_alone_silent", "signals": ["DELIVERY_CUSTOMS_FEE"], "expect_hypotheses": ["no_pattern_detected"], "class": "ambiguous"},
-    {"name": "miracle_plus_urgency", "signals": ["MIRACLE_CURE_CLAIM", "URGENT_ACTION"], "expect_hypotheses": ["health_fraud_pitch", "urgency_pressure"], "class": "clear_positive"},
-    {"name": "scarcity_plus_dark_pattern", "signals": ["SCARCITY_PRESSURE", "CONSENT_DARK_PATTERN"], "expect_hypotheses": ["manipulative_pattern"], "class": "clear_positive", "note": "scarcity helper (1500) corroborates the dark-pattern anchor"},
-    {"name": "scareware_plus_authority", "signals": ["SCAREWARE_CLAIM", "AUTHORITY_IMPERSONATION"], "expect_hypotheses": ["scareware_lure"], "class": "clear_positive", "note": "fake-MS-support shape: infection scare + claimed authority = 4500+2000=6500"},
-    {"name": "adversarial_hook_stack_no_demand", "signals": ["PRIZE_LOTTERY_CLAIM", "INVESTMENT_PROMISE", "SCARCITY_PRESSURE", "AUTHORITY_IMPERSONATION", "JOB_SCAM_OFFER", "MIRACLE_CURE_CLAIM", "ROMANCE_BAIT", "DELIVERY_CUSTOMS_FEE"], "expect_hypotheses": ["prize_advance_fee"], "class": "adversarial", "note": "eight hooks, no payment/credential demand: only prize_advance_fee fires (prize 4500 + customs 2000 = 6500 — genuinely the claim-fee shape); authority 4000, customs 6000, romance 5000 all stay below their bars"}
+    {
+      "name": "classic_credential_phish",
+      "signals": [
+        "CREDENTIAL_REQUEST",
+        "IDENTITY_UNVERIFIED"
+      ],
+      "expect_hypotheses": [
+        "credential_phishing",
+        "credential_request_unverified",
+        "identity_unverified"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "payment_fraud_pressure",
+      "signals": [
+        "PAYMENT_REQUEST",
+        "URGENT_ACTION"
+      ],
+      "expect_hypotheses": [
+        "payment_fraud_attempt",
+        "payment_request_unverified",
+        "urgency_pressure"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "full_scam_stack",
+      "signals": [
+        "CREDENTIAL_REQUEST",
+        "PAYMENT_REQUEST",
+        "URGENT_ACTION",
+        "IDENTITY_UNVERIFIED"
+      ],
+      "expect_hypotheses": [
+        "credential_phishing",
+        "payment_fraud_attempt",
+        "credential_request_unverified",
+        "payment_request_unverified",
+        "identity_unverified",
+        "urgency_pressure"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "dark_pattern_consent",
+      "signals": [
+        "CONSENT_DARK_PATTERN"
+      ],
+      "expect_hypotheses": [
+        "manipulative_pattern"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "hidden_fee",
+      "signals": [
+        "HIDDEN_FEE_PATTERN"
+      ],
+      "expect_hypotheses": [
+        "manipulative_pattern"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "lone_credential_prompt",
+      "signals": [
+        "CREDENTIAL_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "credential_request_unverified"
+      ],
+      "class": "ambiguous"
+    },
+    {
+      "name": "lone_payment_prompt",
+      "signals": [
+        "PAYMENT_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "payment_request_unverified"
+      ],
+      "class": "ambiguous"
+    },
+    {
+      "name": "tracking_only",
+      "signals": [
+        "TRACKING_OBSERVED"
+      ],
+      "expect_hypotheses": [
+        "privacy_tracking_exposure"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "lone_urgency",
+      "signals": [
+        "URGENT_ACTION"
+      ],
+      "expect_hypotheses": [
+        "urgency_pressure"
+      ],
+      "class": "ambiguous"
+    },
+    {
+      "name": "lone_unverified",
+      "signals": [
+        "IDENTITY_UNVERIFIED"
+      ],
+      "expect_hypotheses": [
+        "identity_unverified"
+      ],
+      "class": "ambiguous"
+    },
+    {
+      "name": "empty_benign",
+      "signals": [],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "benign"
+    },
+    {
+      "name": "benign_tracking_with_urgency",
+      "signals": [
+        "TRACKING_OBSERVED",
+        "URGENT_ACTION"
+      ],
+      "expect_hypotheses": [
+        "privacy_tracking_exposure",
+        "urgency_pressure"
+      ],
+      "class": "ambiguous"
+    },
+    {
+      "name": "exposure_limit_user_set",
+      "signals": [
+        "USER_DEFINED_EXPOSURE_LIMIT"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "benign",
+      "note": "user-imposed limit is governance, not a threat pattern"
+    },
+    {
+      "name": "adversarial_everything",
+      "signals": [
+        "CREDENTIAL_REQUEST",
+        "PAYMENT_REQUEST",
+        "URGENT_ACTION",
+        "IDENTITY_UNVERIFIED",
+        "TRACKING_OBSERVED",
+        "HIDDEN_FEE_PATTERN",
+        "CONSENT_DARK_PATTERN",
+        "USER_DEFINED_EXPOSURE_LIMIT"
+      ],
+      "expect_hypotheses": [
+        "credential_phishing",
+        "payment_fraud_attempt",
+        "manipulative_pattern",
+        "credential_request_unverified",
+        "payment_request_unverified",
+        "privacy_tracking_exposure",
+        "identity_unverified",
+        "urgency_pressure"
+      ],
+      "class": "adversarial"
+    },
+    {
+      "name": "cred_plus_urgency_no_identity",
+      "signals": [
+        "CREDENTIAL_REQUEST",
+        "URGENT_ACTION"
+      ],
+      "expect_hypotheses": [
+        "credential_request_unverified",
+        "urgency_pressure"
+      ],
+      "class": "ambiguous",
+      "note": "phishing rule needs IDENTITY_UNVERIFIED; without it the weaker hypotheses apply"
+    },
+    {
+      "name": "payment_plus_identity_no_urgency",
+      "signals": [
+        "PAYMENT_REQUEST",
+        "IDENTITY_UNVERIFIED"
+      ],
+      "expect_hypotheses": [
+        "payment_request_unverified",
+        "identity_unverified"
+      ],
+      "class": "ambiguous"
+    },
+    {
+      "name": "dup_style_signal_set",
+      "signals": [
+        "URGENT_ACTION",
+        "URGENT_ACTION"
+      ],
+      "expect_hypotheses": [
+        "urgency_pressure"
+      ],
+      "class": "adversarial",
+      "note": "repeated enum — dedup behavior under malformed-ish input"
+    },
+    {
+      "name": "consent_plus_tracking",
+      "signals": [
+        "CONSENT_DARK_PATTERN",
+        "TRACKING_OBSERVED"
+      ],
+      "expect_hypotheses": [
+        "manipulative_pattern",
+        "privacy_tracking_exposure"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "near_threshold_cred_pay_urgent",
+      "signals": [
+        "CREDENTIAL_REQUEST",
+        "PAYMENT_REQUEST",
+        "URGENT_ACTION"
+      ],
+      "expect_hypotheses": [
+        "payment_fraud_attempt",
+        "credential_request_unverified",
+        "payment_request_unverified",
+        "urgency_pressure"
+      ],
+      "class": "adversarial",
+      "note": "full pressure stack WITHOUT unverified identity — phishing must NOT fire (6500 < 7000)"
+    },
+    {
+      "name": "near_threshold_pay_fee",
+      "signals": [
+        "PAYMENT_REQUEST",
+        "HIDDEN_FEE_PATTERN"
+      ],
+      "expect_hypotheses": [
+        "manipulative_pattern",
+        "payment_request_unverified"
+      ],
+      "class": "adversarial",
+      "note": "fraud 5000+1500=6500 < 7000 — fee alone fires the weaker pattern"
+    },
+    {
+      "name": "identity_noise_only",
+      "signals": [
+        "IDENTITY_UNVERIFIED",
+        "URGENT_ACTION",
+        "TRACKING_OBSERVED"
+      ],
+      "expect_hypotheses": [
+        "identity_unverified",
+        "urgency_pressure",
+        "privacy_tracking_exposure"
+      ],
+      "class": "adversarial",
+      "note": "three corroborating signals, no anchor pair — only weak hypotheses"
+    },
+    {
+      "name": "governance_no_suppress",
+      "signals": [
+        "USER_DEFINED_EXPOSURE_LIMIT",
+        "CREDENTIAL_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "credential_request_unverified"
+      ],
+      "class": "adversarial",
+      "note": "governance signal adds no weight and must not suppress threat evidence"
+    },
+    {
+      "name": "dup_triple_phish",
+      "signals": [
+        "CREDENTIAL_REQUEST",
+        "CREDENTIAL_REQUEST",
+        "IDENTITY_UNVERIFIED",
+        "IDENTITY_UNVERIFIED"
+      ],
+      "expect_hypotheses": [
+        "credential_phishing",
+        "credential_request_unverified",
+        "identity_unverified"
+      ],
+      "class": "adversarial",
+      "note": "dedup before scoring — repeats must not inflate evidence"
+    },
+    {
+      "name": "fee_plus_identity",
+      "signals": [
+        "HIDDEN_FEE_PATTERN",
+        "IDENTITY_UNVERIFIED"
+      ],
+      "expect_hypotheses": [
+        "manipulative_pattern",
+        "identity_unverified"
+      ],
+      "class": "ambiguous",
+      "note": "fraud 1500+1000=2500 — corroborating signals alone never reach threshold"
+    },
+    {
+      "name": "tracking_plus_governance",
+      "signals": [
+        "TRACKING_OBSERVED",
+        "USER_DEFINED_EXPOSURE_LIMIT"
+      ],
+      "expect_hypotheses": [
+        "privacy_tracking_exposure"
+      ],
+      "class": "ambiguous",
+      "note": "exposure limit is governance, contributes nothing"
+    },
+    {
+      "name": "fake_link_on_abusive_domain_with_cred",
+      "signals": [
+        "LINK_DESTINATION_MISMATCH",
+        "SUSPICIOUS_DOMAIN",
+        "CREDENTIAL_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "credential_phishing",
+        "link_spoofing",
+        "credential_request_unverified"
+      ],
+      "class": "clear_positive",
+      "note": "spoofed link + abusive TLD + credential ask — full phish shape"
+    },
+    {
+      "name": "suspicious_domain_plus_cred",
+      "signals": [
+        "SUSPICIOUS_DOMAIN",
+        "CREDENTIAL_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "link_spoofing",
+        "credential_request_unverified"
+      ],
+      "class": "clear_positive",
+      "note": ".tk-style host serving a login — spoofing fires, phishing stays below its 7000 bar (6500)"
+    },
+    {
+      "name": "link_mismatch_alone",
+      "signals": [
+        "LINK_DESTINATION_MISMATCH"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "ambiguous",
+      "note": "deceptive link alone stays a silent hint — needs corroboration"
+    },
+    {
+      "name": "suspicious_domain_alone",
+      "signals": [
+        "SUSPICIOUS_DOMAIN"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "ambiguous",
+      "note": "sketchy TLD alone never convicts"
+    },
+    {
+      "name": "sextortion_demand",
+      "signals": [
+        "EXTORTION_LANGUAGE",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "extortion_attempt",
+        "payment_request_unverified"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "extortion_with_urgency_no_pay",
+      "signals": [
+        "EXTORTION_LANGUAGE",
+        "URGENT_ACTION"
+      ],
+      "expect_hypotheses": [
+        "extortion_attempt",
+        "urgency_pressure"
+      ],
+      "class": "clear_positive",
+      "note": "threat + deadline pressure fires at exactly 7000"
+    },
+    {
+      "name": "extortion_alone_silent",
+      "signals": [
+        "EXTORTION_LANGUAGE"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "ambiguous",
+      "note": "threat language without a demand stays a hint"
+    },
+    {
+      "name": "scareware_plus_urgency",
+      "signals": [
+        "SCAREWARE_CLAIM",
+        "URGENT_ACTION"
+      ],
+      "expect_hypotheses": [
+        "scareware_lure",
+        "urgency_pressure"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "scareware_plus_payment",
+      "signals": [
+        "SCAREWARE_CLAIM",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "scareware_lure",
+        "payment_request_unverified"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "scareware_alone_silent",
+      "signals": [
+        "SCAREWARE_CLAIM"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "ambiguous",
+      "note": "infection claim without an action hook is noise, not a lure"
+    },
+    {
+      "name": "adversarial_new_signals_no_anchors",
+      "signals": [
+        "LINK_DESTINATION_MISMATCH",
+        "SUSPICIOUS_DOMAIN",
+        "EXTORTION_LANGUAGE",
+        "SCAREWARE_CLAIM"
+      ],
+      "expect_hypotheses": [
+        "link_spoofing"
+      ],
+      "class": "adversarial",
+      "note": "link_spoofing 5500+5000 fires; extortion 5000<7000 and scareware 4500<6000 stay silent without a demand/action hook — deception anchors alone do not graduate every row"
+    },
+    {
+      "name": "seed_phrase_alone_convicts",
+      "signals": [
+        "SEED_PHRASE_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "seed_phrase_theft"
+      ],
+      "class": "clear_positive",
+      "note": "a seed-phrase ask is damning alone — no legit page requests it"
+    },
+    {
+      "name": "prize_plus_payment",
+      "signals": [
+        "PRIZE_LOTTERY_CLAIM",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "prize_advance_fee",
+        "payment_request_unverified"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "prize_alone_silent",
+      "signals": [
+        "PRIZE_LOTTERY_CLAIM"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "ambiguous",
+      "note": "4500 < 6500 — a prize claim without an ask stays a hint"
+    },
+    {
+      "name": "giftcard_plus_authority",
+      "signals": [
+        "GIFT_CARD_PAYMENT",
+        "AUTHORITY_IMPERSONATION"
+      ],
+      "expect_hypotheses": [
+        "gift_card_shakedown",
+        "authority_coercion"
+      ],
+      "class": "clear_positive",
+      "note": "gift card demanded under fake authority fires both rows — honest overlap"
+    },
+    {
+      "name": "authority_plus_urgency",
+      "signals": [
+        "AUTHORITY_IMPERSONATION",
+        "URGENT_ACTION"
+      ],
+      "expect_hypotheses": [
+        "authority_coercion",
+        "urgency_pressure"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "giftcard_plus_urgency_only",
+      "signals": [
+        "GIFT_CARD_PAYMENT",
+        "URGENT_ACTION"
+      ],
+      "expect_hypotheses": [
+        "gift_card_shakedown",
+        "urgency_pressure"
+      ],
+      "class": "clear_positive",
+      "note": "4500+2500=7000 exactly at threshold"
+    },
+    {
+      "name": "investment_plus_payment",
+      "signals": [
+        "INVESTMENT_PROMISE",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "guaranteed_investment",
+        "payment_request_unverified"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "investment_alone_silent",
+      "signals": [
+        "INVESTMENT_PROMISE"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "ambiguous"
+    },
+    {
+      "name": "romance_plus_payment",
+      "signals": [
+        "ROMANCE_BAIT",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "romance_money_bait",
+        "payment_request_unverified"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "romance_alone_silent",
+      "signals": [
+        "ROMANCE_BAIT"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "ambiguous",
+      "note": "love-and-money text without a payment demand stays a hint"
+    },
+    {
+      "name": "job_plus_credential",
+      "signals": [
+        "JOB_SCAM_OFFER",
+        "CREDENTIAL_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "job_fee_bait",
+        "credential_request_unverified"
+      ],
+      "class": "clear_positive",
+      "note": "4000+2500=6500 exactly at threshold"
+    },
+    {
+      "name": "job_alone_silent",
+      "signals": [
+        "JOB_SCAM_OFFER"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "ambiguous"
+    },
+    {
+      "name": "harvest_plus_suspicious",
+      "signals": [
+        "DATA_HARVESTING",
+        "SUSPICIOUS_DOMAIN"
+      ],
+      "expect_hypotheses": [
+        "data_harvesting"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "harvest_alone_silent",
+      "signals": [
+        "DATA_HARVESTING"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "ambiguous",
+      "note": "over-broad form alone needs a deceptive surface to convict"
+    },
+    {
+      "name": "customs_plus_payment",
+      "signals": [
+        "DELIVERY_CUSTOMS_FEE",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "customs_fee_phish",
+        "payment_request_unverified"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "customs_alone_silent",
+      "signals": [
+        "DELIVERY_CUSTOMS_FEE"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "ambiguous"
+    },
+    {
+      "name": "miracle_plus_urgency",
+      "signals": [
+        "MIRACLE_CURE_CLAIM",
+        "URGENT_ACTION"
+      ],
+      "expect_hypotheses": [
+        "health_fraud_pitch",
+        "urgency_pressure"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "scarcity_plus_dark_pattern",
+      "signals": [
+        "SCARCITY_PRESSURE",
+        "CONSENT_DARK_PATTERN"
+      ],
+      "expect_hypotheses": [
+        "manipulative_pattern"
+      ],
+      "class": "clear_positive",
+      "note": "scarcity helper (1500) corroborates the dark-pattern anchor"
+    },
+    {
+      "name": "scareware_plus_authority",
+      "signals": [
+        "SCAREWARE_CLAIM",
+        "AUTHORITY_IMPERSONATION"
+      ],
+      "expect_hypotheses": [
+        "scareware_lure"
+      ],
+      "class": "clear_positive",
+      "note": "fake-MS-support shape: infection scare + claimed authority = 4500+2000=6500"
+    },
+    {
+      "name": "adversarial_hook_stack_no_demand",
+      "signals": [
+        "PRIZE_LOTTERY_CLAIM",
+        "INVESTMENT_PROMISE",
+        "SCARCITY_PRESSURE",
+        "AUTHORITY_IMPERSONATION",
+        "JOB_SCAM_OFFER",
+        "MIRACLE_CURE_CLAIM",
+        "ROMANCE_BAIT",
+        "DELIVERY_CUSTOMS_FEE"
+      ],
+      "expect_hypotheses": [
+        "prize_advance_fee"
+      ],
+      "class": "adversarial",
+      "note": "eight hooks, no payment/credential demand: only prize_advance_fee fires (prize 4500 + customs 2000 = 6500 — genuinely the claim-fee shape); authority 4000, customs 6000, romance 5000 all stay below their bars"
+    },
+    {
+      "name": "fb_marketplace_shape",
+      "signals": [
+        "OFF_PLATFORM_MOVE",
+        "BULK_BUYER_LURE"
+      ],
+      "expect_hypotheses": [
+        "offplatform_lure",
+        "bulk_buyer_lure"
+      ],
+      "class": "clear_positive",
+      "note": "the real screenshot: hidden contact + 'te compramos pago de contado' fires both lures at exactly 6500/6500"
+    },
+    {
+      "name": "offplatform_plus_payment",
+      "signals": [
+        "OFF_PLATFORM_MOVE",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "offplatform_lure",
+        "payment_request_unverified"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "offplatform_plus_urgency",
+      "signals": [
+        "OFF_PLATFORM_MOVE",
+        "URGENT_ACTION"
+      ],
+      "expect_hypotheses": [
+        "offplatform_lure",
+        "urgency_pressure"
+      ],
+      "class": "clear_positive",
+      "note": "3500+2500=6000 — 'contact me now, urgently' convicts"
+    },
+    {
+      "name": "offplatform_alone_silent",
+      "signals": [
+        "OFF_PLATFORM_MOVE"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "ambiguous",
+      "note": "asking for WhatsApp alone is ordinary in LatAm marketplaces"
+    },
+    {
+      "name": "bulk_plus_payment",
+      "signals": [
+        "BULK_BUYER_LURE",
+        "PAYMENT_REQUEST"
+      ],
+      "expect_hypotheses": [
+        "bulk_buyer_lure",
+        "payment_request_unverified"
+      ],
+      "class": "clear_positive"
+    },
+    {
+      "name": "bulk_alone_silent",
+      "signals": [
+        "BULK_BUYER_LURE"
+      ],
+      "expect_hypotheses": [
+        "no_pattern_detected"
+      ],
+      "class": "ambiguous",
+      "note": "'we buy all kinds' alone is a legitimate dealer pitch"
+    }
   ]
 }

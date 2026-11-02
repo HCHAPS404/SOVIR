@@ -8,6 +8,7 @@
 
 const DEFAULT_API = "http://127.0.0.1:8787";
 const API_URL_KEY = "sovir-api-url"; // storage.local — user setting
+const PRINCIPAL_KEY = "sovir-principal"; // storage.local — console identity
 const SOURCE = "screen-observer:ext";
 const DEVICE = "ext-web";
 const GRANT = "ext-observer-grant";
@@ -18,6 +19,13 @@ const SEEN_TTL_MS = 60_000;
 async function apiBase() {
   const s = await chrome.storage.local.get(API_URL_KEY);
   return s[API_URL_KEY] ?? DEFAULT_API;
+}
+
+// The console principal this extension reports under — configurable in
+// options so observations land on the user's own account, not a demo one.
+async function principalId() {
+  const s = await chrome.storage.local.get(PRINCIPAL_KEY);
+  return s[PRINCIPAL_KEY] || "ext-demo";
 }
 
 async function api(path, { token, method = "GET", body, idem } = {}) {
@@ -69,13 +77,16 @@ async function setState(patch) {
 async function connect() {
   const session = await api("/v1/auth/dev-session", {
     method: "POST",
-    body: { principal_id: "ext-demo", device_id: DEVICE, tenant_id: "dev" },
+    body: { principal_id: await principalId(), device_id: DEVICE, tenant_id: "dev" },
   });
   const token = session.token;
+  // Stable device_id: re-registration of the same id returns 409 and is
+  // tolerated — the alternative (server-generated ids per connect) made
+  // the device list grow without bound.
   await api("/v1/devices", {
     token,
     method: "POST",
-    body: { platform: "BROWSER_EXTENSION", label: "Extensión de navegador" },
+    body: { device_id: DEVICE, platform: "BROWSER_EXTENSION", label: "Extensión de navegador" },
   }).catch((e) => {
     if (e.status !== 409) throw e;
   });

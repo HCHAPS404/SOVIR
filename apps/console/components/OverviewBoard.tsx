@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { Principal, PrincipalDataExport } from "../lib/api";
+import type { BudgetView, Principal, PrincipalDataExport } from "../lib/api";
 import {
   connectThisDeviceAction,
   dispatchInterventionsAction,
@@ -62,11 +62,13 @@ export async function OverviewBoard({
   data,
   version,
   backendDown,
+  budget,
 }: {
   me: Principal | null;
   data: PrincipalDataExport | null;
   version: { version: string; contract: string; build_sha: string } | null;
   backendDown: boolean;
+  budget: BudgetView | null;
 }) {
   const view = await getView();
   const dev = view === "dev";
@@ -136,6 +138,11 @@ export async function OverviewBoard({
             </p>
           </div>
           <div className="head-actions">
+            {budget ? (
+              <span className="chip" title="Gasto real de inferencia remota sobre el límite de tu plan">
+                Gasto: ${budget.spent_usd.toFixed(2)} / ${budget.cap_usd.toFixed(2)}
+              </span>
+            ) : null}
             <form action={emitSequencePair}>
               <button className="btn-op btn-op--primary" type="submit">
                 Hacer una prueba de estafa

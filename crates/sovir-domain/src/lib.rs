@@ -70,6 +70,12 @@ pub enum RiskSignal {
     /// Form harvesting an over-broad PII set (password plus national ID,
     /// birth data, etc.) beyond what the context justifies.
     DataHarvesting,
+    /// "Message me on WhatsApp/Telegram" or hidden contact info — moving
+    /// the conversation off-platform to evade marketplace protection.
+    OffPlatformMove,
+    /// "We buy all kinds, immediate purchase, cash payment" — bulk-buyer
+    /// lure used by fencing and advance-fee marketplace scams.
+    BulkBuyerLure,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -486,6 +492,8 @@ pub fn risk_signal_label(s: RiskSignal) -> &'static str {
         RiskSignal::RomanceBait => "ROMANCE_BAIT",
         RiskSignal::MiracleCureClaim => "MIRACLE_CURE_CLAIM",
         RiskSignal::DataHarvesting => "DATA_HARVESTING",
+        RiskSignal::OffPlatformMove => "OFF_PLATFORM_MOVE",
+        RiskSignal::BulkBuyerLure => "BULK_BUYER_LURE",
     }
 }
 /// Stable metadata label for a sensitive-data class (matches serde name).
@@ -574,6 +582,8 @@ pub fn detect_sequences(events: &[ObservedEvent]) -> Vec<SequenceFinding> {
         RiskSignal::JobScamOffer,
         RiskSignal::RomanceBait,
         RiskSignal::MiracleCureClaim,
+        RiskSignal::OffPlatformMove,
+        RiskSignal::BulkBuyerLure,
     ];
     let has = |e: &ObservedEvent, s: RiskSignal| e.signals.contains(&s);
     // First pair (earlier, later) satisfying the pattern, scanned in the
@@ -851,6 +861,37 @@ impl PolicyPack {
                     risk_level: RiskLevel::High,
                     decision: DecisionKind::Warn,
                 },
+                // Moving a money/credential conversation off-platform —
+                // "escríbeme por WhatsApp" wrapped around any ask or lure.
+                PolicyRule {
+                    name: "offplatform_lure".into(),
+                    clauses: vec![
+                        vec![RiskSignal::OffPlatformMove],
+                        vec![
+                            RiskSignal::PaymentRequest,
+                            RiskSignal::UrgentAction,
+                            RiskSignal::CredentialRequest,
+                            RiskSignal::BulkBuyerLure,
+                        ],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
+                // Bulk-buyer pitch ("we buy anything, cash now") fused with
+                // urgency, payment or an off-platform move — fencing lure.
+                PolicyRule {
+                    name: "bulk_buyer_lure".into(),
+                    clauses: vec![
+                        vec![RiskSignal::BulkBuyerLure],
+                        vec![
+                            RiskSignal::UrgentAction,
+                            RiskSignal::PaymentRequest,
+                            RiskSignal::OffPlatformMove,
+                        ],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
                 PolicyRule {
                     name: "sensitive_or_manipulative".into(),
                     clauses: vec![vec![
@@ -874,6 +915,8 @@ impl PolicyPack {
                         RiskSignal::RomanceBait,
                         RiskSignal::MiracleCureClaim,
                         RiskSignal::DataHarvesting,
+                        RiskSignal::OffPlatformMove,
+                        RiskSignal::BulkBuyerLure,
                     ]],
                     risk_level: RiskLevel::Elevated,
                     decision: DecisionKind::Review,
@@ -941,6 +984,12 @@ impl PolicyPack {
                     RiskSignal::MiracleCureClaim => "Signal: miracle-cure claim",
                     RiskSignal::DataHarvesting => {
                         "Signal: over-broad personal-data harvesting"
+                    }
+                    RiskSignal::OffPlatformMove => {
+                        "Signal: conversation moved off-platform"
+                    }
+                    RiskSignal::BulkBuyerLure => {
+                        "Signal: bulk-buyer immediate-payment lure"
                     }
                 }
                 .to_string()
@@ -1378,6 +1427,8 @@ mod tests {
             RiskSignal::RomanceBait,
             RiskSignal::MiracleCureClaim,
             RiskSignal::DataHarvesting,
+            RiskSignal::OffPlatformMove,
+            RiskSignal::BulkBuyerLure,
         ];
         for (i, a) in all.iter().enumerate() {
             for b in all.iter().skip(i) {

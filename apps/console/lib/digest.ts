@@ -28,6 +28,8 @@ const SIGNAL_LABELS: Record<string, string> = {
   ROMANCE_BAIT: "Cebo sentimental con petición de dinero",
   MIRACLE_CURE_CLAIM: "Remedios milagrosos",
   DATA_HARVESTING: "Recolección excesiva de datos",
+  OFF_PLATFORM_MOVE: "Conversación movida fuera de la plataforma",
+  BULK_BUYER_LURE: "Cebo de compra inmediata al contado",
 };
 
 export interface WeeklyDigest {

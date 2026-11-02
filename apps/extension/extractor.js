@@ -131,6 +131,26 @@
       ja: ["在宅ワーク", "在宅勤務", "家で稼げる", "未経験ok", "副業", "高収入", "簡単な仕事", "即日払い", "自宅で稼ぐ"],
       zh: ["居家办公", "在家工作", "无需经验", "兼职", "高薪日结", "轻松赚钱", "立即入职", "网上赚钱", "日入过千"],
     },
+    OFF_PLATFORM_MOVE: {
+      es: ["escríbeme por whatsapp", "escribeme por whatsapp", "contáctame por whatsapp", "contactame por whatsapp", "por whatsapp", "por telegram", "mensaje directo", "información oculta", "hidden information", "contacto oculto", "escríbeme al", "mi número es"],
+      en: ["message me on whatsapp", "whatsapp me", "text me at", "dm me", "contact me on telegram", "message me on telegram", "hidden information", "reach me at", "my number is", "hit me up on"],
+      pt: ["me chama no whatsapp", "fale comigo pelo whatsapp", "contato pelo whatsapp", "por telegram", "informação oculta", "meu número é", "me manda mensagem no whatsapp"],
+      fr: ["écris-moi sur whatsapp", "contacte-moi sur whatsapp", "par whatsapp", "par telegram", "message privé", "informations cachées", "mon numéro est"],
+      it: ["scrivimi su whatsapp", "contattami su whatsapp", "tramite whatsapp", "su telegram", "messaggio diretto", "informazioni nascoste", "il mio numero è"],
+      de: ["schreib mir auf whatsapp", "kontaktiere mich über whatsapp", "per whatsapp", "per telegram", "direktnachricht", "versteckte informationen", "meine nummer ist"],
+      ja: ["whatsappで連絡", "ラインで連絡", "lineで連絡", "テレグラムで", "直接連絡", "非公開情報", "連絡先は"],
+      zh: ["通过whatsapp联系", "微信联系", "加微信", "通过telegram联系", "私信我", "隐藏信息", "我的号码是"],
+    },
+    BULK_BUYER_LURE: {
+      es: ["te compramos", "compramos toda clase", "compro toda clase", "compra inmediata", "pago de contado", "compramos todo tipo", "compro lo que sea", "compramos motos", "compramos carros"],
+      en: ["we buy all kinds", "we buy any", "immediate purchase", "cash payment", "instant cash for", "buying all types", "we buy cars", "we buy houses", "cash offer"],
+      pt: ["compramos todo tipo", "compramos qualquer", "compra imediata", "pagamento à vista", "compramos carros", "compramos motos", "dinheiro na hora"],
+      fr: ["nous achetons tout type", "nous achetons toutes sortes", "achat immédiat", "paiement comptant", "paiement cash", "nous achetons des voitures", "achat comptant"],
+      it: ["compriamo qualsiasi", "compriamo ogni tipo", "acquisto immediato", "pagamento in contanti", "pagamento immediato", "compriamo auto", "compriamo moto"],
+      de: ["wir kaufen alle arten", "wir kaufen jede art", "sofortkauf", "barzahlung", "sofortige zahlung", "wir kaufen autos", "wir kaufen motorräder", "ankauf sofort"],
+      ja: ["何でも買い取り", "即金買取", "即日買取", "現金買取", "高価買取", "車を買い取り", "バイクを買い取り"],
+      zh: ["现金收购", "立即购买", "现款支付", "高价收购", "我们收购各种", "回收各种", "即时付款"],
+    },
     MIRACLE_CURE_CLAIM: {
       es: ["cura milagrosa", "remedio milagroso", "cura el cáncer", "cura la diabetes", "elimina toxinas", "desintoxica tu cuerpo", "pierde peso sin esfuerzo", "baja de peso sin dieta", "secreto que los médicos ocultan", "método revolucionario", "cura definitiva"],
       en: ["miracle cure", "miracle remedy", "cures cancer", "cures diabetes", "eliminates toxins", "detox your body", "lose weight without effort", "secret doctors don't want", "revolutionary method", "one weird trick", "doctors hate this"],
@@ -290,11 +310,11 @@
     // One bounded pass over prominent copy: every language table is
     // tested against each text block — romance bait needs love AND money.
     const textBlocks = doc.querySelectorAll(
-      "h1, h2, h3, p, button, .btn, strong, b, .alert, [class*='warn' i]",
+      "h1, h2, h3, p, div, span, li, a, button, .btn, strong, b, .alert, [class*='warn' i]",
     );
     let scanned = 0;
     for (const el of textBlocks) {
-      if (++scanned > 600) break;
+      if (++scanned > 1200) break;
       const t = el.textContent;
       if (!t || t.length > 800) continue;
       for (const p of TEXT_PATTERNS) {

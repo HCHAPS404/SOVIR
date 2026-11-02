@@ -323,6 +323,8 @@ fn signal_str(s: RiskSignal) -> &'static str {
         RiskSignal::RomanceBait => "ROMANCE_BAIT",
         RiskSignal::MiracleCureClaim => "MIRACLE_CURE_CLAIM",
         RiskSignal::DataHarvesting => "DATA_HARVESTING",
+        RiskSignal::OffPlatformMove => "OFF_PLATFORM_MOVE",
+        RiskSignal::BulkBuyerLure => "BULK_BUYER_LURE",
     }
 }
 fn scope_str(s: Scope) -> &'static str {
@@ -404,6 +406,8 @@ fn signal_from(s: &str) -> Option<RiskSignal> {
         "ROMANCE_BAIT" => Some(RiskSignal::RomanceBait),
         "MIRACLE_CURE_CLAIM" => Some(RiskSignal::MiracleCureClaim),
         "DATA_HARVESTING" => Some(RiskSignal::DataHarvesting),
+        "OFF_PLATFORM_MOVE" => Some(RiskSignal::OffPlatformMove),
+        "BULK_BUYER_LURE" => Some(RiskSignal::BulkBuyerLure),
         _ => None,
     }
 }

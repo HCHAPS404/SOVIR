@@ -176,6 +176,35 @@ async fn dev_session_lifecycle_and_device_revocation_fail_closed() {
     ));
 }
 #[tokio::test]
+async fn device_reregistration_is_idempotent_heartbeat_not_sprawl() {
+    let service = service();
+    let p = principal("p-1");
+    let first = service
+        .register_device(&p, Some("ext-web"), Platform::BrowserExtension, "ext")
+        .await
+        .unwrap();
+    // Re-announcing the same stable id returns the same device and acts as
+    // a heartbeat — it must not duplicate the inventory nor error.
+    let second = service
+        .register_device(&p, Some("ext-web"), Platform::BrowserExtension, "ext")
+        .await
+        .unwrap();
+    assert_eq!(second.device_id, "ext-web");
+    assert_eq!(second.registered_at_ms, first.registered_at_ms);
+    assert!(second.last_seen_at_ms.is_some());
+    assert_eq!(service.list_devices(&p).await.unwrap().len(), 1);
+    // A revoked device does NOT resurrect on re-registration — the registry
+    // fails closed with Duplicate so an explicit revocation is not undone.
+    assert!(service.revoke_device(&p, "ext-web").await.unwrap());
+    assert!(matches!(
+        service
+            .register_device(&p, Some("ext-web"), Platform::BrowserExtension, "ext")
+            .await,
+        Err(AppError::Port(sovir_ports::PortError::Duplicate))
+    ));
+    assert_eq!(service.list_devices(&p).await.unwrap().len(), 1);
+}
+#[tokio::test]
 async fn warn_decision_enqueues_intervention_and_dispatch_delivers() {
     let service = service();
     let p = principal("p-1");

@@ -37,6 +37,7 @@ export interface Device {
   platform: string;
   label: string;
   registered_at_ms: number;
+  last_seen_at_ms?: number | null;
   revoked_at_ms: number | null;
 }
 
@@ -183,6 +184,17 @@ export const listInterventions = (t: string, limit = 50) =>
 export const listAudit = (t: string, limit = 50) =>
   call<AuditEvent[]>(`/v1/me/audit?limit=${limit}`, t);
 export const exportData = (t: string) => call<PrincipalDataExport>("/v1/me/data", t);
+
+export interface BudgetView {
+  tenant_id: string;
+  cap_micro_usd: number;
+  spent_micro_usd: number;
+  remaining_micro_usd: number;
+  cap_usd: number;
+  spent_usd: number;
+  remaining_usd: number;
+}
+export const getBudget = (t: string) => call<BudgetView>("/v1/me/budget", t);
 export const listEvents = (t: string, limit = 50) =>
   call<ObservedEvent[]>(`/v1/events?limit=${limit}`, t);
 

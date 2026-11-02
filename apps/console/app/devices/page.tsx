@@ -241,6 +241,14 @@ export default async function DevicesPage() {
                           <span>Plataforma</span>
                           <strong>{describePlatform(d.platform)}</strong>
                         </li>
+                        <li>
+                          <span>Última actividad</span>
+                          <strong>
+                            {d.last_seen_at_ms
+                              ? new Date(d.last_seen_at_ms).toLocaleString()
+                              : "sin señales aún"}
+                          </strong>
+                        </li>
                       </ul>
                       {active ? (
                         <div className="entity-card-foot">
