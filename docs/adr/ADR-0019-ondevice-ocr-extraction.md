@@ -82,3 +82,30 @@ fija en el adaptador (p. ej. máx. 1 OCR/sitio observado cada N s).
 - Riesgo de lectura errónea (OCR ≠ verdad): las señales OCR entran como
   hipótesis al mismo policy pack; nunca autorizan por sí solas.
 - **No implementado hasta firma del maintainer.**
+
+## Non-goals
+
+- No continuous screen OCR, no full-screen text indexing.
+- No OCR output persisted or exported — signals only.
+- No keyboard/typing reconstruction from pixels (keylogger ban).
+
+## Acceptance criteria
+
+- Given a synthetic fixture image containing a known phishing phrase in
+  each supported language, extraction emits the same `RiskSignal`s the
+  DOM extractor would for that text.
+- With no active grant for the source, the adapter emits nothing.
+- OCR runs at most on gated regions; a counter exposes executions per
+  site/session for budget review.
+
+## Test obligations
+
+- All fixtures generated programmatically (no real screenshots/PII).
+- Negative: benign text in image emits no signals.
+- Fail-closed: OCR engine unavailable → adapter emits nothing, never
+  guesses text.
+
+## Reversion
+
+- `SOVIR_EDGE_OCR=0` disables the adapter; the DOM/DOM+structural path
+  is unaffected.

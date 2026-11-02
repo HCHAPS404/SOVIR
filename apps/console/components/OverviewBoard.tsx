@@ -70,7 +70,7 @@ export async function OverviewBoard({
   backendDown: boolean;
   budget: BudgetView | null;
 }) {
-  const view = await getView();
+  const view = await getView(me?.is_admin);
   const dev = view === "dev";
   const now = Date.now();
   const digest = data ? weeklyDigest(data, now) : null;

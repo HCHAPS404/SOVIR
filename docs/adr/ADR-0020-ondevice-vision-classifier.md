@@ -80,3 +80,31 @@ reserva antes de ejecutar, misma máquina ya implementada.
 - Nueva familia de falsos positivos (fotos legítimas con persona):
   mitigado por la regla de corroboración (punto 4).
 - **No implementado hasta firma del maintainer.**
+
+## Non-goals
+
+- No face recognition, identity inference, or attribute estimation
+  (age/emotion/gender) — on anyone.
+- No free-text image captioning (a caption could exfiltrate PII).
+- No model output as authorization — corroboration required for Warn.
+
+## Acceptance criteria
+
+- Closed taxonomy: every emitted label maps to a typed signal; unknown
+  or low-score outputs emit nothing.
+- An image alone never triggers Warn — policy requires a corroborating
+  DOM/OCR signal in the same window.
+- Model artifact is versioned + hash-pinned in the release checklist.
+
+## Test obligations
+
+- Synthetic/generated images only; never real photos of people.
+- Calibration corpus: legitimate images containing a person (seller
+  avatar, product held by owner) do NOT emit `image_lure` alone.
+- Threshold pins documented in the eval corpus, same style as the
+  heuristic table.
+
+## Reversion
+
+- `SOVIR_EDGE_VISION=0` disables the classifier; OCR/structural/DOM
+  layers unaffected.

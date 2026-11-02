@@ -55,6 +55,10 @@ struct AppState {
     budget: std::sync::Arc<dyn sovir_ports::BudgetLedger>,
     /// Webhook egress allowlist (SSRF guard) for endpoint registration.
     webhook_allowlist: Vec<String>,
+    /// Principal ids marked admin via SOVIR_ADMIN_PRINCIPALS (comma list).
+    /// Surfaced to clients as `is_admin` on whoami — it is a UI hint only:
+    /// no endpoint authorizes on it until real admin surfaces exist.
+    admin_principals: std::collections::HashSet<String>,
     /// Internal counters for the local metrics endpoint (B-metrics). Cheap
     /// atomics, incremented at handler success points — not telemetry, they
     /// never leave the loopback API.
@@ -579,11 +583,24 @@ async fn logout(State(s): State<AppState>, headers: HeaderMap) -> Result<StatusC
         false => Err(api_err(StatusCode::NOT_FOUND, "not_found", &headers, false)),
     }
 }
+#[derive(Serialize)]
+struct Whoami {
+    #[serde(flatten)]
+    principal: Principal,
+    /// UI hint derived from SOVIR_ADMIN_PRINCIPALS — admin surfaces in the
+    /// console unlock for these users. Not an authorization claim.
+    is_admin: bool,
+}
 async fn whoami(
     State(s): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<Principal>, ApiError> {
-    Ok(Json(require_principal(&headers, &s).await?))
+) -> Result<Json<Whoami>, ApiError> {
+    let principal = require_principal(&headers, &s).await?;
+    let is_admin = s.admin_principals.contains(&principal.principal_id);
+    Ok(Json(Whoami {
+        principal,
+        is_admin,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -1203,6 +1220,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     let (service, pg, budget) =
         compose_service(database_url.as_deref(), &webhook_allowlist, &sovir_env).await;
+    // Master-user mapping: comma-separated principal ids that carry the
+    // admin flag in whoami (console unlocks developer surfaces for them).
+    let admin_principals: std::collections::HashSet<String> =
+        env::var("SOVIR_ADMIN_PRINCIPALS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
     let rate_limit_per_min = env::var("SOVIR_RATE_LIMIT_PER_MIN")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -1328,6 +1354,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         idem: idem_store,
         budget,
         webhook_allowlist,
+        admin_principals,
         counters: std::sync::Arc::new(Counters::default()),
     };
     let app = build_router(state);
@@ -1384,6 +1411,7 @@ mod tests {
             idem: std::sync::Arc::new(InMemoryIdempotencyStore::default()),
             budget,
             webhook_allowlist: vec!["127.0.0.1".to_string(), "localhost".to_string()],
+            admin_principals: std::collections::HashSet::new(),
             counters: std::sync::Arc::new(Counters::default()),
         }
     }

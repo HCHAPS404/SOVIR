@@ -1,9 +1,15 @@
+import { oidcConfig } from "../../lib/oidc";
+
 export const metadata = { title: "Entrar", robots: { index: false, follow: false } };
 
 const errors: Record<string, string> = {
   backend: "El servicio local de SOVIR no está encendido en 127.0.0.1:8787.",
   session: "Tu sesión terminó — vuelve a escribir tu nombre para entrar.",
   name: "Usa solo letras, números, punto o guion (sin espacios especiales).",
+  oidc_denied: "Cancelaste el acceso en el proveedor de identidad.",
+  oidc_state: "El intento de acceso expiró — vuelve a intentarlo.",
+  oidc_exchange: "No pudimos completar el acceso con tu cuenta.",
+  oidc_token: "El proveedor no entregó una credencial válida.",
 };
 
 export default async function SignInPage({
@@ -13,6 +19,7 @@ export default async function SignInPage({
 }) {
   const { error } = await searchParams;
   const note = error ? errors[error] : null;
+  const oidc = oidcConfig();
   return (
     <main className="register-stage">
       <div className="register-card">
@@ -44,6 +51,13 @@ export default async function SignInPage({
             Entrar a mi panel
           </button>
         </form>
+        {oidc ? (
+          <form action="/api/auth/oidc/login" method="get">
+            <button className="button" type="submit">
+              Entrar con mi cuenta
+            </button>
+          </form>
+        ) : null}
         <p className="register-note">
           Cada nombre tiene su propio espacio privado de avisos, dispositivos y permisos. Entorno
           local de demostración (sesión aislada en <code>httpOnly</code>, sin contraseñas ni envío

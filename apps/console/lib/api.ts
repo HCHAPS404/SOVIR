@@ -17,6 +17,8 @@ export interface Principal {
   device_id: string;
   session_id: string;
   scopes: Scope[];
+  // Admin flag from SOVIR_ADMIN_PRINCIPALS — UI hint, not authorization.
+  is_admin?: boolean;
 }
 
 export interface DevSessionResponse {

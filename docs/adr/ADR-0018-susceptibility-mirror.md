@@ -89,3 +89,31 @@ resistant over time.
 | Feature creep toward targeting | G8 in the contract + invariant text keeps covert profiling forbidden |
 | Regulatory surface (psychological data ≈ GDPR art. 9) | G2 local-only + G1 explicit consent keeps it defensible; flagged for legal review before any shipping release |
 | Profile becomes the weapon it warns against if exfiltrated | G2: it cannot leave the device by contract — there is nothing to exfiltrate through SOVIR |
+
+## Non-goals
+
+- No targeting, ranking nor prioritization of users by vulnerability.
+- No inference about the *person* (age, mood, cognition, disability).
+- No remote egress of the profile; no provider ever sees it.
+- No auto-tuning of policy thresholds from the profile (policy stays
+  explicit and human-authored).
+
+## Acceptance criteria
+
+- A principal can open the mirror view and see only patterns derived
+  from warnings already shown to them, each labeled hypothesis vs fact.
+- Every mirror entry carries a "retract" action that deletes it.
+- Revoking the mirror grant removes the store entirely (erasure path).
+- No code path outside the mirror reads the profile — grep-verified.
+
+## Test obligations
+
+- Corpus cases: benign navigation produces an empty mirror.
+- Property: mirror store never appears in PrincipalDataExport fields
+  that leave the device (local-only by construction, not by filter).
+
+## Reversion
+
+- Feature flag `SOVIR_MIRROR=0` disables storage and view.
+- Deleting the store table/collection rolls back cleanly; no other
+  component depends on it.

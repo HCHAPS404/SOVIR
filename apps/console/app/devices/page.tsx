@@ -58,9 +58,9 @@ const PLATFORM_MATRIX = [
 
 export default async function DevicesPage() {
   await requireApiSession();
-  const view = await getView();
-  const dev = view === "dev";
   const [devices, me] = await Promise.all([live(listDevices), live(whoami)]);
+  const view = await getView(me?.is_admin);
+  const dev = view === "dev";
 
   const activeDevices = devices?.filter((d) => !d.revoked_at_ms) ?? [];
 

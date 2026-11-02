@@ -70,3 +70,28 @@ feed comercial exigiría presupuesto + aprobación como cualquier gasto.
 - Trabajo pendiente por ticket: importador, verificación de firma/hash,
   scheduler de actualización, primera fuente curada.
 - **No implementado hasta firma del maintainer.**
+
+## Non-goals
+
+- No per-event remote lookup of observed URLs/domains (egress ban).
+- No autonomous blocking/deletion on feed match — corroboration only.
+- No unvetted third-party feeds; each source is a reviewed PR.
+
+## Acceptance criteria
+
+- Importer validates dataset integrity (signature/hash) before merging;
+  a failed verification discards the whole dataset.
+- Every indicator carries `expires_at_ms`; importer purges expired rows.
+- A feed outage leaves the last verified dataset in place — matching
+  degrades to heuristics, never to zero protection.
+
+## Test obligations
+
+- Tampered dataset fixture fails verification and imports nothing.
+- Expired indicators never corroborate.
+- A feed match alone produces at most Review, per the dev pack.
+
+## Reversion
+
+- Removing the feed source + purging its indicators rolls back; the
+  heuristic layer is unchanged.

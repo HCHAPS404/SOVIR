@@ -1,6 +1,11 @@
 # OPTIONAL local Postgres for the durable adapter. Docker remains deferred
 # (docs/operations/DEFERRED_TOOLCHAINS.md); CI uses a service container
 # instead. Ephemeral dev credentials — never reuse elsewhere.
+#
+# Optional `oidc` profile adds a local Keycloak — a self-hosted IdP so the
+# real JWKS seam (SOVIR_OIDC_*) is exercisable end-to-end without any
+# external provider seeing credentials:
+#   docker compose --profile oidc up -d
 services:
   postgres:
     image: postgres:17
@@ -12,5 +17,19 @@ services:
       - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+
+  keycloak:
+    profiles: ["oidc"]
+    image: quay.io/keycloak/keycloak:26.0
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin_local_only
+      KC_HOSTNAME: http://127.0.0.1:8081
+    command: ["start-dev", "--http-port=8081", "--health-enabled=true"]
+    ports:
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - kcdata:/opt/keycloak/data
 volumes:
   pgdata:
+  kcdata:
