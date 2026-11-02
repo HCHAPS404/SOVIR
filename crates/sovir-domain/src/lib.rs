@@ -727,7 +727,10 @@ impl PolicyPack {
                             RiskSignal::LinkDestinationMismatch,
                             RiskSignal::SuspiciousDomain,
                         ],
-                        vec![RiskSignal::CredentialRequest, RiskSignal::IdentityUnverified],
+                        vec![
+                            RiskSignal::CredentialRequest,
+                            RiskSignal::IdentityUnverified,
+                        ],
                     ],
                     risk_level: RiskLevel::High,
                     decision: DecisionKind::Warn,
@@ -956,25 +959,15 @@ impl PolicyPack {
                     RiskSignal::UserDefinedExposureLimit => {
                         "Signal: user-defined exposure boundary"
                     }
-                    RiskSignal::LinkDestinationMismatch => {
-                        "Signal: link text/destination mismatch"
-                    }
+                    RiskSignal::LinkDestinationMismatch => "Signal: link text/destination mismatch",
                     RiskSignal::SuspiciousDomain => "Signal: suspicious domain",
                     RiskSignal::ExtortionLanguage => "Signal: extortion language",
                     RiskSignal::ScarewareClaim => "Signal: scareware claim",
                     RiskSignal::PrizeLotteryClaim => "Signal: prize/lottery claim",
-                    RiskSignal::InvestmentPromise => {
-                        "Signal: guaranteed-investment promise"
-                    }
-                    RiskSignal::GiftCardPayment => {
-                        "Signal: gift/prepaid card payment demand"
-                    }
-                    RiskSignal::SeedPhraseRequest => {
-                        "Signal: seed/recovery phrase request"
-                    }
-                    RiskSignal::DeliveryCustomsFee => {
-                        "Signal: parcel-hold customs/delivery fee"
-                    }
+                    RiskSignal::InvestmentPromise => "Signal: guaranteed-investment promise",
+                    RiskSignal::GiftCardPayment => "Signal: gift/prepaid card payment demand",
+                    RiskSignal::SeedPhraseRequest => "Signal: seed/recovery phrase request",
+                    RiskSignal::DeliveryCustomsFee => "Signal: parcel-hold customs/delivery fee",
                     RiskSignal::AuthorityImpersonation => {
                         "Signal: authority/government impersonation"
                     }
@@ -982,15 +975,9 @@ impl PolicyPack {
                     RiskSignal::JobScamOffer => "Signal: easy-money job offer",
                     RiskSignal::RomanceBait => "Signal: romance-and-money bait",
                     RiskSignal::MiracleCureClaim => "Signal: miracle-cure claim",
-                    RiskSignal::DataHarvesting => {
-                        "Signal: over-broad personal-data harvesting"
-                    }
-                    RiskSignal::OffPlatformMove => {
-                        "Signal: conversation moved off-platform"
-                    }
-                    RiskSignal::BulkBuyerLure => {
-                        "Signal: bulk-buyer immediate-payment lure"
-                    }
+                    RiskSignal::DataHarvesting => "Signal: over-broad personal-data harvesting",
+                    RiskSignal::OffPlatformMove => "Signal: conversation moved off-platform",
+                    RiskSignal::BulkBuyerLure => "Signal: bulk-buyer immediate-payment lure",
                 }
                 .to_string()
             })

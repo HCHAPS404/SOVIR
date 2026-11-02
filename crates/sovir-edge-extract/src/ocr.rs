@@ -45,101 +45,241 @@ static TERMS: &[TermSet] = &[
     TermSet {
         signal: RiskSignal::UrgentAction,
         terms: &[
-            "urgente", "actúa ahora", "cuenta suspendida", "urgent", "act now", "account suspended",
-            "limited time", "urgente", "agora mesmo", "urgent", "agissez maintenant", "urgente",
-            "agisci ora", "dringend", "jetzt handeln", "konto gesperrt", "緊急", "今すぐ", "紧急",
-            "立即", "账户已暂停",
+            "urgente",
+            "actúa ahora",
+            "cuenta suspendida",
+            "urgent",
+            "act now",
+            "account suspended",
+            "limited time",
+            "urgente",
+            "agora mesmo",
+            "urgent",
+            "agissez maintenant",
+            "urgente",
+            "agisci ora",
+            "dringend",
+            "jetzt handeln",
+            "konto gesperrt",
+            "緊急",
+            "今すぐ",
+            "紧急",
+            "立即",
+            "账户已暂停",
         ],
     },
     TermSet {
         signal: RiskSignal::PaymentRequest,
         terms: &[
-            "paga ahora", "datos de tu tarjeta", "número de tarjeta", "pay now", "card number",
-            "payment details", "pague agora", "cartão", "payez maintenant", "numéro de carte",
-            "paga ora", "carta di credito", "jetzt zahlen", "kartennummer", "支払", "カード番号",
-            "付款", "卡号", "银行卡",
+            "paga ahora",
+            "datos de tu tarjeta",
+            "número de tarjeta",
+            "pay now",
+            "card number",
+            "payment details",
+            "pague agora",
+            "cartão",
+            "payez maintenant",
+            "numéro de carte",
+            "paga ora",
+            "carta di credito",
+            "jetzt zahlen",
+            "kartennummer",
+            "支払",
+            "カード番号",
+            "付款",
+            "卡号",
+            "银行卡",
         ],
     },
     TermSet {
         signal: RiskSignal::CredentialRequest,
         terms: &[
-            "inicia sesión", "contraseña", "verifica tu cuenta", "sign in", "password",
-            "verify your account", "entrar", "senha", "connectez-vous", "mot de passe", "accedi",
-            "password", "anmelden", "passwort", "konto bestätigen", "ログイン", "パスワード",
-            "登录", "密码", "验证账户",
+            "inicia sesión",
+            "contraseña",
+            "verifica tu cuenta",
+            "sign in",
+            "password",
+            "verify your account",
+            "entrar",
+            "senha",
+            "connectez-vous",
+            "mot de passe",
+            "accedi",
+            "password",
+            "anmelden",
+            "passwort",
+            "konto bestätigen",
+            "ログイン",
+            "パスワード",
+            "登录",
+            "密码",
+            "验证账户",
         ],
     },
     TermSet {
         signal: RiskSignal::ExtortionLanguage,
         terms: &[
-            "grabamos", "publicaremos", "tus fotos íntimas", "te vimos", "we recorded",
-            "we will publish", "your private videos", "gravamos", "publicaremos", "nous avons
-enregistré", "registrato", "veröffentlichen", "wir haben aufgenommen",
-            "公開します", "録画しました", "我们会公开", "你的私密",
+            "grabamos",
+            "publicaremos",
+            "tus fotos íntimas",
+            "te vimos",
+            "we recorded",
+            "we will publish",
+            "your private videos",
+            "gravamos",
+            "publicaremos",
+            "nous avons
+enregistré",
+            "registrato",
+            "veröffentlichen",
+            "wir haben aufgenommen",
+            "公開します",
+            "録画しました",
+            "我们会公开",
+            "你的私密",
         ],
     },
     TermSet {
         signal: RiskSignal::ScarewareClaim,
         terms: &[
-            "virus detectado", "dispositivo infectado", "virus detected", "device infected",
-            "vírus detectado", "virus détecté", "virus rilevato", "virus erkannt", "ウイルス",
-            "感染しています", "检测到病毒", "设备已感染",
+            "virus detectado",
+            "dispositivo infectado",
+            "virus detected",
+            "device infected",
+            "vírus detectado",
+            "virus détecté",
+            "virus rilevato",
+            "virus erkannt",
+            "ウイルス",
+            "感染しています",
+            "检测到病毒",
+            "设备已感染",
         ],
     },
     TermSet {
         signal: RiskSignal::OffPlatformMove,
         terms: &[
-            "escríbeme por whatsapp", "hablamos por telegram", "contáctame por wechat",
-            "message me on whatsapp", "dm me on telegram", "wechat me", "me chama no whatsapp",
-            "écris-moi sur whatsapp", "scrivimi su whatsapp", "schreib mir auf whatsapp",
-            "hidden information", "información oculta", "whatsappで", "微信联系",
+            "escríbeme por whatsapp",
+            "hablamos por telegram",
+            "contáctame por wechat",
+            "message me on whatsapp",
+            "dm me on telegram",
+            "wechat me",
+            "me chama no whatsapp",
+            "écris-moi sur whatsapp",
+            "scrivimi su whatsapp",
+            "schreib mir auf whatsapp",
+            "hidden information",
+            "información oculta",
+            "whatsappで",
+            "微信联系",
             "加我微信",
         ],
     },
     TermSet {
         signal: RiskSignal::BulkBuyerLure,
         terms: &[
-            "compra inmediata", "pago de contado", "te compramos", "compramos toda clase",
-            "instant purchase", "cash upfront", "we buy all kinds", "compra imediata",
-            "achat immédiat", "compro subito", "sofortkauf", "barzahlung", "即購入", "現金で",
-            "立即购买", "现金支付", "我们收购",
+            "compra inmediata",
+            "pago de contado",
+            "te compramos",
+            "compramos toda clase",
+            "instant purchase",
+            "cash upfront",
+            "we buy all kinds",
+            "compra imediata",
+            "achat immédiat",
+            "compro subito",
+            "sofortkauf",
+            "barzahlung",
+            "即購入",
+            "現金で",
+            "立即购买",
+            "现金支付",
+            "我们收购",
         ],
     },
     TermSet {
         signal: RiskSignal::GiftCardPayment,
         terms: &[
-            "tarjeta de regalo", "gift card", "itunes", "google play card", "cartão presente",
-            "carte cadeau", "carta regalo", "geschenkkarte", "ギフトカード", "礼品卡",
+            "tarjeta de regalo",
+            "gift card",
+            "itunes",
+            "google play card",
+            "cartão presente",
+            "carte cadeau",
+            "carta regalo",
+            "geschenkkarte",
+            "ギフトカード",
+            "礼品卡",
         ],
     },
     TermSet {
         signal: RiskSignal::SeedPhraseRequest,
         terms: &[
-            "frase semilla", "palabras de recuperación", "seed phrase", "recovery phrase",
-            "12 words", "24 words", "frase de recuperação", "phrase de récupération",
-            "frase di recupero", "wiederherstellungsphrase", "復元フレーズ", "助记词", "恢复短语",
+            "frase semilla",
+            "palabras de recuperación",
+            "seed phrase",
+            "recovery phrase",
+            "12 words",
+            "24 words",
+            "frase de recuperação",
+            "phrase de récupération",
+            "frase di recupero",
+            "wiederherstellungsphrase",
+            "復元フレーズ",
+            "助记词",
+            "恢复短语",
         ],
     },
     TermSet {
         signal: RiskSignal::InvestmentPromise,
         terms: &[
-            "ganancias garantizadas", "duplica tu dinero", "guaranteed profits",
-            "double your money", "rendement garanti", "garantierte gewinne", "guadagni
-garantiti", "lucros garantidos", "保証された利益", "保证收益", "双倍收益",
+            "ganancias garantizadas",
+            "duplica tu dinero",
+            "guaranteed profits",
+            "double your money",
+            "rendement garanti",
+            "garantierte gewinne",
+            "guadagni
+garantiti",
+            "lucros garantidos",
+            "保証された利益",
+            "保证收益",
+            "双倍收益",
         ],
     },
     TermSet {
         signal: RiskSignal::DeliveryCustomsFee,
         terms: &[
-            "cargo de aduana", "tarifa de envío", "customs fee", "delivery fee", "frais de
-douane", "taxa de alfândega", "tassa doganale", "zollgebühr", "通関料", "海关费用",
+            "cargo de aduana",
+            "tarifa de envío",
+            "customs fee",
+            "delivery fee",
+            "frais de
+douane",
+            "taxa de alfândega",
+            "tassa doganale",
+            "zollgebühr",
+            "通関料",
+            "海关费用",
         ],
     },
     TermSet {
         signal: RiskSignal::AuthorityImpersonation,
         terms: &[
-            "hacienda", "policía nacional", "irs", "hmrc", "finanzamt", "bundespolizei",
-            "receita federal", "police nationale", "polizia di stato", "税務署", "税务局", "公安局",
+            "hacienda",
+            "policía nacional",
+            "irs",
+            "hmrc",
+            "finanzamt",
+            "bundespolizei",
+            "receita federal",
+            "police nationale",
+            "polizia di stato",
+            "税務署",
+            "税务局",
+            "公安局",
         ],
     },
 ];
@@ -154,11 +294,9 @@ fn matches(text: &str, term: &str) -> bool {
     let mut start = 0usize;
     while let Some(pos) = text[start..].find(term) {
         let i = start + pos;
-        let before_ok = i == 0
-            || !text.as_bytes()[i - 1].is_ascii_alphanumeric();
+        let before_ok = i == 0 || !text.as_bytes()[i - 1].is_ascii_alphanumeric();
         let end = i + term.len();
-        let after_ok = end >= text.len()
-            || !text.as_bytes()[end].is_ascii_alphanumeric();
+        let after_ok = end >= text.len() || !text.as_bytes()[end].is_ascii_alphanumeric();
         if before_ok && after_ok {
             return true;
         }
@@ -226,14 +364,18 @@ mod tests {
 
     #[test]
     fn ocr_text_yields_same_signals_as_dom_terms() {
-        let out = extract_from_ocr(&[r("URGENT: your account suspended — verify your account now")]);
+        let out = extract_from_ocr(&[r(
+            "URGENT: your account suspended — verify your account now",
+        )]);
         assert!(has(&out, RiskSignal::UrgentAction));
         assert!(has(&out, RiskSignal::CredentialRequest));
     }
 
     #[test]
     fn marketplace_lure_detected_in_image_text() {
-        let out = extract_from_ocr(&[r("compra inmediata pago de contado, escríbeme por whatsapp")]);
+        let out = extract_from_ocr(&[r(
+            "compra inmediata pago de contado, escríbeme por whatsapp",
+        )]);
         assert!(has(&out, RiskSignal::BulkBuyerLure));
         assert!(has(&out, RiskSignal::OffPlatformMove));
     }

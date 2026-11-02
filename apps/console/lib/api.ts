@@ -238,7 +238,7 @@ export const assessInference = (
 ) =>
   call<InferenceVerdict>("/v1/inference/assess", t, {
     method: "POST",
-    body: JSON.stringify({ request_id: requestId, signals, privacy }),
+    body: JSON.stringify({ request_id: requestId, signals, privacy, }),
   });
 
 export const enforceRetention = (t: string) =>

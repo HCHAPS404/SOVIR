@@ -358,10 +358,17 @@
     }
 
     // Untrustworthy domains: abusive TLD, punycode lookalike or bare-IP
-    // host — on the page itself or on destinations it pushes.
-    try {
-      if (hostIsSuspicious(new URL(loc.href).host)) signals.add("SUSPICIOUS_DOMAIN");
-    } catch {}
+    // host — on the page itself or on destinations it pushes. loc.host is
+    // checked raw: real location.host is already punycode, and URL parsing
+    // rejects IDNA-invalid labels differently across engines (ICU).
+    const pageHost = loc.host || (() => {
+      try {
+        return new URL(loc.href).host;
+      } catch {
+        return "";
+      }
+    })();
+    if (hostIsSuspicious(pageHost)) signals.add("SUSPICIOUS_DOMAIN");
     if (!signals.has("SUSPICIOUS_DOMAIN")) {
       for (const el of doc.querySelectorAll("a[href], form[action]")) {
         const target = el.getAttribute("href") || el.getAttribute("action") || "";

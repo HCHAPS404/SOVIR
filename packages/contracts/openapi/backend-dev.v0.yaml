@@ -160,6 +160,17 @@ components:
                  inference_called, intel_pulled, reservations_swept]
         detail: {type: string}
         at_ms: {type: integer}
+    BudgetView:
+      type: object
+      required: [tenant_id, cap_micro_usd, spent_micro_usd, remaining_micro_usd, cap_usd, spent_usd, remaining_usd]
+      properties:
+        tenant_id: {type: string}
+        cap_micro_usd: {type: integer, format: int64}
+        spent_micro_usd: {type: integer, format: int64}
+        remaining_micro_usd: {type: integer, format: int64}
+        cap_usd: {type: number}
+        spent_usd: {type: number}
+        remaining_usd: {type: number}
     InferenceRequestBody:
       type: object
       description: >-
@@ -360,6 +371,12 @@ paths:
       summary: "Deliver due interventions through the registered channel (dev: recording stub)"
       responses:
         '200': {description: Count delivered, content: {application/json: {schema: {$ref: '#/components/schemas/DispatchResult'}}}}
+        '401': {description: Unauthorized}
+  /v1/me/budget:
+    get:
+      summary: Tenant inference budget — cap, settled spend and remaining (USD and micro-USD)
+      responses:
+        '200': {description: Budget view, content: {application/json: {schema: {$ref: '#/components/schemas/BudgetView'}}}}
         '401': {description: Unauthorized}
   /v1/me/data:
     get:

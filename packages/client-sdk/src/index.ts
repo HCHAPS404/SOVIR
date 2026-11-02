@@ -112,6 +112,10 @@ export class SovirClient {
   }
 
   /** Export the calling principal's stored metadata (B16 governance) */
+  async getBudget(options?: RequestOptions): Promise<T.BudgetView> {
+    return (await (await this.request("GET", `/v1/me/budget`, undefined, options)).json()) as T.BudgetView;
+  }
+
   async exportData(options?: RequestOptions): Promise<T.PrincipalDataExport> {
     return (await (await this.request("GET", `/v1/me/data`, undefined, options)).json()) as T.PrincipalDataExport;
   }
