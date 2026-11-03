@@ -364,6 +364,15 @@ async function visionOnnxEnsure() {
     const m = globalThis.sovirVisionOnnx;
     if (!m?.load) return false;
     try {
+      // Vendored onnxruntime-web (ort/): wasm backend, single-threaded —
+      // MV3 workers lack crossOriginIsolated so SAB/threading is out.
+      if (!globalThis.ort) {
+        importScripts("ort/ort.wasm.min.js");
+      }
+      if (globalThis.ort?.env?.wasm) {
+        globalThis.ort.env.wasm.wasmPaths = chrome.runtime.getURL("ort/");
+        globalThis.ort.env.wasm.numThreads = 1;
+      }
       const base = chrome.runtime.getURL("models/");
       const [modelRes, protoRes] = await Promise.all([
         fetch(base + "visual.onnx"),

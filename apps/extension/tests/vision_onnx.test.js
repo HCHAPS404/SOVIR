@@ -35,15 +35,29 @@ const fakeOrt = (embedding) => ({
   },
 });
 
+// int8-quantized bank: one image vector [127,0,0] → dequantizes to
+// [1,0,0] after /127 + L2-norm. embedding_dim=3 keeps the test small.
 const PROTO = {
   model_id: "test-visual-0",
   threshold_bp: 5000,
-  brands: [{ id: "acme", domains: ["acme.com"], vector: [1, 0, 0] }],
+  embedding_dim: 3,
+  brands: [
+    { id: "acme", domains: ["acme.com"], n_imgs: 1, vectors_i8_b64: "fwAA" },
+  ],
 };
 
 test("no runtime or no brands → load refuses, analyze abstains", async () => {
   assert.equal(await voter.load(new ArrayBuffer(8), PROTO, null), false);
   assert.equal(await voter.load(new ArrayBuffer(8), { brands: [] }, fakeOrt([1])), false);
+  assert.equal(
+    await voter.load(
+      new ArrayBuffer(8),
+      { brands: [{ id: "x", domains: [], vector: [1, 0, 0] }] },
+      fakeOrt([1]),
+    ),
+    false,
+    "old centroid format refused — only int8 banks",
+  );
   const r = await voter.analyze(frame(), "evil.example");
   assert.deepEqual(r.signals, []);
   assert.equal(r.abstained, "no_artifact");

@@ -67,15 +67,58 @@
     return na > 0 && nb > 0 ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
   }
 
+  // base64 → Float32Array: int8-quantized prototype vectors (/127),
+  // row-major n_imgs×DIM, each row re-normalized once at load.
+  function decodeBank(b64, nImgs, dim) {
+    const bin = atob(b64);
+    const i8 = new Int8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) i8[i] = bin.charCodeAt(i);
+    const rows = [];
+    for (let r = 0; r < nImgs; r++) {
+      const row = new Float32Array(dim);
+      let norm = 0;
+      for (let i = 0; i < dim; i++) {
+        row[i] = i8[r * dim + i] / 127;
+        norm += row[i] * row[i];
+      }
+      norm = Math.sqrt(norm) || 1;
+      for (let i = 0; i < dim; i++) row[i] /= norm;
+      rows.push(row);
+    }
+    return rows;
+  }
+
   // modelBytes: ArrayBuffer of the .onnx artifact; proto: parsed
   // prototypes.json {model_id, input?, threshold_bp?, brands:[{id,
   // domains, vector}]}. Returns true when the session is usable.
+  function embDim(proto) {
+    return proto.embedding_dim ?? 576;
+  }
+
   async function load(modelBytes, proto, ort) {
     const rt = ort ?? global.ort;
-    if (!rt?.InferenceSession?.create || !proto?.brands?.length) return false;
+    // Any load attempt resets state — a refused/crashed load must not
+    // leave a previous artifact silently serving.
+    session = null;
+    manifest = null;
+    runtime = null;
+    if (
+      !rt?.InferenceSession?.create ||
+      !proto?.brands?.length ||
+      !proto.brands.every((b) => typeof b.vectors_i8_b64 === "string" && b.n_imgs > 0)
+    )
+      return false;
     try {
-      session = await rt.InferenceSession.create(modelBytes);
-      manifest = proto;
+      const newSession = await rt.InferenceSession.create(modelBytes);
+      // Pre-decode banks into a NEW manifest — never mutate the caller's
+      // proto (tests reuse it; a second load would see deleted fields).
+      const dim = embDim(proto);
+      const brands = proto.brands.map((b) => ({
+        ...b,
+        _rows: decodeBank(b.vectors_i8_b64, b.n_imgs, dim),
+      }));
+      session = newSession;
+      manifest = { ...proto, brands };
       modelId = proto.model_id ?? "onnx-visual";
       runtime = rt;
       return true;
@@ -114,8 +157,10 @@
       const emb = out[session.outputNames[0]].data;
       let best = { brand: null, score: 0 };
       for (const b of manifest.brands) {
-        const s = cosine(emb, b.vector);
-        if (s > best.score) best = { brand: b, score: s };
+        for (const row of b._rows) {
+          const s = cosine(emb, row);
+          if (s > best.score) best = { brand: b, score: s };
+        }
       }
       const thr = (manifest.threshold_bp ?? DEFAULT_THRESHOLD_BP) / 10_000;
       if (!best.brand || best.score < thr || hostAllowed(host, best.brand.domains))
