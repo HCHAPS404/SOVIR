@@ -223,6 +223,9 @@ export default async function PermissionsPage() {
                 </p>
               ) : null}
               <div className="head-actions" style={{ marginTop: "auto" }}>
+                <a className="btn-op" href="/api/me/export" download>
+                  Descargar mis datos (JSON)
+                </a>
                 <form action={purgeDataAction}>
                   <button className="btn-op btn-op--danger" type="submit">
                     Borrar todo mi historial ahora
