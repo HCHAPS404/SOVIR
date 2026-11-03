@@ -1,4 +1,5 @@
 import { ConsoleFrame, requireApiSession } from "../../components/ConsoleFrame";
+import { BackupTool } from "../../components/BackupTool";
 import {
   enforceRetentionAction,
   mintLabConsent,
@@ -232,6 +233,12 @@ export default async function PermissionsPage() {
                   </button>
                 </form>
               </div>
+              <details style={{ marginTop: "0.9rem" }}>
+                <summary style={{ cursor: "pointer", fontSize: "0.85rem" }}>
+                  Backup cifrado (opcional)
+                </summary>
+                <BackupTool />
+              </details>
             </section>
           </div>
         </div>

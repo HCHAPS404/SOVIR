@@ -6,4 +6,7 @@ export const operation = [
   { href: "/permissions", label: "Permisos" },
 ] as const;
 
-export const enterprise = [{ href: "/enterprise/audit", label: "Auditoría" }] as const;
+export const enterprise = [
+  { href: "/enterprise/audit", label: "Auditoría" },
+  { href: "/webhooks", label: "Webhooks" },
+] as const;

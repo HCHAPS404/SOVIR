@@ -17,6 +17,8 @@ import {
   registerDevice,
   revokeConsent,
   revokeDevice,
+  registerWebhook,
+  revokeWebhook,
   runInvestigation,
   sendEventFeedback,
 } from "./api";
@@ -355,6 +357,41 @@ export async function sendEventFeedbackAction(formData: FormData): Promise<void>
     throw e;
   }
   revalidatePath("/incidents");
+  revalidatePath("/", "layout");
+}
+
+// Registers a signed webhook endpoint (POST /v1/webhooks). The URL must
+// pass the server-side egress allowlist — a refused host fails closed.
+export async function registerWebhookAction(formData: FormData): Promise<void> {
+  const { token } = await sessionOrRedirect();
+  const url = String(formData.get("url") ?? "").trim().slice(0, 512);
+  const kinds = (["notify", "warn_banner", "require_review"] as const).filter((k) =>
+    formData.getAll("kinds").includes(k),
+  );
+  if (!url || kinds.length === 0) return;
+  try {
+    await registerWebhook(token, url, [...kinds]);
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/webhooks?error=backend");
+    throw e;
+  }
+  revalidatePath("/webhooks");
+  revalidatePath("/", "layout");
+}
+
+export async function revokeWebhookAction(formData: FormData): Promise<void> {
+  const { token } = await sessionOrRedirect();
+  const endpointId = String(formData.get("endpoint_id") ?? "").trim();
+  if (!endpointId) redirect("/webhooks");
+  try {
+    await revokeWebhook(token, endpointId);
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/webhooks?error=backend");
+    throw e;
+  }
+  revalidatePath("/webhooks");
   revalidatePath("/", "layout");
 }
 

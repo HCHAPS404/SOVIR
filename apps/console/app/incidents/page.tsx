@@ -180,6 +180,36 @@ export default async function IncidentsPage() {
                         </strong>
                       </li>
                     </ul>
+                    <form action={sendEventFeedbackAction} className="form-row">
+                      <input type="hidden" name="event_id" value={i.event_id} />
+                      <span className="panel-kicker">
+                        {labels.get(i.event_id)
+                          ? labels.get(i.event_id) === "correct"
+                            ? "Marcado como acierto — gracias"
+                            : labels.get(i.event_id) === "false_positive"
+                              ? "Marcado como falsa alarma — gracias"
+                              : "¿Este aviso acertó?"
+                          : "¿Este aviso acertó?"}
+                      </span>
+                      <button
+                        className="btn-op"
+                        type="submit"
+                        name="verdict"
+                        value="correct"
+                        title="Sí, era una amenaza real"
+                      >
+                        Sí, acertó
+                      </button>
+                      <button
+                        className="btn-op"
+                        type="submit"
+                        name="verdict"
+                        value="false_positive"
+                        title="No, era una falsa alarma"
+                      >
+                        Falsa alarma
+                      </button>
+                    </form>
                   </article>
                 );
               })}

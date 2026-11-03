@@ -298,3 +298,44 @@ export const sendEventFeedback = (t: string, eventId: string, verdict: FeedbackV
     method: "POST",
     body: JSON.stringify({ verdict }),
   });
+
+export type InterventionKind = "notify" | "warn_banner" | "require_review";
+
+export interface WebhookEndpoint {
+  endpoint_id: string;
+  principal_id: string;
+  tenant_id: string;
+  url: string;
+  /** Dev-only plaintext signing secret — shown once at registration. */
+  secret: string;
+  kinds: InterventionKind[];
+  created_at_ms: number;
+  revoked_at_ms?: number | null;
+}
+
+export const listWebhooks = (t: string, limit = 50) =>
+  call<WebhookEndpoint[]>(`/v1/webhooks?limit=${limit}`, t);
+
+export const registerWebhook = (t: string, url: string, kinds: InterventionKind[]) =>
+  call<WebhookEndpoint>("/v1/webhooks", t, {
+    method: "POST",
+    body: JSON.stringify({ url, kinds }),
+  });
+
+export const revokeWebhook = (t: string, endpointId: string) =>
+  call<void>(`/v1/webhooks/${encodeURIComponent(endpointId)}/revoke`, t, { method: "POST" });
+
+/** Loopback-only Prometheus counters (B7 health). Parse the text exposition. */
+export const getMetrics = async (t: string): Promise<Record<string, number>> => {
+  const res = await fetch(`${BASE}/v1/metrics`, {
+    headers: { authorization: `Bearer ${t}` },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new ApiDown(`http_${res.status}`);
+  const out: Record<string, number> = {};
+  for (const line of (await res.text()).split("\n")) {
+    const m = /^(sovir_[a-z_0-9]+)\s+(\d+(?:\.\d+)?)\s*$/.exec(line);
+    if (m) out[m[1]] = Number(m[2]);
+  }
+  return out;
+};

@@ -5,7 +5,7 @@ import {
   emitSequencePair,
   runInvestigationAction,
 } from "../../lib/actions";
-import { exportData, type InferenceVerdict, listInvestigations } from "../../lib/api";
+import { exportData, getBudget, type InferenceVerdict, listInvestigations } from "../../lib/api";
 import { timeAgo } from "../../lib/digest";
 import { live } from "../../lib/live";
 import { getView } from "../../lib/view";
@@ -81,9 +81,10 @@ export default async function InvestigationsPage() {
     }
   }
 
-  const [investigations, data] = await Promise.all([
+  const [investigations, data, budget] = await Promise.all([
     live((t) => listInvestigations(t, 25)),
     live(exportData),
+    live(getBudget),
   ]);
   const now = Date.now();
   const latestInv = investigations && investigations.length > 0 ? investigations[0] : null;
@@ -185,11 +186,19 @@ export default async function InvestigationsPage() {
               <span className="ep-badge">SOVIR_HTTP_EGRESS=record</span>
             </div>
             <div className="kpi-mid">
-              <p className="kpi-num">$0.00</p>
-              <span className="ep-badge">Fail-closed</span>
+              <p className="kpi-num">
+                {budget ? `$${budget.spent_usd.toFixed(4)}` : "—"}
+              </p>
+              <span className="ep-badge">
+                {budget ? `de $${budget.cap_usd.toFixed(2)} cap` : "Fail-closed"}
+              </span>
             </div>
             <div className="kpi-foot">
-              <span>Standard devuelve 503 honesto sin red</span>
+              <span>
+                {budget
+                  ? `Restante $${budget.remaining_usd.toFixed(4)} · hard cap`
+                  : "Standard devuelve 503 honesto sin red"}
+              </span>
             </div>
           </section>
         </div>
@@ -391,6 +400,17 @@ export default async function InvestigationsPage() {
                           <small style={{ color: "var(--text-muted)", fontSize: "0.74rem" }}>
                             {info.desc} (intervalo: {h.span_ms} ms)
                           </small>
+                          {dev && h.event_ids?.length ? (
+                            <small
+                              style={{
+                                color: "var(--text-muted)",
+                                fontSize: "0.72rem",
+                                display: "block",
+                              }}
+                            >
+                              Evidencia: {h.event_ids.join(" · ")}
+                            </small>
+                          ) : null}
                         </div>
                       );
                     })}
