@@ -111,11 +111,12 @@ export class SovirClient {
     return (await (await this.request("POST", `/v1/interventions/dispatch`, undefined, options)).json()) as T.DispatchResult;
   }
 
-  /** Export the calling principal's stored metadata (B16 governance) */
-  async getBudget(options?: RequestOptions): Promise<T.BudgetView> {
+  /** Tenant inference budget — cap, settled spend and remaining (USD and micro-USD) */
+  async getMeBudget(options?: RequestOptions): Promise<T.BudgetView> {
     return (await (await this.request("GET", `/v1/me/budget`, undefined, options)).json()) as T.BudgetView;
   }
 
+  /** Export the calling principal's stored metadata (B16 governance) */
   async exportData(options?: RequestOptions): Promise<T.PrincipalDataExport> {
     return (await (await this.request("GET", `/v1/me/data`, undefined, options)).json()) as T.PrincipalDataExport;
   }
@@ -193,6 +194,11 @@ export class SovirClient {
   /** Ingest synthetic metadata after consent validation */
   async ingestEvent(body: T.ObservedEvent, idempotencyKey: string, options?: RequestOptions): Promise<unknown> {
     return (await (await this.request("POST", `/v1/events`, body, { ...options, headers: { ...(options?.headers ?? {}), 'idempotency-key': idempotencyKey } })).json()) as unknown;
+  }
+
+  /** Record a human eval-loop verdict on one of the caller's own events (B3) */
+  async postEventsByIdFeedback(id: string, body: T.FeedbackBody, options?: RequestOptions): Promise<void> {
+    await this.request("POST", `/v1/events/${encodeURIComponent(id)}/feedback`, body, options);
   }
 
   /** Build and contract version disclosure */

@@ -20,7 +20,7 @@ export interface ObservedEvent {
   consent_grant_id: string;
   sensitive_data_class: "PUBLIC" | "PERSONAL" | "SENSITIVE" | "SECRET";
   payload_ref?: string | null;
-  signals?: ("CREDENTIAL_REQUEST" | "PAYMENT_REQUEST" | "URGENT_ACTION" | "IDENTITY_UNVERIFIED" | "TRACKING_OBSERVED" | "HIDDEN_FEE_PATTERN" | "CONSENT_DARK_PATTERN" | "USER_DEFINED_EXPOSURE_LIMIT")[];
+  signals?: ("CREDENTIAL_REQUEST" | "PAYMENT_REQUEST" | "URGENT_ACTION" | "IDENTITY_UNVERIFIED" | "TRACKING_OBSERVED" | "HIDDEN_FEE_PATTERN" | "CONSENT_DARK_PATTERN" | "USER_DEFINED_EXPOSURE_LIMIT" | "LINK_DESTINATION_MISMATCH" | "SUSPICIOUS_DOMAIN" | "EXTORTION_LANGUAGE" | "SCAREWARE_CLAIM" | "PRIZE_LOTTERY_CLAIM" | "INVESTMENT_PROMISE" | "GIFT_CARD_PAYMENT" | "SEED_PHRASE_REQUEST" | "DELIVERY_CUSTOMS_FEE" | "AUTHORITY_IMPERSONATION" | "SCARCITY_PRESSURE" | "JOB_SCAM_OFFER" | "ROMANCE_BAIT" | "MIRACLE_CURE_CLAIM" | "DATA_HARVESTING" | "OFF_PLATFORM_MOVE" | "BULK_BUYER_LURE" | "QR_PRESENT" | "DOM_BRAND_MISMATCH")[];
   readonly principal_id?: string;
   readonly device_id?: string;
   readonly tenant_id?: string;
@@ -91,16 +91,6 @@ export interface DispatchResult {
   delivered: number;
 }
 
-export interface BudgetView {
-  tenant_id?: string;
-  cap_micro_usd?: number;
-  spent_micro_usd?: number;
-  remaining_micro_usd?: number;
-  cap_usd?: number;
-  spent_usd?: number;
-  remaining_usd?: number;
-}
-
 export interface PrincipalDataExport {
   principal_id?: string;
   grants?: ConsentGrant[];
@@ -109,6 +99,19 @@ export interface PrincipalDataExport {
   interventions?: Intervention[];
   deletion_receipts?: DeletionReceipt[];
   audit_events?: AuditEvent[];
+  feedback_labels?: EventFeedback[];
+}
+
+export interface EventFeedback {
+  event_id?: string;
+  tenant_id?: string;
+  principal_id?: string;
+  verdict?: "correct" | "false_positive" | "unsure";
+  labeled_at_ms?: number;
+}
+
+export interface FeedbackBody {
+  verdict: "correct" | "false_positive" | "unsure";
 }
 
 export interface DeletionReceipt {
@@ -129,16 +132,27 @@ export interface AuditEvent {
   audit_id?: string;
   tenant_id?: string;
   principal_id?: string;
-  action?: "session_issued" | "consent_granted" | "consent_revoked" | "event_ingested" | "device_registered" | "device_revoked" | "webhook_registered" | "webhook_revoked" | "data_purged" | "retention_enforced" | "dispatch_ran" | "inference_called" | "intel_pulled" | "reservations_swept";
+  action?: "session_issued" | "consent_granted" | "consent_revoked" | "event_ingested" | "device_registered" | "device_revoked" | "webhook_registered" | "webhook_revoked" | "data_purged" | "retention_enforced" | "dispatch_ran" | "inference_called" | "intel_pulled" | "reservations_swept" | "investigation_ran" | "feedback_labeled";
   detail?: string;
   at_ms?: number;
 }
 
+export interface BudgetView {
+  tenant_id: string;
+  cap_micro_usd: number;
+  spent_micro_usd: number;
+  remaining_micro_usd: number;
+  cap_usd: number;
+  spent_usd: number;
+  remaining_usd: number;
+}
+
 export interface InferenceRequestBody {
   request_id: string;
-  signals: ("CREDENTIAL_REQUEST" | "PAYMENT_REQUEST" | "URGENT_ACTION" | "IDENTITY_UNVERIFIED" | "TRACKING_OBSERVED" | "HIDDEN_FEE_PATTERN" | "CONSENT_DARK_PATTERN" | "USER_DEFINED_EXPOSURE_LIMIT")[];
+  signals: ("CREDENTIAL_REQUEST" | "PAYMENT_REQUEST" | "URGENT_ACTION" | "IDENTITY_UNVERIFIED" | "TRACKING_OBSERVED" | "HIDDEN_FEE_PATTERN" | "CONSENT_DARK_PATTERN" | "USER_DEFINED_EXPOSURE_LIMIT" | "LINK_DESTINATION_MISMATCH" | "SUSPICIOUS_DOMAIN" | "EXTORTION_LANGUAGE" | "SCAREWARE_CLAIM" | "PRIZE_LOTTERY_CLAIM" | "INVESTMENT_PROMISE" | "GIFT_CARD_PAYMENT" | "SEED_PHRASE_REQUEST" | "DELIVERY_CUSTOMS_FEE" | "AUTHORITY_IMPERSONATION" | "SCARCITY_PRESSURE" | "JOB_SCAM_OFFER" | "ROMANCE_BAIT" | "MIRACLE_CURE_CLAIM" | "DATA_HARVESTING" | "OFF_PLATFORM_MOVE" | "BULK_BUYER_LURE" | "QR_PRESENT" | "DOM_BRAND_MISMATCH")[];
   privacy: "standard" | "private";
   est_cost_micro_usd?: number;
+  text_hint?: string;
 }
 
 export interface InferenceVerdict {
@@ -147,6 +161,8 @@ export interface InferenceVerdict {
   hypotheses?: string[];
   confidence_bp?: number;
   provenance?: string;
+  usage?: Record<string, unknown>;
+  votes?: Record<string, unknown>[];
 }
 
 export interface IntelPullReport {

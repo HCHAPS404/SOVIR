@@ -130,6 +130,27 @@ components:
         interventions: {type: array, items: {$ref: '#/components/schemas/Intervention'}}
         deletion_receipts: {type: array, items: {$ref: '#/components/schemas/DeletionReceipt'}}
         audit_events: {type: array, items: {$ref: '#/components/schemas/AuditEvent'}}
+        feedback_labels: {type: array, items: {$ref: '#/components/schemas/EventFeedback'}}
+    EventFeedback:
+      type: object
+      description: >-
+        Human eval-loop label on one of the principal's own events (B3).
+        Attaching is refused for foreign or missing events; re-labeling
+        replaces the verdict. Purged via cascade with the event.
+      properties:
+        event_id: {type: string}
+        tenant_id: {type: string}
+        principal_id: {type: string}
+        verdict: {type: string, enum: [correct, false_positive, unsure]}
+        labeled_at_ms: {type: integer}
+    FeedbackBody:
+      type: object
+      required: [verdict]
+      properties:
+        verdict:
+          type: string
+          enum: [correct, false_positive, unsure]
+          description: Closed taxonomy — anything else fails deserialization.
     DeletionReceipt:
       type: object
       description: Durable audit tombstone of an erasure; counts and pseudonymous id only.
@@ -157,7 +178,8 @@ components:
           enum: [session_issued, consent_granted, consent_revoked, event_ingested,
                  device_registered, device_revoked, webhook_registered, webhook_revoked,
                  data_purged, retention_enforced, dispatch_ran,
-                 inference_called, intel_pulled, reservations_swept]
+                 inference_called, intel_pulled, reservations_swept,
+                 investigation_ran, feedback_labeled]
         detail: {type: string}
         at_ms: {type: integer}
     BudgetView:
@@ -193,7 +215,7 @@ components:
                    DELIVERY_CUSTOMS_FEE, AUTHORITY_IMPERSONATION,
                    SCARCITY_PRESSURE, JOB_SCAM_OFFER, ROMANCE_BAIT,
                    MIRACLE_CURE_CLAIM, DATA_HARVESTING, OFF_PLATFORM_MOVE,
-                   BULK_BUYER_LURE, QR_PRESENT]
+                   BULK_BUYER_LURE, QR_PRESENT, DOM_BRAND_MISMATCH]
         privacy: {type: string, enum: [standard, private]}
         est_cost_micro_usd: {type: integer}
         text_hint:
@@ -563,6 +585,24 @@ paths:
       responses:
         '200': {description: Events, content: {application/json: {schema: {type: array, items: {type: object}}}}}
         '401': {description: Unauthorized}
+  /v1/events/{id}/feedback:
+    post:
+      summary: Record a human eval-loop verdict on one of the caller's own events (B3)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FeedbackBody'}
+      responses:
+        '204': {description: Label attached (upsert replaces a prior verdict)}
+        '400': {description: Foreign or missing event — labels never attach}
+        '401': {description: Not authorized}
+        '422': {description: Verdict outside the closed taxonomy}
   /v1/version:
     get:
       summary: Build and contract version disclosure
