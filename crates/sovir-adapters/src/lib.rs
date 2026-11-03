@@ -57,6 +57,23 @@ impl ConsentRepository for InMemoryConsentRepository {
         guard.insert(key, grant);
         Ok(())
     }
+    async fn refresh(
+        &self,
+        tenant_id: &str,
+        grant_id: &str,
+        principal_id: &str,
+        device_id: &str,
+        expires_at_ms: u64,
+    ) -> Result<bool, PortError> {
+        let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
+        match guard.get_mut(&(tenant_id.to_string(), grant_id.to_string())) {
+            Some(g) if !g.revoked && g.principal_id == principal_id && g.device_id == device_id => {
+                g.expires_at_ms = expires_at_ms;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
     async fn revoke(&self, tenant_id: &str, grant_id: &str) -> Result<bool, PortError> {
         let mut guard = self.0.write().map_err(|_| PortError::Storage)?;
         if let Some(grant) = guard.get_mut(&(tenant_id.to_string(), grant_id.to_string())) {

@@ -36,6 +36,17 @@ pub trait ConsentRepository: Send + Sync {
     async fn get(&self, tenant_id: &str, grant_id: &str)
         -> Result<Option<ConsentGrant>, PortError>;
     async fn put(&self, grant: ConsentGrant) -> Result<(), PortError>;
+    /// Renews an existing grant's expiry. Ownership-checked: only touches a
+    /// grant still held by the same principal+device and never resurrects a
+    /// revoked tombstone — returns false in all three cases.
+    async fn refresh(
+        &self,
+        tenant_id: &str,
+        grant_id: &str,
+        principal_id: &str,
+        device_id: &str,
+        expires_at_ms: u64,
+    ) -> Result<bool, PortError>;
     async fn revoke(&self, tenant_id: &str, grant_id: &str) -> Result<bool, PortError>;
     /// Revokes every grant bound to a device within a tenant. Returns count.
     async fn revoke_by_device(&self, tenant_id: &str, device_id: &str) -> Result<u64, PortError>;

@@ -104,7 +104,7 @@ async fn ingest_requires_consent_and_respects_revocation() {
     // A revoked grant ID cannot be quietly reactivated by submitting another grant.
     assert!(matches!(
         service.grant(&p, grant()).await,
-        Err(AppError::Port(_))
+        Err(AppError::InvalidGrant)
     ));
     let mut next = event();
     next.event_id = "event-2".into();
@@ -978,6 +978,41 @@ async fn feedback_labels_own_events_only_and_survive_export() {
         .unwrap()
         .feedback_labels
         .is_empty());
+}
+
+#[tokio::test]
+async fn regrant_renews_expiry_never_a_revoked_or_foreign_grant() {
+    let s = service();
+    let p = principal("p-1");
+
+    // Re-grant of a live grant is a renewal (the extension's daily
+    // reconnect path): expiry refreshes instead of surfacing the
+    // insert-once conflict.
+    s.grant(&p, grant()).await.unwrap();
+    let mut later = grant();
+    later.expires_at_ms = 99_000;
+    s.grant(&p, later).await.unwrap();
+    let export = s.export_data(&p).await.unwrap();
+    let g = export
+        .grants
+        .iter()
+        .find(|g| g.grant_id == "grant-1")
+        .unwrap();
+    assert_eq!(g.expires_at_ms, 99_000);
+
+    // A foreign principal cannot renew away p-1's live grant.
+    let foreign = principal("p-2");
+    assert!(matches!(
+        s.grant(&foreign, grant()).await,
+        Err(AppError::InvalidGrant)
+    ));
+
+    // A revoked id is a tombstone — re-grant fails closed.
+    s.revoke(&p, "grant-1").await.unwrap();
+    assert!(matches!(
+        s.grant(&p, grant()).await,
+        Err(AppError::InvalidGrant)
+    ));
 }
 
 #[tokio::test]

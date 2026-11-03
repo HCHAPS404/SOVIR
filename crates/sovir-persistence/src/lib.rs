@@ -175,6 +175,40 @@ impl ConsentRepository for PgStore {
         }
         res
     }
+    async fn refresh(
+        &self,
+        tenant_id: &str,
+        grant_id: &str,
+        principal_id: &str,
+        device_id: &str,
+        expires_at_ms: u64,
+    ) -> Result<bool, PortError> {
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            // Renewal extends only expiry — principal/device/source stay as
+            // granted. The revoked tombstone is untouchable by design.
+            let n = sqlx::query(
+                "UPDATE consent_grants SET expires_at_ms = $5
+             WHERE tenant_id = $1 AND grant_id = $2
+               AND principal_id = $3 AND device_id = $4 AND revoked = FALSE",
+            )
+            .bind(tenant_id)
+            .bind(grant_id)
+            .bind(principal_id)
+            .bind(device_id)
+            .bind(expires_at_ms as i64)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n > 0)
+        })
+        .await;
+        if matches!(res, Ok(true)) {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
+    }
     async fn revoke(&self, tenant_id: &str, grant_id: &str) -> Result<bool, PortError> {
         let mut tx = self.tenant_tx(tenant_id).await?;
         let res = (async {

@@ -443,7 +443,29 @@ impl SovirService {
             return Err(AppError::InvalidGrant);
         }
         let grant_id = grant.grant_id.clone();
-        self.grants.put(grant).await?;
+        match self.grants.put(grant.clone()).await {
+            Ok(()) => {}
+            Err(PortError::Duplicate) => {
+                // Re-grant of a known id is a renewal of consent, not a new
+                // consent: expiry refreshes only when the same principal and
+                // device still own a live grant. A revoked tombstone or a
+                // foreign-owned id stays untouched — fail closed.
+                let renewed = self
+                    .grants
+                    .refresh(
+                        &grant.tenant_id,
+                        &grant.grant_id,
+                        &grant.principal_id,
+                        &grant.device_id,
+                        grant.expires_at_ms,
+                    )
+                    .await?;
+                if !renewed {
+                    return Err(AppError::InvalidGrant);
+                }
+            }
+            Err(e) => return Err(e.into()),
+        }
         self.audit(
             &principal.tenant_id,
             &principal.principal_id,
