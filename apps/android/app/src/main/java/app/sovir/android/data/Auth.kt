@@ -30,8 +30,32 @@ object Auth {
     private val _signedIn = MutableStateFlow(false)
     val signedIn: StateFlow<Boolean> = _signedIn
 
-    val tokenUrl: String get() = BuildConfig.SOVIR_OIDC_TOKEN_URL
+    // Endpoint overrides: quick-tunnel URLs rotate when cloudflared
+    // restarts, so the user can repoint the app from Account without a
+    // rebuild. Absent → the build-time values baked into BuildConfig.
+    val apiBase: String
+        get() = prefsOrNull()?.getString(K_API_BASE, null)?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.SOVIR_API_BASE
+    val tokenUrl: String
+        get() = prefsOrNull()?.getString(K_TOKEN_URL, null)?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.SOVIR_OIDC_TOKEN_URL
     val issuer: String get() = tokenUrl.removeSuffix("/protocol/openid-connect/token")
+    val endpointsCustom: Boolean
+        get() = prefsOrNull()?.contains(K_API_BASE) == true
+
+    private fun prefsOrNull() = if (::prefs.isInitialized) prefs else null
+
+    /** Repoints the app at another server. Tokens belong to the old
+     *  issuer, so the session is dropped — the user signs in again. */
+    fun setEndpoints(apiBase: String?, oidcTokenUrl: String?) {
+        val api = apiBase?.trim().orEmpty()
+        val oidc = oidcTokenUrl?.trim().orEmpty()
+        prefs.edit().apply {
+            if (api.isEmpty()) remove(K_API_BASE) else putString(K_API_BASE, api.trimEnd('/'))
+            if (oidc.isEmpty()) remove(K_TOKEN_URL) else putString(K_TOKEN_URL, oidc)
+        }.apply()
+        clear()
+    }
 
     fun init(context: Context) {
         if (::prefs.isInitialized) return
@@ -161,4 +185,6 @@ object Auth {
     private const val K_REFRESH = "refresh_token"
     private const val K_EXPIRES = "access_expires_at"
     private const val K_VERIFIER = "pkce_verifier"
+    private const val K_API_BASE = "endpoint_api_base"
+    private const val K_TOKEN_URL = "endpoint_oidc_token_url"
 }

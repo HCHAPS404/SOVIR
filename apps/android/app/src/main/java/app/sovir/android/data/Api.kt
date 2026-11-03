@@ -1,6 +1,5 @@
 package app.sovir.android.data
 
-import app.sovir.android.BuildConfig
 import app.sovir.android.model.AuditEvent
 import app.sovir.android.model.AuditStep
 import app.sovir.android.model.Budget
@@ -28,7 +27,7 @@ sealed class ApiError : Exception() {
 
 /** Typed client for the SOVIR API — same endpoints the web console reads. */
 object Api {
-    val base: String get() = BuildConfig.SOVIR_API_BASE
+    val base: String get() = Auth.apiBase
 
     fun data(): DataExport = parseExport(JSONObject(call("GET", "/v1/me/data")))
 

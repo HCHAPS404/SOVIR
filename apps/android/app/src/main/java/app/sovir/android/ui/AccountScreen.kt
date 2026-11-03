@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +46,9 @@ fun AccountScreen(model: AppModel, theme: ThemeChoice, onTheme: (ThemeChoice) ->
     var purging by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
     var apiVersion by remember { mutableStateOf<String?>(null) }
+    var serverEdit by remember { mutableStateOf(false) }
+    var apiField by remember { mutableStateOf("") }
+    var oidcField by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         apiVersion = withContext(Dispatchers.IO) { runCatching { Api.version() }.getOrNull() }
     }
@@ -73,7 +78,61 @@ fun AccountScreen(model: AppModel, theme: ThemeChoice, onTheme: (ThemeChoice) ->
                 },
             )
             Fact("Versión del API", apiVersion ?: "desconocida", mono = apiVersion != null)
-            Fact("Última sincronización", model.updatedAt?.let { timeAgo(it, now) } ?: "nunca", divider = false)
+            Fact("Última sincronización", model.updatedAt?.let { timeAgo(it, now) } ?: "nunca", divider = !serverEdit && !Auth.endpointsCustom)
+            // Endpoint override: las URLs de quick-tunnel rotan si el
+            // túnel se reinicia; aquí se repunta sin recompilar. Al
+            // cambiar de servidor la sesión se cierra (los tokens son
+            // del emisor anterior).
+            if (serverEdit) {
+                Gap(10.dp)
+                OutlinedTextField(
+                    value = apiField,
+                    onValueChange = { apiField = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("URL del API") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(6.dp),
+                    colors = serverFieldColors(p),
+                )
+                Gap(8.dp)
+                OutlinedTextField(
+                    value = oidcField,
+                    onValueChange = { oidcField = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("URL de identidad (token OIDC)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(6.dp),
+                    colors = serverFieldColors(p),
+                )
+                Gap(8.dp)
+                Text(
+                    "Al usar otro servidor se cierra tu sesión: vuelves a entrar con tu cuenta.",
+                    style = MaterialTheme.typography.bodySmall, color = p.muted,
+                )
+                Gap(10.dp)
+                PrimaryButton("Usar este servidor", {
+                    Auth.setEndpoints(apiField, oidcField)
+                    serverEdit = false
+                    onSignedOut()
+                }, enabled = apiField.isNotBlank() && oidcField.isNotBlank())
+                Gap(8.dp)
+                SecondaryButton("Cancelar", { serverEdit = false })
+            } else {
+                Gap(8.dp)
+                SecondaryButton(if (Auth.endpointsCustom) "Servidor personalizado · cambiar" else "Cambiar servidor", {
+                    apiField = Api.base
+                    oidcField = Auth.tokenUrl
+                    serverEdit = true
+                })
+                if (Auth.endpointsCustom) {
+                    Gap(8.dp)
+                    SecondaryButton("Restablecer servidor", {
+                        Auth.setEndpoints(null, null)
+                        onSignedOut()
+                    }, tone = Tone.Danger)
+                }
+            }
+            Gap(2.dp)
         }
 
         Gap(14.dp)
@@ -180,3 +239,11 @@ fun AccountScreen(model: AppModel, theme: ThemeChoice, onTheme: (ThemeChoice) ->
         null -> Unit
     }
 }
+
+@Composable
+private fun serverFieldColors(p: SovPalette) = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = p.ink, unfocusedBorderColor = p.line, cursorColor = p.ink,
+    focusedLabelColor = p.ink, unfocusedLabelColor = p.muted,
+    focusedTextColor = p.ink, unfocusedTextColor = p.ink,
+    focusedContainerColor = p.surface, unfocusedContainerColor = p.surface,
+)

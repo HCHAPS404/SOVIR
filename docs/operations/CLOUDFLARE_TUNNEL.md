@@ -9,7 +9,29 @@ alcanzan desde cualquier red sin abrir puertos ni mover datos fuera.
 Esto resuelve "mi móvil me alcanza por internet". **No** es Fase B
 (multi-tenant público): ese sigue siendo checklist aparte.
 
-## Requisitos
+## Opción A — quick tunnels SIN dominio (operativa hoy)
+
+`cloudflared tunnel --url http://127.0.0.1:8787` publica un subdominio
+aleatorio `*.trycloudflare.com` — accesible desde cualquier plataforma,
+TLS incluido, sin cuenta ni dominio. Es lo que corre ahora mismo:
+
+- `start-tunnels.ps1` (en `~/sovir-local/`): mata procesos viejos, lanza
+  ambos túneles (api :8787 + auth :8080) detached, extrae las URLs del
+  log y las deja en `~/sovir-local/tunnels.json`.
+- `Startup/sovir-tunnels.cmd`: los levanta en cada inicio de sesión.
+- **Limitación honesta**: si cloudflared o el PC se reinician, la URL
+  cambia. La app se repunta sin recompilar: *Cuenta → Cambiar servidor*
+  (lee `tunnels.json` para las URLs nuevas; la sesión se cierra porque
+  los tokens son del emisor anterior).
+- El APK se compila con los defaults apuntando al túnel vigente:
+  `gradlew assembleDebug -PSOVIR_API_BASE=<url> -PSOVIR_OIDC_TOKEN_URL=<url>/realms/sovir/protocol/openid-connect/token`
+
+Cuando exista dominio propio, la Opción B reemplaza esto sin tocar la
+app (mismo override de servidor, ahora a URLs fijas).
+
+## Opción B — named tunnel con dominio propio (permanente)
+
+### Requisitos
 
 - Dominio en Cloudflare (el plan gratis basta; traslada el DNS de un
   dominio que tengas o compra uno ~$10/año)
