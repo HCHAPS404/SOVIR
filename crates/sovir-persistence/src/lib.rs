@@ -326,6 +326,7 @@ fn signal_str(s: RiskSignal) -> &'static str {
         RiskSignal::OffPlatformMove => "OFF_PLATFORM_MOVE",
         RiskSignal::BulkBuyerLure => "BULK_BUYER_LURE",
         RiskSignal::QrPresent => "QR_PRESENT",
+        RiskSignal::DomBrandMismatch => "DOM_BRAND_MISMATCH",
     }
 }
 fn scope_str(s: Scope) -> &'static str {

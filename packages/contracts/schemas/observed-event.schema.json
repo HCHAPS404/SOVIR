@@ -91,7 +91,8 @@
           "DATA_HARVESTING",
           "OFF_PLATFORM_MOVE",
           "BULK_BUYER_LURE",
-          "QR_PRESENT"
+          "QR_PRESENT",
+          "DOM_BRAND_MISMATCH"
         ]
       },
       "uniqueItems": true,

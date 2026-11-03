@@ -23,6 +23,8 @@ ort = { version = "2.0.0-rc.10", optional = true }
 # `cpp` feature compiles C++ with the same CRT clash). Pure-Rust
 # fancy-regex + standard unigram path — same tokenizer.json contract.
 tokenizers = { version = "0.20", optional = true, default-features = false, features = ["unstable_wasm"] }
+# Council voter hard-bound: `tokio::time::timeout` around assess calls.
+tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

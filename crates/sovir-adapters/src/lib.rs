@@ -1374,6 +1374,12 @@ pub struct CouncilGateway {
     deferred: Vec<(String, Arc<dyn InferenceGateway>)>,
     /// Local confidence that settles a case without deferred voters.
     settle_confidence_bp: u16,
+    /// Hard bound per voter call. A slow remote cannot stall the
+    /// council: on expiry the voter is recorded as an auditable
+    /// abstention (`provenance: "abstain:voter_timeout"`, hypothesis
+    /// `no_pattern_detected`) so arbitration, union and settle logic
+    /// all ignore it while `votes` still shows what happened.
+    voter_timeout: std::time::Duration,
 }
 impl CouncilGateway {
     /// Flat council: every serving voter votes on every request.
@@ -1382,6 +1388,7 @@ impl CouncilGateway {
             voters,
             deferred: Vec::new(),
             settle_confidence_bp: 10_000,
+            voter_timeout: std::time::Duration::from_secs(8),
         }
     }
     /// Two-tier council: `voters` always vote; `deferred` vote only when
@@ -1395,9 +1402,16 @@ impl CouncilGateway {
             voters,
             deferred,
             settle_confidence_bp,
+            voter_timeout: std::time::Duration::from_secs(8),
         }
     }
+    /// Override the per-voter hard bound (`SOVIR_COUNCIL_VOTER_TIMEOUT_MS`).
+    pub fn with_voter_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.voter_timeout = timeout;
+        self
+    }
     async fn collect(
+        &self,
         group: &[(String, Arc<dyn InferenceGateway>)],
         req: &sovir_domain::InferenceRequest,
         votes: &mut Vec<sovir_domain::VoterVerdict>,
@@ -1406,15 +1420,24 @@ impl CouncilGateway {
             if !voter.serves(req.privacy) {
                 continue;
             }
-            if let Ok(v) = voter.assess(req).await {
-                votes.push(sovir_domain::VoterVerdict {
+            match tokio::time::timeout(self.voter_timeout, voter.assess(req)).await {
+                Ok(Ok(v)) => votes.push(sovir_domain::VoterVerdict {
                     voter: name.clone(),
                     model_id: v.model_id,
                     hypotheses: v.hypotheses,
                     confidence_bp: v.confidence_bp,
                     provenance: v.provenance,
                     usage: v.usage,
-                });
+                }),
+                Err(_) => votes.push(sovir_domain::VoterVerdict {
+                    voter: name.clone(),
+                    model_id: "unavailable".into(),
+                    hypotheses: vec!["no_pattern_detected".into()],
+                    confidence_bp: 0,
+                    provenance: "abstain:voter_timeout".into(),
+                    usage: None,
+                }),
+                Ok(Err(_)) => {}
             }
         }
     }
@@ -1426,7 +1449,7 @@ impl InferenceGateway for CouncilGateway {
         req: &sovir_domain::InferenceRequest,
     ) -> Result<sovir_domain::InferenceVerdict, PortError> {
         let mut votes: Vec<sovir_domain::VoterVerdict> = Vec::new();
-        Self::collect(&self.voters, req, &mut votes).await;
+        self.collect(&self.voters, req, &mut votes).await;
         if votes.is_empty() {
             return Err(PortError::Unavailable); // no serving voter answered
         }
@@ -1437,7 +1460,7 @@ impl InferenceGateway for CouncilGateway {
             if sovir_domain::local_votes_settle(&votes, self.settle_confidence_bp) {
                 outcome = sovir_domain::CouncilOutcome::LocalSettled;
             } else {
-                Self::collect(&self.deferred, req, &mut votes).await;
+                self.collect(&self.deferred, req, &mut votes).await;
                 outcome = sovir_domain::arbitrate_votes(&votes);
             }
         }
@@ -2955,6 +2978,7 @@ mod tests {
         usage: Option<sovir_domain::ReportedUsage>,
         serve_standard: bool,
         fail: bool,
+        delay_ms: u64,
     }
     #[async_trait]
     impl InferenceGateway for StubVoter {
@@ -2962,6 +2986,9 @@ mod tests {
             &self,
             req: &sovir_domain::InferenceRequest,
         ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+            if self.delay_ms > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(self.delay_ms)).await;
+            }
             if self.fail {
                 return Err(PortError::Unavailable);
             }
@@ -2989,7 +3016,38 @@ mod tests {
             usage: None,
             serve_standard: true,
             fail: false,
+            delay_ms: 0,
         }
+    }
+    /// A voter slower than the hard bound is recorded as an auditable
+    /// abstention (provenance `abstain:voter_timeout`, hypothesis
+    /// `no_pattern_detected`) instead of stalling the council.
+    #[tokio::test]
+    async fn council_slow_voter_records_abstention_not_stall() {
+        use sovir_domain::RiskSignal::*;
+        let mut slow = stub_voter(&["payment_fraud_attempt"], 9000);
+        slow.delay_ms = 300;
+        let fast = stub_voter(&["urgent_action"], 5000);
+        let council = CouncilGateway::new(vec![
+            ("slow".into(), Arc::new(slow) as _),
+            ("fast".into(), Arc::new(fast) as _),
+        ])
+        .with_voter_timeout(std::time::Duration::from_millis(60));
+        let started = std::time::Instant::now();
+        let v = council
+            .assess(&inf_req(
+                &[UrgentAction],
+                sovir_domain::PrivacyMode::Private,
+            ))
+            .await
+            .unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_millis(300));
+        let votes = v.votes.as_ref().unwrap();
+        let abstain = votes.iter().find(|vote| vote.voter == "slow").unwrap();
+        assert_eq!(abstain.provenance, "abstain:voter_timeout");
+        assert_eq!(abstain.hypotheses, vec!["no_pattern_detected".to_string()]);
+        assert!(votes.iter().any(|vote| vote.voter == "fast"));
+        assert!(v.hypotheses.iter().all(|h| h != "abstain:voter_timeout"));
     }
     /// Private mode: the remote voter is filtered by `serves` BEFORE any
     /// call — the egress recorder must stay empty (invariant: Private can

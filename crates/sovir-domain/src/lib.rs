@@ -80,6 +80,11 @@ pub enum RiskSignal {
     /// (ADR-0020) — the "quishing" carrier. Weak alone: policy requires a
     /// corroborating DOM/OCR signal before it may warn.
     QrPresent,
+    /// The page presents a known brand identity (title, og:site_name or
+    /// logo alt text) while served from a domain outside that brand's
+    /// curated domain list — brand impersonation seen in the DOM, the
+    /// textual sibling of the visual voter's pixel match.
+    DomBrandMismatch,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -597,6 +602,7 @@ pub fn risk_signal_label(s: RiskSignal) -> &'static str {
         RiskSignal::OffPlatformMove => "OFF_PLATFORM_MOVE",
         RiskSignal::BulkBuyerLure => "BULK_BUYER_LURE",
         RiskSignal::QrPresent => "QR_PRESENT",
+        RiskSignal::DomBrandMismatch => "DOM_BRAND_MISMATCH",
     }
 }
 
@@ -620,26 +626,27 @@ pub fn risk_signal_priority(s: RiskSignal) -> u8 {
         RiskSignal::CredentialRequest => 3,
         RiskSignal::GiftCardPayment => 4,
         RiskSignal::AuthorityImpersonation => 5,
-        RiskSignal::OffPlatformMove => 6,
-        RiskSignal::LinkDestinationMismatch => 7,
-        RiskSignal::DataHarvesting => 8,
-        RiskSignal::SuspiciousDomain => 9,
-        RiskSignal::ScarewareClaim => 10,
-        RiskSignal::PrizeLotteryClaim => 11,
-        RiskSignal::DeliveryCustomsFee => 12,
-        RiskSignal::InvestmentPromise => 13,
-        RiskSignal::HiddenFeePattern => 14,
-        RiskSignal::JobScamOffer => 15,
-        RiskSignal::RomanceBait => 16,
-        RiskSignal::MiracleCureClaim => 17,
-        RiskSignal::BulkBuyerLure => 18,
-        RiskSignal::ScarcityPressure => 19,
-        RiskSignal::ConsentDarkPattern => 20,
-        RiskSignal::QrPresent => 21,
-        RiskSignal::UrgentAction => 22,
-        RiskSignal::IdentityUnverified => 23,
-        RiskSignal::TrackingObserved => 24,
-        RiskSignal::UserDefinedExposureLimit => 25,
+        RiskSignal::DomBrandMismatch => 6,
+        RiskSignal::OffPlatformMove => 7,
+        RiskSignal::LinkDestinationMismatch => 8,
+        RiskSignal::DataHarvesting => 9,
+        RiskSignal::SuspiciousDomain => 10,
+        RiskSignal::ScarewareClaim => 11,
+        RiskSignal::PrizeLotteryClaim => 12,
+        RiskSignal::DeliveryCustomsFee => 13,
+        RiskSignal::InvestmentPromise => 14,
+        RiskSignal::HiddenFeePattern => 15,
+        RiskSignal::JobScamOffer => 16,
+        RiskSignal::RomanceBait => 17,
+        RiskSignal::MiracleCureClaim => 18,
+        RiskSignal::BulkBuyerLure => 19,
+        RiskSignal::ScarcityPressure => 20,
+        RiskSignal::ConsentDarkPattern => 21,
+        RiskSignal::QrPresent => 22,
+        RiskSignal::UrgentAction => 23,
+        RiskSignal::IdentityUnverified => 24,
+        RiskSignal::TrackingObserved => 25,
+        RiskSignal::UserDefinedExposureLimit => 26,
     }
 }
 /// Stable metadata label for a sensitive-data class (matches serde name).
@@ -1058,6 +1065,19 @@ impl PolicyPack {
                     risk_level: RiskLevel::High,
                     decision: DecisionKind::Warn,
                 },
+                // Brand identity (title/og:site_name/logo alt) served from a
+                // domain outside the brand's curated list, fused with a
+                // credential or payment surface — the canonical fake-login
+                // shape the DOM brand voter was built to catch.
+                PolicyRule {
+                    name: "brand_impersonation_lure".into(),
+                    clauses: vec![
+                        vec![RiskSignal::DomBrandMismatch],
+                        vec![RiskSignal::CredentialRequest, RiskSignal::PaymentRequest],
+                    ],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
                 PolicyRule {
                     name: "sensitive_or_manipulative".into(),
                     clauses: vec![vec![
@@ -1083,6 +1103,7 @@ impl PolicyPack {
                         RiskSignal::DataHarvesting,
                         RiskSignal::OffPlatformMove,
                         RiskSignal::BulkBuyerLure,
+                        RiskSignal::DomBrandMismatch,
                     ]],
                     risk_level: RiskLevel::Elevated,
                     decision: DecisionKind::Review,
@@ -1142,6 +1163,9 @@ impl PolicyPack {
                     RiskSignal::OffPlatformMove => "Signal: conversation moved off-platform",
                     RiskSignal::BulkBuyerLure => "Signal: bulk-buyer immediate-payment lure",
                     RiskSignal::QrPresent => "Signal: QR code in observed region",
+                    RiskSignal::DomBrandMismatch => {
+                        "Signal: brand identity served from foreign domain"
+                    }
                 }
                 .to_string()
             })

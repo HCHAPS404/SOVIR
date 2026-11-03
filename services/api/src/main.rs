@@ -312,13 +312,22 @@ fn inference_gateway(
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(8_000);
+    // Hard bound per voter call (default 8s): a slow remote records an
+    // auditable abstention instead of stalling the council.
+    let voter_timeout = std::time::Duration::from_millis(
+        env::var("SOVIR_COUNCIL_VOTER_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(8_000),
+    );
     match remote {
-        Some(r) => Some(Arc::new(sovir_adapters::CouncilGateway::deferred(
-            voters,
-            vec![("remote".into(), r)],
-            settle_bp,
-        ))),
-        None => Some(Arc::new(sovir_adapters::CouncilGateway::new(voters))),
+        Some(r) => Some(Arc::new(
+            sovir_adapters::CouncilGateway::deferred(voters, vec![("remote".into(), r)], settle_bp)
+                .with_voter_timeout(voter_timeout),
+        )),
+        None => Some(Arc::new(
+            sovir_adapters::CouncilGateway::new(voters).with_voter_timeout(voter_timeout),
+        )),
     }
 }
 /// Loads a versioned policy pack from `SOVIR_POLICY_PACK` (JSON file path).
