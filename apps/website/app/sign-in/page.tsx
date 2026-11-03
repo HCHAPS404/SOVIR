@@ -5,6 +5,8 @@ export const metadata = {
   robots: { index: false, follow: false },
 };
 
+import { consoleOrigin } from "../../lib/content";
+
 export default function SignInPage() {
-  redirect("http://127.0.0.1:3001/sign-in");
+  redirect(`${consoleOrigin}/sign-in`);
 }

@@ -1,3 +1,9 @@
+// Console entry point for the public site's CTAs. Overridable per
+// deployment (quick-tunnel repoint, named domain) without touching code;
+// localhost remains the dev default.
+export const consoleOrigin =
+  process.env.NEXT_PUBLIC_SOVIR_CONSOLE_URL ?? "http://127.0.0.1:3001";
+
 export type PageCopy = {
   href: string;
   label: string;
@@ -271,8 +277,8 @@ export const footerColumns: { heading: string; links: { href: string; label: str
     links: [
       { href: "/enterprise", label: "Organizaciones" },
       { href: "/pricing", label: "Precios" },
-      { href: "http://127.0.0.1:3001/sign-in", label: "Entrar", external: true },
-      { href: "http://127.0.0.1:3001/registro", label: "Registro", external: true },
+      { href: `${consoleOrigin}/sign-in`, label: "Entrar", external: true },
+      { href: `${consoleOrigin}/registro`, label: "Registro", external: true },
     ],
   },
   {

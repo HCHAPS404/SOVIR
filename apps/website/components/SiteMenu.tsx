@@ -4,8 +4,7 @@ import { ThemeSwitch } from "@sovir/ui-web/theme";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
-const consoleOrigin = "http://127.0.0.1:3001";
-import { siteNav, type SiteEntry } from "../lib/content";
+import { consoleOrigin, siteNav, type SiteEntry } from "../lib/content";
 
 function menuOwns(entry: SiteEntry, current: string) {
   return entry.kind === "menu" && entry.columns.some((column) => column.items.some((item) => item.href === current));
