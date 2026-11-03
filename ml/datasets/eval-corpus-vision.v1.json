@@ -1,8 +1,2808 @@
 {
-  "version": "v1-draft",
-  "status": "SKELETON — populated by ml/pipelines/build_vision_corpus.py after the Phishpedia download",
-  "purpose": "Eval split for the onnx-visual council voter (ADR-0024 gate). Cases reference downsampled screenshots from Phishpedia (CC0-1.0) — never real user screenshots.",
-  "model": "sovir-onnx-visual (candidate: MobileNetV3-Small int8, NOT_APPROVED)",
-  "labels": ["phish", "benign"],
-  "cases": []
+  "version": "v1",
+  "status": "populated \u2014 Phishpedia CC0-1.0 eval split",
+  "purpose": "Gated eval for the edge visual voter (ADR-0024). Each case: screenshot path + host + expected brand. Expected outcome: AUTHORITY_IMPERSONATION iff embedding matches brand AND host \u2209 brand domains.",
+  "model": "sovir-onnx-visual-v0 (pending artifact)",
+  "cases": [
+    {
+      "id": "pv-0000",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Orange+2019-10-17-11`36`33\\shot.png",
+      "host": "leesangku.com",
+      "expect_brand": "orange",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0001",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\SendGrid+2020-09-12-11`36`16\\shot.png",
+      "host": "app.sendgrid.com.login.95215.unionbayern.de",
+      "expect_brand": "sendgrid",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0002",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-21`24`15\\shot.png",
+      "host": "gpeqwpnyxccvlnvh-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0003",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-09-08-16`32`06\\shot.png",
+      "host": "projectconnect.info",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0004",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-07-02-15`55`23\\shot.png",
+      "host": "frotliketoezy.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0005",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-08-05-09`29`45\\shot.png",
+      "host": "sitta.org",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0006",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-08-09-12`05`01\\shot.png",
+      "host": "elegant-meitner-d64348.netlify.app",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0007",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Wells Fargo & Company+2019-08-05-12`51`34\\shot.png",
+      "host": "host-92-27-75-224.static.as13285.net",
+      "expect_brand": "wells fargo & company",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0008",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Comcast Corporation+2020-05-02-08`15`56\\shot.png",
+      "host": "xfinity.com-sign-in-secure-cpessfile-appmail.2bpnmedia.co.th",
+      "expect_brand": "comcast corporation",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0009",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2019-10-21-09`12`54\\shot.png",
+      "host": "myfashionablestore.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0010",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-06-26-20`37`05\\shot.png",
+      "host": "marketplace-item764533.com",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0011",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Free (ISP)+2019-07-31-07`32`16\\shot.png",
+      "host": "thewgnews.com",
+      "expect_brand": "free (isp)",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0012",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Chase Personal Banking+2020-07-05-09`22`28\\shot.png",
+      "host": "antliaounce.com",
+      "expect_brand": "chase personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0013",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Bank of Montreal+2020-09-25-14`34`43\\shot.png",
+      "host": "edenrosejewellery.com",
+      "expect_brand": "bank of montreal",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0014",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-07-18-11`57`01\\shot.png",
+      "host": "www.shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0015",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\DHL Airways, Inc.+2019-07-31-18`04`25\\shot.png",
+      "host": "dtmnotes.cu.ma",
+      "expect_brand": "dhl airways, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0016",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\WhatsApp+2020-09-15-12`49`51\\shot.png",
+      "host": "chat-whatsappgrupjoinbokepweb.zzux.com",
+      "expect_brand": "whatsapp",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0017",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\French Health Insurance+2020-09-06-13`53`56\\shot.png",
+      "host": "000p7l3.wcomhost.com",
+      "expect_brand": "french health insurance",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0018",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-09`18`19\\shot.png",
+      "host": "gnpvdulpheishxdv-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0019",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\DGI (French Tax Authority)+2020-09-27-10`50`44\\shot.png",
+      "host": "het-impp11.com",
+      "expect_brand": "dgi (french tax authority)",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0020",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Microsoft OneDrive+2020-06-24-17`29`28\\shot.png",
+      "host": "162.241.72.243",
+      "expect_brand": "microsoft onedrive",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0021",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-05-27-11`22`19\\shot.png",
+      "host": "u703323omh.ha004.t.justns.ru",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0022",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-05-21-09`34`06\\shot.png",
+      "host": "brussel-airport.be",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0023",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Spotify+2020-08-25-13`33`03\\shot.png",
+      "host": "accounts.spotify.com-account-overview.landethic.ca",
+      "expect_brand": "spotify",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0024",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\LinkedIn Corporation+2020-05-15-01`29`16\\shot.png",
+      "host": "cosmoia.com",
+      "expect_brand": "linkedin corporation",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0025",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-08-21-15`23`23\\shot.png",
+      "host": "vyvypvfnctepqhttqr.top",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0026",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-07-06-13`53`16\\shot.png",
+      "host": "facebookcolor5.pubguc.world",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0027",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Google Inc.+2020-06-20-10`31`28\\shot.png",
+      "host": "new.lgt-uk.com",
+      "expect_brand": "google inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0028",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-10`49`33\\shot.png",
+      "host": "pawftsggskvqrezu-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0029",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-12`19`48\\shot.png",
+      "host": "etxtdlrrvaknrdam-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0030",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-09`22`58\\shot.png",
+      "host": "qofjvkwvgylrhupu-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0031",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Webmail Providers+2020-07-04-11`14`53\\shot.png",
+      "host": "www.davidwinogrondspacetet.com",
+      "expect_brand": "webmail providers",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0032",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Google Inc.+2020-06-30-15`24`47\\shot.png",
+      "host": "www.sloaneandhyde.com",
+      "expect_brand": "google inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0033",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Lloyds TSB Group+2020-09-17-12`22`48\\shot.png",
+      "host": "virginmedia-help.com",
+      "expect_brand": "lloyds tsb group",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0034",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-30-12`28`03\\shot.png",
+      "host": "www.peoplemakingplaces.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0035",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Bank of Montreal+2020-09-05-12`40`58\\shot.png",
+      "host": "susedkovia.sk",
+      "expect_brand": "bank of montreal",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0036",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\eBay Inc.+2020-05-09-14`52`44\\shot.png",
+      "host": "mpparagon.com",
+      "expect_brand": "ebay inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0037",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\WhatsApp+2020-05-18-15`25`49\\shot.png",
+      "host": "chat-whatsagp.com",
+      "expect_brand": "whatsapp",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0038",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Rakuten+2020-09-06-14`08`48\\shot.png",
+      "host": "id.rakuten.co.jp.rakutenlkfefcbfsdbdcebe.icu",
+      "expect_brand": "rakuten",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0039",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Dropbox, Inc.+2020-05-24-02`17`20\\shot.png",
+      "host": "baleshwerbabaonline.com",
+      "expect_brand": "dropbox, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0040",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-09-01-12`17`25\\shot.png",
+      "host": "oumngh.tk",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0041",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-09-05-15`22`37\\shot.png",
+      "host": "gerdosoft.org",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0042",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-05-17-08`47`34\\shot.png",
+      "host": "autonube.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0043",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-29-14`48`01\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0044",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-27-11`17`02\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0045",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-11`30`11\\shot.png",
+      "host": "rcntorrpqduxrcmw-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0046",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\DGI (French Tax Authority)+2020-09-10-16`23`24\\shot.png",
+      "host": "cfspart.impots.gouv.fr.u849234oyp.ha004.t.justns.ru",
+      "expect_brand": "dgi (french tax authority)",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0047",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Webmail Providers+2020-07-04-16`37`38\\shot.png",
+      "host": "storage.googleapis.com",
+      "expect_brand": "webmail providers",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0048",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Rakuten+2020-08-17-13`55`22\\shot.png",
+      "host": "rakuten.co.jp.rakutenaklsdmflmwelasdlfmw.xyz",
+      "expect_brand": "rakuten",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0049",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-08-21-10`46`34\\shot.png",
+      "host": "kupwsmnsgydcajgvft.top",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0050",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\AutoScout24+2020-09-21-00`51`05\\shot.png",
+      "host": "kalea-poke.de",
+      "expect_brand": "autoscout24",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0051",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-07-11-17`31`19\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0052",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-05-02-10`15`55\\shot.png",
+      "host": "mail.cursounamcoapa.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0053",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Google Inc.+2020-05-24-23`22`27\\shot.png",
+      "host": "tombokka.com",
+      "expect_brand": "google inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0054",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\RuneScape+2020-08-27-15`36`21\\shot.png",
+      "host": "secure.runescape.com-zx.ru",
+      "expect_brand": "runescape",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0055",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Navy Federal Credit Union+2020-05-02-15`46`26\\shot.png",
+      "host": "yourblunts.com",
+      "expect_brand": "navy federal credit union",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0056",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Absa Group+2020-05-18-16`41`01\\shot.png",
+      "host": "thecampaignidea.com",
+      "expect_brand": "absa group",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0057",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-08-09-02`33`23\\shot.png",
+      "host": "starpolitics.politicallimit.com",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0058",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-03-15`30`43\\shot.png",
+      "host": "oasidsgokucitlah-dot-dbenitonline.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0059",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-25-11`32`24\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0060",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-05-24-10`22`30\\shot.png",
+      "host": "containerhouse.mn",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0061",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Paxful Inc.+2020-07-12-13`08`24\\shot.png",
+      "host": "laborbridge.com",
+      "expect_brand": "paxful inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0062",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-05-21-12`45`44\\shot.png",
+      "host": "teddiusantzoni.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0063",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-19`53`58\\shot.png",
+      "host": "drlxftvdlkxrtwtf-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0064",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Chase Personal Banking+2020-08-25-11`09`33\\shot.png",
+      "host": "secure-chazebank2.xyz",
+      "expect_brand": "chase personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0065",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-07`59`59\\shot.png",
+      "host": "mntbaracbbzqwsfk-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0066",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-10-19-09`07`16\\shot.png",
+      "host": "0441ecc.wcomhost.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0067",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\M & T Bank Coporation+2020-08-18-11`38`54\\shot.png",
+      "host": "repuestostotaleirl.com",
+      "expect_brand": "m & t bank coporation",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0068",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\American Express+2019-09-02-13`08`32\\shot.png",
+      "host": "fulljhuri.com",
+      "expect_brand": "american express",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0069",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-16`28`28\\shot.png",
+      "host": "hedftfdepgwladbc-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0070",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-09-17-13`00`41\\shot.png",
+      "host": "www.account.a56e39ccb480d26c6aa.info",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0071",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-13`35`57\\shot.png",
+      "host": "eiwcdcovfjpsrhtg-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0072",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Chase Personal Banking+2020-08-24-11`23`38\\shot.png",
+      "host": "online-banking-login2.xyz",
+      "expect_brand": "chase personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0073",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Microsoft OneDrive+2020-05-23-20`49`48\\shot.png",
+      "host": "justcolonialheights.com",
+      "expect_brand": "microsoft onedrive",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0074",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\SF Express Co.+2020-09-12-13`19`18\\shot.png",
+      "host": "kalakarah.com",
+      "expect_brand": "sf express co.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0075",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-08-30-15`00`20\\shot.png",
+      "host": "profile.hoanghuongtra.cute.09122000.facebookldangnhap.com",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0076",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\eBay Inc.+2020-05-12-12`09`28\\shot.png",
+      "host": "ebay.item-23949.co.uk",
+      "expect_brand": "ebay inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0077",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-09`54`16\\shot.png",
+      "host": "jbfrryrbambhqgsw-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0078",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Microsoft OneDrive+2020-09-10-13`50`28\\shot.png",
+      "host": "promautomatika-rb.ru",
+      "expect_brand": "microsoft onedrive",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0079",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Three UK+2020-08-31-11`16`42\\shot.png",
+      "host": "three-supportbilling.com",
+      "expect_brand": "three uk",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0080",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Free (ISP)+2019-07-29-03`56`18\\shot.png",
+      "host": "paws.org.au",
+      "expect_brand": "free (isp)",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0081",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2019-10-19-09`50`37\\shot.png",
+      "host": "microsottoffice365.dynv6.net",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0082",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-26-13`22`57\\shot.png",
+      "host": "saluti24.ru",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0083",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2019-08-21-11`59`54\\shot.png",
+      "host": "gofresh.com.pk",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0084",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-23`32`55\\shot.png",
+      "host": "bxxabkoanzaezszt-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0085",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-10-22-09`28`48\\shot.png",
+      "host": "womgouboures.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0086",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Chase Personal Banking+2020-05-25-02`24`38\\shot.png",
+      "host": "chasebank.ru",
+      "expect_brand": "chase personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0087",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2019-07-31-06`05`14\\shot.png",
+      "host": "www.bizcloudz.net",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0088",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Microsoft OneDrive+2020-07-24-13`23`08\\shot.png",
+      "host": "fielworship.com",
+      "expect_brand": "microsoft onedrive",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0089",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Raiffeisen Bank S.A.+2020-09-05-14`58`08\\shot.png",
+      "host": "improwise.cf",
+      "expect_brand": "raiffeisen bank s.a.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0090",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Chase Personal Banking+2020-09-26-13`03`53\\shot.png",
+      "host": "4ac1b1774f.nxcli.net",
+      "expect_brand": "chase personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0091",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-08-22-11`02`37\\shot.png",
+      "host": "verifyaccountnow.is-very-evil.org",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0092",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-30-15`54`40\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0093",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Alibaba+2020-05-02-06`40`09\\shot.png",
+      "host": "hollykim.com",
+      "expect_brand": "alibaba",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0094",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Maersk+2020-07-16-09`44`25\\shot.png",
+      "host": "ghinirent.co.za",
+      "expect_brand": "maersk",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0095",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-07-22-17`28`03\\shot.png",
+      "host": "track-au.newmagz.com",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0096",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-07-28-22`11`31\\shot.png",
+      "host": "303e7a2d-afff-43d6-9bc2-a1c9f810d0b1.htmlcomponentservice.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0097",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Free (ISP)+2019-07-28-18`32`28\\shot.png",
+      "host": "stephanehamard.com",
+      "expect_brand": "free (isp)",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0098",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-08-18-13`14`32\\shot.png",
+      "host": "officeadmin.netlify.app",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0099",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Bank of America+2020-05-13-10`13`43\\shot.png",
+      "host": "denser-recognition.000webhostapp.com",
+      "expect_brand": "bank of america",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0100",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-09-10-15`04`57\\shot.png",
+      "host": "maronapple.jp",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0101",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-07-11-16`37`37\\shot.png",
+      "host": "shuvobarta.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0102",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-06-12-11`43`56\\shot.png",
+      "host": "www.vendorcentral.amazon.acc-vendor.com",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0103",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-00`42`37\\shot.png",
+      "host": "dxmgchxzpoiqkeqf-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0104",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-08-14-11`53`03\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0105",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Microsoft OneDrive+2020-08-26-13`53`56\\shot.png",
+      "host": "lespetitesvictoires-asap.org",
+      "expect_brand": "microsoft onedrive",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0106",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-05-17-09`06`36\\shot.png",
+      "host": "basicmechanicalengineering.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0107",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-05-18-14`35`47\\shot.png",
+      "host": "physics.uctm.edu",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0108",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-08-28-14`01`14\\shot.png",
+      "host": "officialinv12sece20u20bsk913na.uc.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0109",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Netflix Inc.+2020-09-16-16`52`53\\shot.png",
+      "host": "www.bogueassetmanagement.com",
+      "expect_brand": "netflix inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0110",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-09-26-11`31`49\\shot.png",
+      "host": "www.mestkafe.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0111",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Stripe+2019-08-21-12`26`21\\shot.png",
+      "host": "www.christopherzieglerdesign.com",
+      "expect_brand": "stripe",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0112",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-10-26-08`20`52\\shot.png",
+      "host": "www.mcmimmobiliare.eu",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0113",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\DGI (French Tax Authority)+2020-07-08-16`27`47\\shot.png",
+      "host": "het-impp11.com",
+      "expect_brand": "dgi (french tax authority)",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0114",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-08-19-12`10`51\\shot.png",
+      "host": "proxima-net.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0115",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-05-02-13`32`41\\shot.png",
+      "host": "spinkseagle.com.au",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0116",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Raiffeisen Bank S.A.+2020-08-05-09`54`28\\shot.png",
+      "host": "removegetit.com",
+      "expect_brand": "raiffeisen bank s.a.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0117",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Rackspace+2020-09-22-10`58`25\\shot.png",
+      "host": "platinumpizzaboxes.com",
+      "expect_brand": "rackspace",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0118",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-08-22-11`58`45\\shot.png",
+      "host": "hsianpgehlp01rcvrsrvce01.my.id",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0119",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\AT&T Inc.+2019-09-06-14`21`42\\shot.png",
+      "host": "zencartpros.net",
+      "expect_brand": "at&t inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0120",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\TradeKey+2020-05-21-12`13`41\\shot.png",
+      "host": "sia.cv",
+      "expect_brand": "tradekey",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0121",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\1&1 Ionos+2020-09-24-06`05`11\\shot.png",
+      "host": "paperearn.com",
+      "expect_brand": "1&1 ionos",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0122",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\IRS+2020-05-25-16`57`02\\shot.png",
+      "host": "testing-adjusting-balancing.com",
+      "expect_brand": "irs",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0123",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Credit Agricole S.A.+2020-09-12-14`05`36\\shot.png",
+      "host": "www.credit-agricole-activation-securipass.u852894prh.ha004.t.justns.ru",
+      "expect_brand": "credit agricole s.a.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0124",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Microsoft OneDrive+2020-07-24-13`34`21\\shot.png",
+      "host": "www.lean19.com",
+      "expect_brand": "microsoft onedrive",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0125",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-08-22-11`09`51\\shot.png",
+      "host": "baka-translations.tk",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0126",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Raiffeisen Bank S.A.+2020-07-27-14`05`34\\shot.png",
+      "host": "fayezhang.com",
+      "expect_brand": "raiffeisen bank s.a.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0127",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Instagram+2020-08-30-16`12`56\\shot.png",
+      "host": "lnstagram-helpweb.cf",
+      "expect_brand": "instagram",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0128",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Desjardins+2020-08-30-16`37`24\\shot.png",
+      "host": "livingcolour.co.jp",
+      "expect_brand": "desjardins",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0129",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Charles Schwab+2020-08-22-10`19`12\\shot.png",
+      "host": "innowacyjnefirmy.pl",
+      "expect_brand": "charles schwab",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0130",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Free (ISP)+2019-10-20-09`03`07\\shot.png",
+      "host": "stephanehamard.com",
+      "expect_brand": "free (isp)",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0131",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2019-10-20-10`44`48\\shot.png",
+      "host": "login.microsoftonline.com.authorize.client.id.3313514354.morgenwargestern.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0132",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Orange+2020-08-20-14`10`38\\shot.png",
+      "host": "ixorboxclien.yolasite.com",
+      "expect_brand": "orange",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0133",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-06-21-18`26`36\\shot.png",
+      "host": "paypal.com-confirme-acount.informations-service.online",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0134",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-24-02`23`36\\shot.png",
+      "host": "paypalverifycentral.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0135",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Itau Unibanco S.A+2020-08-29-13`07`04\\shot.png",
+      "host": "www.m-autoatendimentodecadastro.com",
+      "expect_brand": "itau unibanco s.a",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0136",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Bank of America+2020-07-02-20`55`44\\shot.png",
+      "host": "kalayekhabeyas.ir",
+      "expect_brand": "bank of america",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0137",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-14`27`53\\shot.png",
+      "host": "rahowxrjyzhzdxzw-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0138",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-08-10-11`07`41\\shot.png",
+      "host": "jovial-albattani-dead8d.netlify.app",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0139",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-10-24-16`04`54\\shot.png",
+      "host": "paypal-id-signin-customer-center-customer-locale-g-en.cf",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0140",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-09-05-16`45`42\\shot.png",
+      "host": "www.pornsex.viralterbaru2020.com",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0141",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-18`10`37\\shot.png",
+      "host": "ipovvgtdyfkjaefu-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0142",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Huntington Bank+2020-09-10-15`39`07\\shot.png",
+      "host": "mimbarberita.com",
+      "expect_brand": "huntington bank",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0143",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-05-16-07`42`23\\shot.png",
+      "host": "vanbaolu.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0144",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2019-08-05-12`06`41\\shot.png",
+      "host": "ghill.ml",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0145",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-08-13-20`16`38\\shot.png",
+      "host": "laughing-dubinsky-924c80.netlify.app",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0146",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-27-14`02`54\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0147",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Microsoft OneDrive+2020-07-23-07`16`53\\shot.png",
+      "host": "onedrivedocument.ew.r.appspot.com",
+      "expect_brand": "microsoft onedrive",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0148",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-07-20-15`39`38\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0149",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Microsoft OneDrive+2019-08-19-11`45`57\\shot.png",
+      "host": "swordsclub.com",
+      "expect_brand": "microsoft onedrive",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0150",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Netflix Inc.+2019-08-21-14`28`41\\shot.png",
+      "host": "www.vivirpropiedades.cl",
+      "expect_brand": "netflix inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0151",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-06`33`51\\shot.png",
+      "host": "giibkhtfqxatjdal-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0152",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Apple Inc.+2020-05-18-13`39`49\\shot.png",
+      "host": "www.appleid.apple.com-4pple-santekpellasises-community-updateds.org",
+      "expect_brand": "apple inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0153",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-19-05`14`13\\shot.png",
+      "host": "netfix-client-area-payment-issue.repuestosmaquinet.cl",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0154",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\DHL Airways, Inc.+2019-09-08-22`21`11\\shot.png",
+      "host": "neomchamber.com",
+      "expect_brand": "dhl airways, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0155",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-06-28-11`21`49\\shot.png",
+      "host": "forms.zohopublic.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0156",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-08-17-12`45`20\\shot.png",
+      "host": "fb-lite-15.000webhostapp.com",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0157",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-06`05`32\\shot.png",
+      "host": "kgqummiirhjqwxjs-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0158",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-08-13-18`55`44\\shot.png",
+      "host": "ijobs.vn",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0159",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-08-24-11`07`18\\shot.png",
+      "host": "freejface.000webhostapp.com",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0160",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\ADP, LLC+2019-08-05-11`10`04\\shot.png",
+      "host": "aktywnarehabilitacja.eu",
+      "expect_brand": "adp, llc",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0161",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\TPG Telecom+2019-09-09-10`52`39\\shot.png",
+      "host": "courgeon-immobilier.fr",
+      "expect_brand": "tpg telecom",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0162",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Navy Federal Credit Union+2019-09-02-14`10`40\\shot.png",
+      "host": "metratip.com",
+      "expect_brand": "navy federal credit union",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0163",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Wells Fargo & Company+2020-06-18-21`20`13\\shot.png",
+      "host": "xm2.com.bo",
+      "expect_brand": "wells fargo & company",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0164",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\SunTrust Bank+2019-10-24-08`30`22\\shot.png",
+      "host": "hopeless-bend.000webhostapp.com",
+      "expect_brand": "suntrust bank",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0165",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2019-08-05-10`16`31\\shot.png",
+      "host": "www.boxlefty.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0166",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-06-07-11`39`31\\shot.png",
+      "host": "saluti24.ru",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0167",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\GoDaddy+2020-07-20-15`33`34\\shot.png",
+      "host": "soclever.com.sg",
+      "expect_brand": "godaddy",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0168",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Webmail Providers+2020-09-10-16`50`08\\shot.png",
+      "host": "login-webmail-f9cf0.web.app",
+      "expect_brand": "webmail providers",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0169",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-08`11`59\\shot.png",
+      "host": "lokkwofywgntqpzp-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0170",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-20`20`45\\shot.png",
+      "host": "fcpkhoughgopbqww-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0171",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\WhatsApp+2020-09-10-12`56`10\\shot.png",
+      "host": "chat.whatsxxx.club",
+      "expect_brand": "whatsapp",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0172",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Netflix Inc.+2019-07-28-22`29`28\\shot.png",
+      "host": "edm.antimalwaredetetions.com",
+      "expect_brand": "netflix inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0173",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-16-16`40`36\\shot.png",
+      "host": "marty-roe.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0174",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Yahoo! Inc+2020-08-16-15`45`52\\shot.png",
+      "host": "iitee.net",
+      "expect_brand": "yahoo! inc",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0175",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-03`35`16\\shot.png",
+      "host": "bvwlckdnjblaekka-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0176",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-25-15`02`20\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0177",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-06-30-17`25`54\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0178",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Wells Fargo & Company+2020-08-18-11`52`01\\shot.png",
+      "host": "fargo-279021.df.r.appspot.com",
+      "expect_brand": "wells fargo & company",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0179",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\DHL Airways, Inc.+2020-08-25-11`41`41\\shot.png",
+      "host": "bit.ly",
+      "expect_brand": "dhl airways, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0180",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Chase Personal Banking+2020-07-09-11`27`06\\shot.png",
+      "host": "security-jpmorganchase.serveuser.com",
+      "expect_brand": "chase personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0181",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\American Express+2020-05-27-17`10`46\\shot.png",
+      "host": "mensajeriagestionar.com.ar",
+      "expect_brand": "american express",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0182",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\RuneScape+2020-07-21-16`21`01\\shot.png",
+      "host": "secure.runescape.com-en.ru",
+      "expect_brand": "runescape",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0183",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-23`59`29\\shot.png",
+      "host": "dmqoikuuilbeaqdz-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0184",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Bank of America+2019-08-06-14`37`48\\shot.png",
+      "host": "wpmymg3.bluefactorlab.it",
+      "expect_brand": "bank of america",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0185",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-04-11`40`17\\shot.png",
+      "host": "131425.000webhostapp.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0186",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-09-02-11`05`34\\shot.png",
+      "host": "cursodeozonioterapiabrasil.com.br",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0187",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\SF Express Co.+2020-06-10-12`46`55\\shot.png",
+      "host": "brightonhomes.in",
+      "expect_brand": "sf express co.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0188",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-05-23-22`12`14\\shot.png",
+      "host": "bootnbonnet.org",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0189",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Chase Personal Banking+2019-09-08-18`50`00\\shot.png",
+      "host": "findtheseess.art",
+      "expect_brand": "chase personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0190",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-09-04-12`20`59\\shot.png",
+      "host": "https.www.paypal.com.ttlart2012ttcysu.aylandirow.tmf.org.ru",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0191",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-25-01`18`45\\shot.png",
+      "host": "paypalverifycentral.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0192",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\eBay Inc.+2020-05-01-13`16`27\\shot.png",
+      "host": "toko.duniabermain.com",
+      "expect_brand": "ebay inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0193",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\IRS+2020-05-24-20`20`25\\shot.png",
+      "host": "kavc.org",
+      "expect_brand": "irs",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0194",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-30-10`18`40\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0195",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2019-09-02-14`34`51\\shot.png",
+      "host": "veetwes.com.ng",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0196",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Microsoft OneDrive+2020-09-13-10`19`32\\shot.png",
+      "host": "onedrivedocument.ew.r.appspot.com",
+      "expect_brand": "microsoft onedrive",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0197",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-05-30-16`09`19\\shot.png",
+      "host": "cnunst.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0198",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-07-05-15`37`56\\shot.png",
+      "host": "gisy028946038documents2020.wm.r.appspot.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0199",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-02`52`11\\shot.png",
+      "host": "rszwlgsxossumpyo-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0200",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\EE Limited+2020-09-15-13`19`01\\shot.png",
+      "host": "ee-billingtec.com",
+      "expect_brand": "ee limited",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0201",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Rabobank Nederland+2020-07-20-14`30`15\\shot.png",
+      "host": "wereldpas-recyclings-proces.giles.ir",
+      "expect_brand": "rabobank nederland",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0202",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Mobile.de+2020-09-26-12`38`19\\shot.png",
+      "host": "www.servicedaccommodation4u.com",
+      "expect_brand": "mobile.de",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0203",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-06-14-09`00`17\\shot.png",
+      "host": "www.saluti24.ru",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0204",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Yahoo! Inc+2019-08-05-10`10`00\\shot.png",
+      "host": "halfwaytreeri.com",
+      "expect_brand": "yahoo! inc",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0205",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Chase Personal Banking+2020-07-10-12`09`31\\shot.png",
+      "host": "security-jpmorganchase.serveuser.com",
+      "expect_brand": "chase personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0206",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-09-10-17`16`49\\shot.png",
+      "host": "akitus.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0207",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-10-01-14`44`13\\shot.png",
+      "host": "removed-fbcom-31560202.freshhellas.gr",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0208",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-10-18-05`23`52\\shot.png",
+      "host": "www.maxi.news",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0209",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-09-03-10`54`08\\shot.png",
+      "host": "https.www.paypal.com.ttlart2012ttcysu.aylandirow.tmf.org.ru",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0210",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\U.S. Bank+2020-05-23-23`09`10\\shot.png",
+      "host": "usbank-link-mupyndtfft---com.illmickelsonbeats.com",
+      "expect_brand": "u.s. bank",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0211",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Netflix Inc.+2020-05-24-11`17`13\\shot.png",
+      "host": "pstratiinc.com",
+      "expect_brand": "netflix inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0212",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-10-13`40`58\\shot.png",
+      "host": "b1a181d7c69724f7e07fe6bb01d439c4-dot-dbenitonline.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0213",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\RuneScape+2020-08-28-16`17`33\\shot.png",
+      "host": "secure.runescape.com-zx.ru",
+      "expect_brand": "runescape",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0214",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-11`27`42\\shot.png",
+      "host": "jxabukirtaunxoer-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0215",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Chase Personal Banking+2020-07-02-15`41`02\\shot.png",
+      "host": "wrztnchpouldn.com",
+      "expect_brand": "chase personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0216",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-12`07`49\\shot.png",
+      "host": "hsnmpofuqyundiui-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0217",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Etisalat+2020-05-24-01`20`56\\shot.png",
+      "host": "ebills.thetrissilent.com",
+      "expect_brand": "etisalat",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0218",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-06-09-12`08`44\\shot.png",
+      "host": "saluti24.ru",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0219",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Steam+2020-07-18-11`37`28\\shot.png",
+      "host": "sinchamax220402.000webhostapp.com",
+      "expect_brand": "steam",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0220",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Match+2019-09-08-16`44`42\\shot.png",
+      "host": "business-org.com",
+      "expect_brand": "match",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0221",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-20`44`12\\shot.png",
+      "host": "pbddneqzdaivtlye-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0222",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Regions Financial Corporation+2020-08-17-13`47`31\\shot.png",
+      "host": "lavadodesalaseneldf.com",
+      "expect_brand": "regions financial corporation",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0223",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-09-27-12`47`10\\shot.png",
+      "host": "facebook.es-la.mx",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0224",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Cembra Money Bank AG+2020-09-01-12`06`41\\shot.png",
+      "host": "www.plombierlarocheparis12eme.fr",
+      "expect_brand": "cembra money bank ag",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0225",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-08-18-11`44`51\\shot.png",
+      "host": "www.dewunmiamure.com.ng",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0226",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Netflix Inc.+2019-10-19-13`24`38\\shot.png",
+      "host": "my-type.nichost.ru",
+      "expect_brand": "netflix inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0227",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-16`50`18\\shot.png",
+      "host": "ahzrydaxfrmmcayj-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0228",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-09-03-10`05`12\\shot.png",
+      "host": "paypl2019.000webhostapp.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0229",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-17`47`18\\shot.png",
+      "host": "cdhwegrvrgxjezhz-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0230",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Dropbox, Inc.+2020-06-12-12`23`58\\shot.png",
+      "host": "pinnerx.com",
+      "expect_brand": "dropbox, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0231",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\LinkedIn Corporation+2020-05-02-10`01`07\\shot.png",
+      "host": "weddenoptennis.be",
+      "expect_brand": "linkedin corporation",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0232",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-10-26-06`20`27\\shot.png",
+      "host": "www.mcmimmobiliare.eu",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0233",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Adobe Inc.+2020-07-09-13`24`08\\shot.png",
+      "host": "nealhelps.com",
+      "expect_brand": "adobe inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0234",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-06-10-12`40`39\\shot.png",
+      "host": "saluti24.ru",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0235",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Etisalat+2020-08-16-15`31`17\\shot.png",
+      "host": "ebills.thetrissilent.com",
+      "expect_brand": "etisalat",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0236",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-07-20-13`16`26\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0237",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Match+2019-08-05-09`48`17\\shot.png",
+      "host": "business-org.com",
+      "expect_brand": "match",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0238",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-09-11-10`10`39\\shot.png",
+      "host": "login.live.com.office.flagstarbancorp.myshn.net",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0239",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-10`12`54\\shot.png",
+      "host": "prdaxjjziahztygs-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0240",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-03`06`41\\shot.png",
+      "host": "akgvbipffftqmocs-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0241",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Apple Inc.+2020-07-15-11`42`57\\shot.png",
+      "host": "www.secureupdate.appleld.com.duilawyeryork.com",
+      "expect_brand": "apple inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0242",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-08-01-14`34`08\\shot.png",
+      "host": "www.moraesonline.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0243",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Yahoo! Inc+2019-08-19-11`21`56\\shot.png",
+      "host": "www.muhtomas.co.id",
+      "expect_brand": "yahoo! inc",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0244",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\U.S. Bank+2020-07-14-10`54`49\\shot.png",
+      "host": "usbank-link-mupyndtfft---com.illmickelsonbeats.com",
+      "expect_brand": "u.s. bank",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0245",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-00`46`33\\shot.png",
+      "host": "betrpeyswllxqxeu-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0246",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Scotiabank+2020-07-08-13`15`00\\shot.png",
+      "host": "anotherpampered.com",
+      "expect_brand": "scotiabank",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0247",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-06-18-22`56`01\\shot.png",
+      "host": "www.amazon.co.jp.bigbenelectronics.com",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0248",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-12`34`30\\shot.png",
+      "host": "hnuufyebwobytbga-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0249",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-19`09`04\\shot.png",
+      "host": "meizdtdqsxkdiqfg-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0250",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-20`48`53\\shot.png",
+      "host": "qhyrhflokrrqkdih-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0251",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-25-17`02`02\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0252",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Webmail Providers+2020-07-04-17`45`12\\shot.png",
+      "host": "dominoqiuqiu.win",
+      "expect_brand": "webmail providers",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0253",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Netflix Inc.+2020-09-05-16`42`25\\shot.png",
+      "host": "www.portalaccessx.com",
+      "expect_brand": "netflix inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0254",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-08-14-15`21`44\\shot.png",
+      "host": "ozarkmorealtor.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0255",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Daum+2020-06-14-11`19`34\\shot.png",
+      "host": "everestwebdevelopment.com",
+      "expect_brand": "daum",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0256",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Netflix Inc.+2020-09-03-15`30`53\\shot.png",
+      "host": "renew-mysubscription.com",
+      "expect_brand": "netflix inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0257",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\HSBC Bank+2020-09-27-13`41`54\\shot.png",
+      "host": "www.hsbc.com.international-markets.link",
+      "expect_brand": "hsbc bank",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0258",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-15`06`28\\shot.png",
+      "host": "hrojehdhezjisnhc-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0259",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Bank of America+2019-10-19-00`31`11\\shot.png",
+      "host": "studioukladanka.com",
+      "expect_brand": "bank of america",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0260",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Bank of America+2020-05-01-17`10`44\\shot.png",
+      "host": "crosplat.co.uk",
+      "expect_brand": "bank of america",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0261",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2019-10-19-05`51`02\\shot.png",
+      "host": "ofice365support.dynv6.net",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0262",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-10-22-09`32`26\\shot.png",
+      "host": "tyagiproperty.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0263",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Visa International Service Association+2020-07-01-10`52`49\\shot.png",
+      "host": "req-0436710903.gulab.com.tr",
+      "expect_brand": "visa international service association",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0264",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-08-05-10`18`27\\shot.png",
+      "host": "mcpaeeftewgcezjphqqb.top",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0265",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2019-08-27-14`08`29\\shot.png",
+      "host": "taolpz.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0266",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\RuneScape+2020-07-12-11`46`31\\shot.png",
+      "host": "secure.runescape-mobile.ru",
+      "expect_brand": "runescape",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0267",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Free (ISP)+2019-07-28-19`07`38\\shot.png",
+      "host": "espace-free-mobile.freemo8c.beget.tech",
+      "expect_brand": "free (isp)",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0268",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Alibaba+2019-07-29-04`54`17\\shot.png",
+      "host": "shirohanastaff.org",
+      "expect_brand": "alibaba",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0269",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-05-10-17`15`51\\shot.png",
+      "host": "annaeva.hu",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0270",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-05-08-01`59`37\\shot.png",
+      "host": "simptaxt-err.tk",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0271",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Cogeco+2020-07-22-17`08`20\\shot.png",
+      "host": "baseline-eg.com",
+      "expect_brand": "cogeco",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0272",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-09-08-19`15`05\\shot.png",
+      "host": "ultrarampage-service.cf",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0273",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-11`49`22\\shot.png",
+      "host": "oolqrlgxvmaymzxx-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0274",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-06`22`07\\shot.png",
+      "host": "ruxkqmmeovfefabz-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0275",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-27-11`18`21\\shot.png",
+      "host": "saluti24.ru",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0276",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\eBay Inc.+2020-05-01-11`34`40\\shot.png",
+      "host": "usereinloggen.com",
+      "expect_brand": "ebay inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0277",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Discover+2020-05-02-00`02`17\\shot.png",
+      "host": "smartraining.org",
+      "expect_brand": "discover",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0278",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-07-18-12`17`12\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0279",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Apple Inc.+2019-10-19-07`21`54\\shot.png",
+      "host": "hajjcalgary.ca",
+      "expect_brand": "apple inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0280",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Halifax Bank of Scotland Plc+2020-09-24-16`40`28\\shot.png",
+      "host": "halifax.online-unregister.com",
+      "expect_brand": "halifax bank of scotland plc",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0281",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Adobe Inc.+2019-10-19-02`35`44\\shot.png",
+      "host": "www.tercume.ws",
+      "expect_brand": "adobe inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0282",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Societe Generale+2019-10-18-08`38`16\\shot.png",
+      "host": "leesangku.com",
+      "expect_brand": "societe generale",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0283",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-05-24-08`41`36\\shot.png",
+      "host": "ncrdress.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0284",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Yahoo! Inc+2019-09-06-22`40`25\\shot.png",
+      "host": "theoffice.in",
+      "expect_brand": "yahoo! inc",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0285",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\La Banque postale+2020-08-14-13`59`15\\shot.png",
+      "host": "meridianbrandy.com",
+      "expect_brand": "la banque postale",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0286",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Halifax Bank of Scotland Plc+2020-09-24-15`28`41\\shot.png",
+      "host": "halifax.device-deregistration.com",
+      "expect_brand": "halifax bank of scotland plc",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0287",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-08-01-11`47`13\\shot.png",
+      "host": "ooo-nikaprofi.ru",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0288",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-05-02-15`57`34\\shot.png",
+      "host": "atlantabasecamp.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0289",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Instagram+2020-08-29-10`30`14\\shot.png",
+      "host": "gonzevilla.000webhostapp.com",
+      "expect_brand": "instagram",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0290",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\DHL Airways, Inc.+2019-07-29-07`42`11\\shot.png",
+      "host": "www.thefootballplace.cu.ma",
+      "expect_brand": "dhl airways, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0291",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Bank of America+2020-05-02-14`07`40\\shot.png",
+      "host": "kalayekhabeyas.ir",
+      "expect_brand": "bank of america",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0292",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-05`54`12\\shot.png",
+      "host": "qpianfekofrwgpfe-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0293",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-12`29`09\\shot.png",
+      "host": "cqnebddgeqhjnidb-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0294",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\WeTransfer+2019-10-24-15`41`36\\shot.png",
+      "host": "857657785457347-dot-wet-rans-fer-254621.appspot.com",
+      "expect_brand": "wetransfer",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0295",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2019-10-24-08`36`13\\shot.png",
+      "host": "www.111ea.org",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0296",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-07-19-12`48`32\\shot.png",
+      "host": "santarms.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0297",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Dropbox, Inc.+2019-10-26-02`47`59\\shot.png",
+      "host": "jesseallenwilson.com",
+      "expect_brand": "dropbox, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0298",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Apple Inc.+2020-05-18-13`28`58\\shot.png",
+      "host": "icloud.info-et.us",
+      "expect_brand": "apple inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0299",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Microsoft OneDrive+2019-10-18-23`44`48\\shot.png",
+      "host": "garageportrait.com",
+      "expect_brand": "microsoft onedrive",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0300",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-07-10-09`44`08\\shot.png",
+      "host": "nataliemerowsky.com",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0301",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Wells Fargo & Company+2020-08-19-13`15`35\\shot.png",
+      "host": "renewcosmeticvaginalinstitute.com",
+      "expect_brand": "wells fargo & company",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0302",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-09-30-11`06`41\\shot.png",
+      "host": "13.66.28.137",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0303",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\IRS+2020-07-01-14`55`54\\shot.png",
+      "host": "www.turkmcse.com",
+      "expect_brand": "irs",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0304",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-12`39`51\\shot.png",
+      "host": "jmudmpgmmcqyvdah-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0305",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-23`04`59\\shot.png",
+      "host": "gbrzgpjbjwrbldzh-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0306",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Daum+2020-06-09-12`36`23\\shot.png",
+      "host": "everestwebdevelopment.com",
+      "expect_brand": "daum",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0307",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Adobe Inc.+2020-05-18-12`01`57\\shot.png",
+      "host": "smarturl.it",
+      "expect_brand": "adobe inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0308",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Suncorp Group+2020-09-09-12`00`17\\shot.png",
+      "host": "whydomuslims.com",
+      "expect_brand": "suncorp group",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0309",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\AT&T Inc.+2020-08-23-10`22`12\\shot.png",
+      "host": "yahoomailywdsuqiosujaghsw.weebly.com",
+      "expect_brand": "at&t inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0310",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Cox Communications+2020-07-27-14`02`03\\shot.png",
+      "host": "art-sticker.fr",
+      "expect_brand": "cox communications",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0311",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\eBay Inc.+2020-07-08-13`12`08\\shot.png",
+      "host": "store.ebay.de.abtloman.com",
+      "expect_brand": "ebay inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0312",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-19`16`08\\shot.png",
+      "host": "rqhqhyqylgsjbcbs-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0313",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-05-29-14`03`32\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0314",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Boxberry+2020-09-02-16`10`16\\shot.png",
+      "host": "boxberry-deliv.ru",
+      "expect_brand": "boxberry",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0315",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Chase Personal Banking+2020-09-02-14`36`22\\shot.png",
+      "host": "saraltaxservices.co.in",
+      "expect_brand": "chase personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0316",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\French Health Insurance+2020-09-24-14`56`28\\shot.png",
+      "host": "sultaco.com",
+      "expect_brand": "french health insurance",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0317",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2019-09-02-15`10`14\\shot.png",
+      "host": "valorhomes.co.uk",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0318",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Americanas.com S_A Comercio Electrnico+2020-09-04-11`54`06\\shot.png",
+      "host": "semanadeofertasdiadospais.club",
+      "expect_brand": "americanas.com s/a comercio electrnico",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0319",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-00`49`30\\shot.png",
+      "host": "gskoummczkdahzds-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0320",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-06-09-14`56`01\\shot.png",
+      "host": "fbkrelatormarketplace.realtorrpooperrtys.us",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0321",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-05-03-00`19`25\\shot.png",
+      "host": "playamoves.com",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0322",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-09-26-11`06`14\\shot.png",
+      "host": "gerdosoft.org",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0323",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-11`01`17\\shot.png",
+      "host": "qwqmatuebqpxqsln-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0324",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Chase Personal Banking+2020-08-28-14`40`01\\shot.png",
+      "host": "chaseverification.jjhtgfuel.com",
+      "expect_brand": "chase personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0325",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-09-02-10`31`48\\shot.png",
+      "host": "reyestaxservices.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0326",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-07-16-11`37`13\\shot.png",
+      "host": "realestate-page-id-6389517523.mudraauctions.com",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0327",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\NatWest Personal Banking+2020-09-09-13`34`23\\shot.png",
+      "host": "nwolb.com.payee-review-4918.info",
+      "expect_brand": "natwest personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0328",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Made-In-China+2020-09-04-11`22`22\\shot.png",
+      "host": "engcamp.org",
+      "expect_brand": "made-in-china",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0329",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\DocuSign+2020-09-03-11`25`38\\shot.png",
+      "host": "docusignsecuredocuadmin.weebly.com",
+      "expect_brand": "docusign",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0330",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-09-15-12`45`20\\shot.png",
+      "host": "www.rita.opo.lt",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0331",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Free (ISP)+2020-09-26-12`18`47\\shot.png",
+      "host": "000p8my.wcomhost.com",
+      "expect_brand": "free (isp)",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0332",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-03`13`45\\shot.png",
+      "host": "cnttgqgzaqrnwwdl-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0333",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Wells Fargo & Company+2020-09-11-12`54`37\\shot.png",
+      "host": "li.pineappletribevip.com",
+      "expect_brand": "wells fargo & company",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0334",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-06-10-12`05`13\\shot.png",
+      "host": "saluti24.ru",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0335",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\First Investment Bank+2019-09-02-15`03`47\\shot.png",
+      "host": "smithdiscountbooks.com",
+      "expect_brand": "first investment bank",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0336",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-01`57`25\\shot.png",
+      "host": "pxbvmgymgddnfbjz-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0337",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-08-05-10`56`17\\shot.png",
+      "host": "shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0338",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Yahoo! Inc+2019-10-20-10`36`09\\shot.png",
+      "host": "native-magnesium.000webhostapp.com",
+      "expect_brand": "yahoo! inc",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0339",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-16`25`27\\shot.png",
+      "host": "oxuhjxehzrukvosa-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0340",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Free (ISP)+2019-07-28-20`14`42\\shot.png",
+      "host": "paws.org.au",
+      "expect_brand": "free (isp)",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0341",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-08-09-15`20`14\\shot.png",
+      "host": "amazon.webstarterz.com",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0342",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-08-30-16`05`06\\shot.png",
+      "host": "dashboardseivcastingf.com",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0343",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-08-25-13`55`20\\shot.png",
+      "host": "yhpytxsyjwbnqrnsnx.top",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0344",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-08-29-09`45`10\\shot.png",
+      "host": "fcbbvikle.ru",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0345",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Bank of America+2020-05-16-23`18`29\\shot.png",
+      "host": "cidadeweb.tv.br",
+      "expect_brand": "bank of america",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0346",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-13`27`29\\shot.png",
+      "host": "cbzvczgmlggvwvyc-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0347",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-08-29-13`19`20\\shot.png",
+      "host": "pp-evirement-securepay.000webhostapp.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0348",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Facebook, Inc.+2020-06-20-13`13`59\\shot.png",
+      "host": "page.business-facebook29937463.item73244u3h5u345u34yr8fd6s.com",
+      "expect_brand": "facebook, inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0349",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-08-05-09`54`39\\shot.png",
+      "host": "pennbrokerage.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0350",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Itau Unibanco S.A+2020-05-21-12`00`31\\shot.png",
+      "host": "fonitel.com.br",
+      "expect_brand": "itau unibanco s.a",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0351",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-09-27-11`10`39\\shot.png",
+      "host": "www.garantiliopelbeyintamiri.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0352",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-05`25`08\\shot.png",
+      "host": "fznxkkmjndvufoyi-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0353",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Netflix Inc.+2020-08-31-10`01`03\\shot.png",
+      "host": "ntflixsignin.com",
+      "expect_brand": "netflix inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0354",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Alibaba+2020-07-19-12`56`35\\shot.png",
+      "host": "rentappadmin.propertyform.in",
+      "expect_brand": "alibaba",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0355",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-09-01-10`26`34\\shot.png",
+      "host": "www.shadetreetechnology.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0356",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Wells Fargo & Company+2019-09-02-12`43`39\\shot.png",
+      "host": "173.199.186.15",
+      "expect_brand": "wells fargo & company",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0357",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Adobe Inc.+2020-07-01-10`32`36\\shot.png",
+      "host": "www.ganamela.com",
+      "expect_brand": "adobe inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0358",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\EE Limited+2020-08-25-12`33`36\\shot.png",
+      "host": "www.ee-checkinfo.com",
+      "expect_brand": "ee limited",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0359",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\eBay Inc.+2020-08-09-15`25`44\\shot.png",
+      "host": "steelecreekpresby.com",
+      "expect_brand": "ebay inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0360",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-16`19`22\\shot.png",
+      "host": "nzzyteulgepmazia-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0361",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Chase Personal Banking+2020-09-08-13`07`04\\shot.png",
+      "host": "www.agnacional.com.br",
+      "expect_brand": "chase personal banking",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0362",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-09-24-04`39`46\\shot.png",
+      "host": "ecuadorgoldmining.com",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0363",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Netflix Inc.+2019-10-19-10`24`36\\shot.png",
+      "host": "alfazzaland.com",
+      "expect_brand": "netflix inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0364",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2019-09-03-10`12`40\\shot.png",
+      "host": "thespearheadgroup.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0365",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\AOL Inc.+2020-07-01-15`21`51\\shot.png",
+      "host": "www.update-aol2020.com.accaccess.com",
+      "expect_brand": "aol inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0366",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-21`10`31\\shot.png",
+      "host": "hieyitfhukogzlbh-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0367",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Office365+2020-07-10-10`21`27\\shot.png",
+      "host": "rsgl.in",
+      "expect_brand": "office365",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0368",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-09-27-11`36`34\\shot.png",
+      "host": "sf16-muse-va.ibytedtos.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0369",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Itau Unibanco S.A+2020-05-30-12`47`38\\shot.png",
+      "host": "www.cliente-ltau-security.com",
+      "expect_brand": "itau unibanco s.a",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0370",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\ASB Bank Limited+2020-08-05-09`21`13\\shot.png",
+      "host": "jocelynali.com",
+      "expect_brand": "asb bank limited",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0371",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2019-08-01-14`32`32\\shot.png",
+      "host": "www.moraesonline.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0372",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-18`16`54\\shot.png",
+      "host": "mmyjdqofqwgwelpa-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0373",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Microsoft OneDrive+2020-09-12-13`02`33\\shot.png",
+      "host": "www.moyalanplastics.com",
+      "expect_brand": "microsoft onedrive",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0374",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\AT&T Inc.+2019-08-05-11`44`51\\shot.png",
+      "host": "lachyogasalzburg.at",
+      "expect_brand": "at&t inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0375",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\IRS+2020-05-01-23`25`54\\shot.png",
+      "host": "www.thatsmint.work",
+      "expect_brand": "irs",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0376",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\1&1 Ionos+2020-09-05-12`55`25\\shot.png",
+      "host": "webstring.in",
+      "expect_brand": "1&1 ionos",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0377",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\La Poste+2020-09-03-12`49`30\\shot.png",
+      "host": "yourordercheckout.com",
+      "expect_brand": "la poste",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0378",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-12`09`00\\shot.png",
+      "host": "nwwnmhqgjalusykr-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0379",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-18`39`54\\shot.png",
+      "host": "axcclaxnnivwvcnc-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0380",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-02`45`15\\shot.png",
+      "host": "liseugonkdpzmomo-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0381",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-21`21`18\\shot.png",
+      "host": "mbfwqjnjywwdbrxg-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0382",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Netflix Inc.+2019-08-22-14`26`41\\shot.png",
+      "host": "metropolitalna.pl",
+      "expect_brand": "netflix inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0383",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-18`28`46\\shot.png",
+      "host": "asqfhttpeylcplhs-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0384",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Alibaba+2020-05-22-12`38`53\\shot.png",
+      "host": "hasmob.com",
+      "expect_brand": "alibaba",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0385",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\ASB Bank Limited+2020-09-11-13`47`56\\shot.png",
+      "host": "casadiro.com.br",
+      "expect_brand": "asb bank limited",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0386",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PostFinance+2020-05-10-23`14`03\\shot.png",
+      "host": "www.elegantshop.gr",
+      "expect_brand": "postfinance",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0387",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\PayPal Inc.+2020-08-18-09`33`31\\shot.png",
+      "host": "kjsa.com",
+      "expect_brand": "paypal inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0388",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-14-07`11`47\\shot.png",
+      "host": "pusymwffinqbralt-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0389",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Amazon.com Inc.+2020-05-27-15`17`34\\shot.png",
+      "host": "pmasc.co.uk",
+      "expect_brand": "amazon.com inc.",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0390",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\M & T Bank Coporation+2020-07-02-19`47`19\\shot.png",
+      "host": "tzlotzsurivu.com",
+      "expect_brand": "m & t bank coporation",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0391",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\DGI (French Tax Authority)+2019-07-28-21`25`23\\shot.png",
+      "host": "yumrate.com",
+      "expect_brand": "dgi (french tax authority)",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0392",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2019-09-03-10`12`29\\shot.png",
+      "host": "thespearheadgroup.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0393",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\NetEase+2020-07-21-16`24`23\\shot.png",
+      "host": "count.mail.163.com.reg.magienterprise.com",
+      "expect_brand": "netease",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0394",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-15`23`42\\shot.png",
+      "host": "lkhkpaupwczzhcgc-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0395",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-05-17`20`32\\shot.png",
+      "host": "03e2a83783ce0ab59dde4701365ffa7a-dot-dbenitonline.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0396",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Daum+2020-06-22-12`51`48\\shot.png",
+      "host": "voltergroup.info",
+      "expect_brand": "daum",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0397",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Caixa Economica Federal+2020-08-25-15`46`17\\shot.png",
+      "host": "novo-acesso.segurowebmail.ml",
+      "expect_brand": "caixa economica federal",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0398",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Outlook+2020-09-13-12`32`10\\shot.png",
+      "host": "maqazvnfimiaufnu-dot-millinium.ey.r.appspot.com",
+      "expect_brand": "outlook",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    },
+    {
+      "id": "pv-0399",
+      "screenshot": "ml\\datasets\\phishpedia\\phish_30k\\Microsoft OneDrive+2020-05-05-12`57`19\\shot.png",
+      "host": "fkpd.net",
+      "expect_brand": "microsoft onedrive",
+      "expect_signal": "AUTHORITY_IMPERSONATION"
+    }
+  ]
 }
