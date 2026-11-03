@@ -32,12 +32,20 @@
     });
     // Cheap nudge — the worker decides whether the opt-in visual scan
     // runs (flag off = no-op). Sent only when the signal set changed.
-    chrome.runtime.sendMessage({ type: "vision-check" });
+    chrome.runtime.sendMessage({ type: "vision-check", logo_frame: logoFrame() });
+  }
+
+  // DOM-guided logo regions for the local visual matcher (geometry only,
+  // never leaves the extension). Absent extractor → undefined → the
+  // matcher falls back to its own crop heuristic.
+  function logoFrame() {
+    if (typeof globalThis.sovirExtractLogoRegions !== "function") return undefined;
+    return globalThis.sovirExtractLogoRegions(document);
   }
 
   // One unconditional nudge per load: a QR-only page carries no text
   // signals, so the scan trigger cannot depend on them.
-  chrome.runtime.sendMessage({ type: "vision-check" });
+  chrome.runtime.sendMessage({ type: "vision-check", logo_frame: logoFrame() });
 
   // Initial pass + throttled rescan on DOM churn (SPA navigations,
   // lazy-rendered forms).

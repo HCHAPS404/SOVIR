@@ -54,6 +54,7 @@ function installMocks() {
       onStartup: { addListener: () => {} },
       onInstalled: { addListener: () => {} },
       onMessage: { addListener: (fn) => (messageHandler = fn) },
+      getURL: (p) => `chrome-extension://test/${p}`,
     },
   };
   globalThis.fetch = async (url, init) => {
@@ -228,7 +229,7 @@ test("syncScripts registers content scripts for granted origins only", async () 
   assert.equal(registeredScripts.length, 1);
   const def = registeredScripts[0];
   assert.deepEqual(def.matches, ["https://example.com/*"]); // API origin excluded
-  assert.deepEqual(def.js, ["extractor.js", "content.js"]);
+  assert.deepEqual(def.js, ["brand-domains.js", "extractor.js", "content.js"]);
   assert.equal(def.persistAcrossSessions, true);
   assert.deepEqual(unregisteredIds, ["sovir-observer"]); // replaced cleanly
 });
@@ -334,4 +335,26 @@ test("vision-check paused is dropped before any capture", async () => {
   const res = await sendVision();
   assert.equal(res.paused, true);
   assert.equal(fetchCalls.filter((c) => c.url.endsWith("/v1/events")).length, 0);
+});
+
+test("logo_frame from the page reaches the ONNX analyzer", async () => {
+  installVision({ data: new Uint8ClampedArray(96 * 96 * 4).fill(240), width: 96, height: 96 });
+  storageLocal["sovir-vision-enabled"] = true;
+  let seen = null;
+  globalThis.ort = { env: {} }; // skips the importScripts path in ensure
+  globalThis.sovirVisionOnnx = {
+    load: async () => true,
+    loaded: () => true,
+    analyze: async (frame, host, logoFrame) => {
+      seen = logoFrame;
+      return { signals: [] };
+    },
+  };
+  const frame = { regions: [{ x: 8, y: 8, w: 40, h: 24 }], vw: 96, vh: 96 };
+  await new Promise((resolve) =>
+    messageHandler({ type: "vision-check", logo_frame: frame }, { tab: { id: 7, windowId: 3 } }, resolve),
+  );
+  assert.deepEqual(seen, frame, "DOM logo regions forwarded to the matcher");
+  delete globalThis.ort;
+  delete globalThis.sovirVisionOnnx;
 });

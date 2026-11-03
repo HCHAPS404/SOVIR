@@ -218,6 +218,7 @@ const SIGNAL_PRIORITY = [
   "CREDENTIAL_REQUEST",
   "GIFT_CARD_PAYMENT",
   "AUTHORITY_IMPERSONATION",
+  "DOM_BRAND_MISMATCH",
   "OFF_PLATFORM_MOVE",
   "LINK_DESTINATION_MISMATCH",
   "DATA_HARVESTING",
@@ -387,7 +388,7 @@ async function visionOnnxEnsure() {
   return visionOnnxReady;
 }
 
-async function visionScan(tab) {
+async function visionScan(tab, logoFrame) {
   if (typeof globalThis.sovirVisionScan !== "function") return { ok: true, skipped: "no_module" };
   if (!tab || typeof tab.windowId !== "number") return { ok: true, skipped: "no_capture" };
   const frame = await capturePixels(tab.windowId);
@@ -398,7 +399,7 @@ async function visionScan(tab) {
     try {
       host = new URL(tab.url ?? "").hostname;
     } catch {}
-    const v = await globalThis.sovirVisionOnnx.analyze(res.frame, host);
+    const v = await globalThis.sovirVisionOnnx.analyze(res.frame, host, logoFrame);
     if (v?.signals?.length) signals = [...new Set([...signals, ...v.signals])];
   }
   if (!res || signals.length === 0) return { ok: true, signals: [] };
@@ -433,7 +434,7 @@ async function syncScripts() {
       // ADR-0022: user-listed origins are never observed, even under a
       // broad <all_urls> grant.
       excludeMatches: Array.isArray(blocklist) ? blocklist : [],
-      js: ["extractor.js", "content.js"],
+      js: ["brand-domains.js", "extractor.js", "content.js"],
       persistAcrossSessions: true,
       runAt: "document_idle",
     },
@@ -480,7 +481,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(async (st) => {
         if (st.paused) return { ok: true, paused: true };
         if (!(await visionEnabled())) return { ok: true, disabled: true };
-        return visionScan(sender.tab);
+        return visionScan(sender.tab, message.logo_frame);
       })
       .then(sendResponse)
       .catch((e) =>

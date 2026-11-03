@@ -31,18 +31,26 @@
   }
 
   // RGBA frame → NCHW float32 (ImageNet-ish normalize from manifest).
-  function preprocess(frame) {
-    const w = Math.min(frame.width, INPUT_DIM);
-    const h = Math.min(frame.height, INPUT_DIM);
+  // Optional `region` {x,y,w,h} in frame pixels samples only that crop —
+  // DOM-guided logo slots replace the top-left guess with real geometry.
+  function preprocess(frame, region) {
+    const rx = region ? Math.min(frame.width - 1, Math.max(0, Math.floor(region.x))) : 0;
+    const ry = region ? Math.min(frame.height - 1, Math.max(0, Math.floor(region.y))) : 0;
+    const rw = region
+      ? Math.min(frame.width - rx, Math.max(1, Math.ceil(region.w)))
+      : Math.min(frame.width, INPUT_DIM);
+    const rh = region
+      ? Math.min(frame.height - ry, Math.max(1, Math.ceil(region.h)))
+      : Math.min(frame.height, INPUT_DIM);
     const mean = manifest?.input?.mean ?? [0.485, 0.456, 0.406];
     const std = manifest?.input?.std ?? [0.229, 0.224, 0.225];
     const out = new Float32Array(3 * INPUT_DIM * INPUT_DIM);
     for (let y = 0; y < INPUT_DIM; y++) {
       for (let x = 0; x < INPUT_DIM; x++) {
-        // letterbox-crop the top-left region where logos live; center the
-        // sampled patch, never stretch.
-        const sx = Math.min(w - 1, Math.floor((x / INPUT_DIM) * w));
-        const sy = Math.min(h - 1, Math.floor((y / INPUT_DIM) * h));
+        // Crop sampled by nearest-neighbour — center the patch, never
+        // stretch. Region crops map the rect onto the 224² input.
+        const sx = Math.min(rx + rw - 1, rx + Math.floor((x / INPUT_DIM) * rw));
+        const sy = Math.min(ry + rh - 1, ry + Math.floor((y / INPUT_DIM) * rh));
         const i = (sy * frame.width + sx) * 4;
         const o = y * INPUT_DIM + x;
         out[o] = frame.data[i] / 255 / std[0] - mean[0] / std[0];
@@ -134,9 +142,14 @@
     return session !== null && manifest !== null;
   }
 
+  const MAX_REGION_CROPS = 8;
+
   // frame: {data,width,height}; host: page hostname for the domain check.
+  // logoFrame: optional {regions:[{x,y,w,h}], vw,vh} in CSS pixels — the
+  // extractor's DOM-guided logo candidates; scaled to capture pixels by
+  // frame.width/vw. Without it the top-left heuristic runs alone.
   // → {signals:[], model_id, brand?, score_bp} | null (bad input).
-  async function analyze(frame, host) {
+  async function analyze(frame, host, logoFrame) {
     if (
       !frame ||
       !frame.data ||
@@ -146,20 +159,42 @@
     )
       return null;
     if (!loaded()) return { signals: [], abstained: "no_artifact" };
+    // Crop list: DOM-suggested logo slots first (cap for cost), then the
+    // geometric top-left fallback — regions narrow the search, they never
+    // shrink coverage below the old heuristic.
+    const crops = [null];
+    const scale =
+      logoFrame?.vw > 0 && logoFrame.vw !== frame.width
+        ? frame.width / logoFrame.vw
+        : 1;
+    if (Array.isArray(logoFrame?.regions)) {
+      for (const r of logoFrame.regions.slice(0, MAX_REGION_CROPS)) {
+        if (r?.w >= 8 && r?.h >= 8) {
+          crops.push({
+            x: r.x * scale,
+            y: r.y * scale,
+            w: r.w * scale,
+            h: r.h * scale,
+          });
+        }
+      }
+    }
     try {
-      const input = preprocess(frame);
-      const tensor = new runtime.Tensor(
-        "float32",
-        input,
-        [1, 3, INPUT_DIM, INPUT_DIM],
-      );
-      const out = await session.run({ [session.inputNames[0]]: tensor });
-      const emb = out[session.outputNames[0]].data;
       let best = { brand: null, score: 0 };
-      for (const b of manifest.brands) {
-        for (const row of b._rows) {
-          const s = cosine(emb, row);
-          if (s > best.score) best = { brand: b, score: s };
+      for (const crop of crops) {
+        const input = preprocess(frame, crop ?? undefined);
+        const tensor = new runtime.Tensor(
+          "float32",
+          input,
+          [1, 3, INPUT_DIM, INPUT_DIM],
+        );
+        const out = await session.run({ [session.inputNames[0]]: tensor });
+        const emb = out[session.outputNames[0]].data;
+        for (const b of manifest.brands) {
+          for (const row of b._rows) {
+            const s = cosine(emb, row);
+            if (s > best.score) best = { brand: b, score: s };
+          }
         }
       }
       const thr = (manifest.threshold_bp ?? DEFAULT_THRESHOLD_BP) / 10_000;

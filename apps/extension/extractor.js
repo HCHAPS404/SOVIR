@@ -397,6 +397,77 @@
       }
     }
 
+    // Brand impersonation in the DOM: the page presents a known brand
+    // identity (title, og:site_name / application-name, or a logo img alt)
+    // while served from a host outside that brand's curated domains — the
+    // textual sibling of the visual voter's AUTHORITY_IMPERSONATION.
+    // Lexicon generated from ml/brand-domains.json (brand-domains.js must
+    // load before this script); absent data means abstain, never guess.
+    const brandLex = global.SOVIR_BRAND_DOMAINS;
+    if (Array.isArray(brandLex) && brandLex.length && pageHost) {
+      const host = pageHost.toLowerCase();
+      const fields = [];
+      const push = (text, identity) => {
+        if (text && text.length < 400) fields.push({ text, identity });
+      };
+      push(doc.title, false);
+      for (const m of doc.querySelectorAll(
+        'meta[name="application-name"], meta[property="og:site_name"]',
+      )) {
+        push(m.getAttribute("content"), true);
+      }
+      for (const m of doc.querySelectorAll(
+        'meta[property="og:title"], meta[name="twitter:title"]',
+      )) {
+        push(m.getAttribute("content"), false);
+      }
+      for (const img of doc.querySelectorAll(
+        'header img[alt], nav img[alt], [class*="logo" i] img[alt], [id*="logo" i] img[alt], img[class*="logo" i][alt], img[id*="logo" i][alt]',
+      )) {
+        push(img.getAttribute("alt"), true);
+      }
+      const normText = (s) =>
+        String(s)
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/\p{M}/gu, "")
+          .replace(/[^a-z0-9]+/g, " ")
+          .trim();
+      const claims = fields
+        .map((f) => ({ t: ` ${normText(f.text)} `, identity: f.identity }))
+        .filter((f) => f.t.length > 2)
+        .slice(0, 40);
+      // Words that put a brand name in identity context — a travel blog
+      // titled "amazon river tours" is not claiming Amazon, but "Amazon
+      // Sign-In" is. Only single-word brands need this corroborant.
+      const BRAND_CTX =
+        /sign|log ?in|login|account|cuenta|verif|secure|segur|official|oficial|billing|factur|support|soporte|pay|pago|wallet|password|contrase|customer|client|service|servicio|update|actualiz|logo|\bid\b/;
+      outer: for (const brand of brandLex) {
+        if (brand.d.some((d) => host === d || host.endsWith(`.${d}`))) continue;
+        const phrase = ` ${brand.n} `;
+        for (const claim of claims) {
+          const idx = claim.t.indexOf(phrase);
+          if (idx < 0) continue;
+          if (claim.identity && claim.t.trim() === brand.n) {
+            signals.add("DOM_BRAND_MISMATCH");
+            break outer;
+          }
+          if (brand.m) {
+            signals.add("DOM_BRAND_MISMATCH");
+            break outer;
+          }
+          const window = claim.t.slice(
+            Math.max(0, idx - 16),
+            idx + phrase.length + 16,
+          );
+          if (BRAND_CTX.test(window)) {
+            signals.add("DOM_BRAND_MISMATCH");
+            break outer;
+          }
+        }
+      }
+    }
+
     const prechecked = doc.querySelectorAll(
       'form input[type="checkbox"][checked], [class*="cookie" i] input[type="checkbox"][checked]',
     );
@@ -419,5 +490,64 @@
     return [...signals].sort();
   }
 
+  // DOM-guided logo regions (ADR-0024 direction): the visual voter should
+  // not guess where the logo lives — the DOM already knows. Candidate
+  // slots are images/SVGs in header, nav or logo-* marked containers plus
+  // any image touching the top zone of the viewport. Output is geometry
+  // ONLY (rects + viewport size, no src/alt/pixels) — it stays inside the
+  // extension and feeds the local ONNX matcher, nothing crosses the API.
+  const LOGO_REGION_SEL = [
+    "header img",
+    "nav img",
+    "header svg",
+    "nav svg",
+    '[class*="logo" i] img',
+    '[id*="logo" i] img',
+    '[class*="logo" i] svg',
+    '[id*="logo" i] svg',
+    'img[class*="logo" i]',
+    'img[id*="logo" i]',
+    'svg[class*="logo" i]',
+    'svg[id*="logo" i]',
+    "header a img",
+  ].join(",");
+  const LOGO_TOP_ZONE_PX = 220;
+  const MAX_LOGO_REGIONS = 16;
+  const MIN_LOGO_PX = 12;
+
+  function sovirExtractLogoRegions(doc) {
+    const view = doc?.defaultView;
+    const vw = Math.round(view?.innerWidth || doc?.documentElement?.clientWidth || 0);
+    const vh = Math.round(view?.innerHeight || doc?.documentElement?.clientHeight || 0);
+    if (!vw || !vh || !doc?.querySelectorAll) return { regions: [], vw, vh };
+    const seen = new Set();
+    const regions = [];
+    const addRect = (el) => {
+      if (regions.length >= MAX_LOGO_REGIONS) return;
+      const r = el.getBoundingClientRect?.();
+      if (!r || r.width < MIN_LOGO_PX || r.height < MIN_LOGO_PX) return;
+      const x = Math.max(0, Math.round(r.x));
+      const y = Math.max(0, Math.round(r.y));
+      const w = Math.min(vw - x, Math.round(r.width));
+      const h = Math.min(vh - y, Math.round(r.height));
+      if (w < MIN_LOGO_PX || h < MIN_LOGO_PX || w <= 0 || h <= 0) return;
+      const key = `${x}:${y}:${w}:${h}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      regions.push({ x, y, w, h });
+    };
+    for (const el of doc.querySelectorAll(LOGO_REGION_SEL)) addRect(el);
+    // Any unmarked image in the top zone is also a logo candidate —
+    // phishing kits often drop the header logo in a plain <img>.
+    for (const img of doc.querySelectorAll("img")) {
+      if (regions.length >= MAX_LOGO_REGIONS) break;
+      const r = img.getBoundingClientRect?.();
+      if (!r || r.y > LOGO_TOP_ZONE_PX) continue;
+      addRect(img);
+    }
+    return { regions, vw, vh };
+  }
+
   global.sovirExtractSignals = sovirExtractSignals;
+  global.sovirExtractLogoRegions = sovirExtractLogoRegions;
 })(globalThis);

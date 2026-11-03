@@ -109,3 +109,82 @@ test("inference throwing → abstains, not a crash or a guess", async () => {
   assert.deepEqual(r.signals, []);
   assert.equal(r.abstained, "inference_failed");
 });
+
+test("DOM logo regions → one run per candidate crop plus the fallback", async () => {
+  let runs = 0;
+  const ort = fakeOrt(new Float32Array([0, 1, 0]));
+  ort.InferenceSession.create = async () => ({
+    inputNames: ["input"],
+    outputNames: ["emb"],
+    run: async () => {
+      runs++;
+      return { emb: { data: new Float32Array([0, 1, 0]) } };
+    },
+  });
+  await voter.load(new ArrayBuffer(8), PROTO, ort);
+  const r = await voter.analyze(frame(64, 64), "evil.example", {
+    regions: [
+      { x: 4, y: 4, w: 24, h: 12 },
+      { x: 30, y: 6, w: 16, h: 16 },
+      { x: 0, y: 0, w: 2, h: 2 }, // too small — skipped
+    ],
+    vw: 64,
+    vh: 64,
+  });
+  assert.deepEqual(r.signals, []);
+  assert.equal(runs, 3, "fallback + 2 valid crops");
+});
+
+test("logo regions in CSS px are scaled to capture pixels", async () => {
+  let seen = null;
+  const ort = {
+    Tensor: class {
+      constructor(t, d, dims) {
+        this.data = d;
+        this.dims = dims;
+      }
+    },
+    InferenceSession: {
+      create: async () => ({
+        inputNames: ["input"],
+        outputNames: ["emb"],
+        run: async (feeds) => {
+          seen = feeds.input.data;
+          return { emb: { data: new Float32Array([0, 1, 0]) } };
+        },
+      }),
+    },
+  };
+  await voter.load(new ArrayBuffer(8), PROTO, ort);
+  // Frame 128px wide, viewport reported as 64 CSS px → region x=32 CSS
+  // lands at capture x≈64. A green marker at (64,0) must be the first
+  // sampled source pixel of the region-crop tensor (normalized R < 0).
+  const w = 128;
+  const data = new Uint8ClampedArray(w * w * 4);
+  for (let i = 0; i < data.length; i += 4) data.set([200, 100, 50, 255], i);
+  data.set([0, 255, 0, 255], 64 * 4);
+  await voter.analyze({ data, width: w, height: w }, "evil.example", {
+    regions: [{ x: 32, y: 0, w: 16, h: 16 }],
+    vw: 64,
+    vh: 64,
+  });
+  assert.ok(seen, "second run (region crop) captured");
+  assert.ok(seen[0] < -1.5, `region crop sampled (64,0) green, got ${seen[0]}`);
+});
+
+test("no logoFrame → single fallback crop, unchanged contract", async () => {
+  let runs = 0;
+  const ort = fakeOrt(new Float32Array([1, 0, 0]));
+  ort.InferenceSession.create = async () => ({
+    inputNames: ["input"],
+    outputNames: ["emb"],
+    run: async () => {
+      runs++;
+      return { emb: { data: new Float32Array([1, 0, 0]) } };
+    },
+  });
+  await voter.load(new ArrayBuffer(8), PROTO, ort);
+  const r = await voter.analyze(frame(), "evil.example");
+  assert.equal(runs, 1);
+  assert.deepEqual(r.signals, ["AUTHORITY_IMPERSONATION"]);
+});

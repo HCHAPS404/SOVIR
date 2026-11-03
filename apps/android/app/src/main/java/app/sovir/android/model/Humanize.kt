@@ -25,6 +25,7 @@ object Humanize {
         "SEED_PHRASE_REQUEST" to "Petición de frase de recuperación",
         "DELIVERY_CUSTOMS_FEE" to "Paquete retenido con cargo",
         "AUTHORITY_IMPERSONATION" to "Suplantación de autoridad",
+        "DOM_BRAND_MISMATCH" to "Marca servida desde dominio ajeno",
         "SCARCITY_PRESSURE" to "Presión por escasez o tiempo",
         "JOB_SCAM_OFFER" to "Oferta de trabajo sospechosa",
         "ROMANCE_BAIT" to "Cebo sentimental con petición de dinero",

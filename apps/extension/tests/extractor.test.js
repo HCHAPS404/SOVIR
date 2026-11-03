@@ -432,3 +432,150 @@ test("romance bait split across chat bubbles (fixture 12)", () => {
   const signals = extract(window.document, window.location);
   assert.ok(signals.includes("ROMANCE_BAIT"), "split love+money must trigger");
 });
+
+// --- DOM_BRAND_MISMATCH: brand identity served from a foreign domain ---
+const BRAND_LEX = [
+  { n: "paypal", m: false, d: ["paypal.com", "paypal.me"] },
+  { n: "bank of america", m: true, d: ["bankofamerica.com"] },
+  { n: "netflix", m: false, d: ["netflix.com"] },
+  { n: "amazon", m: false, d: ["amazon.com"] },
+  { n: "apple", m: false, d: ["apple.com", "icloud.com"] },
+];
+
+function docHead(bodyHtml, headHtml, host) {
+  const { window } = new JSDOM(
+    `<!doctype html><html><head>${headHtml}</head><body>${bodyHtml}</body></html>`,
+  );
+  return {
+    doc: window.document,
+    loc: { protocol: "https:", host, href: `https://${host}/` },
+  };
+}
+
+test("brand name in title on foreign domain → DOM_BRAND_MISMATCH", () => {
+  globalThis.SOVIR_BRAND_DOMAINS = BRAND_LEX;
+  const { doc: d, loc } = docHead("<p>x</p>", "<title>PayPal - Sign In</title>", "paypa1-secure.example");
+  assert.ok(extract(d, loc).includes("DOM_BRAND_MISMATCH"));
+  delete globalThis.SOVIR_BRAND_DOMAINS;
+});
+
+test("brand title on the brand's own domain → no signal", () => {
+  globalThis.SOVIR_BRAND_DOMAINS = BRAND_LEX;
+  const { doc: d, loc } = docHead("<p>x</p>", "<title>PayPal - Sign In</title>", "secure.paypal.com");
+  assert.ok(!extract(d, loc).includes("DOM_BRAND_MISMATCH"));
+  delete globalThis.SOVIR_BRAND_DOMAINS;
+});
+
+test("single-word brand without identity context does not fire", () => {
+  globalThis.SOVIR_BRAND_DOMAINS = BRAND_LEX;
+  const { doc: d, loc } = docHead("<p>x</p>", "<title>Amazon river tours 2026</title>", "travelblog.example");
+  assert.ok(!extract(d, loc).includes("DOM_BRAND_MISMATCH"));
+  delete globalThis.SOVIR_BRAND_DOMAINS;
+});
+
+test("multi-word brand in og:site_name on foreign domain → signal", () => {
+  globalThis.SOVIR_BRAND_DOMAINS = BRAND_LEX;
+  const { doc: d, loc } = docHead(
+    "<p>x</p>",
+    '<meta property="og:site_name" content="Bank of America">',
+    "boa-verify.example",
+  );
+  assert.ok(extract(d, loc).includes("DOM_BRAND_MISMATCH"));
+  delete globalThis.SOVIR_BRAND_DOMAINS;
+});
+
+test("single-word brand as exact og:site_name → signal", () => {
+  globalThis.SOVIR_BRAND_DOMAINS = BRAND_LEX;
+  const { doc: d, loc } = docHead(
+    "<p>x</p>",
+    '<meta property="og:site_name" content="Netflix">',
+    "netfl1x.example",
+  );
+  assert.ok(extract(d, loc).includes("DOM_BRAND_MISMATCH"));
+  delete globalThis.SOVIR_BRAND_DOMAINS;
+});
+
+test("logo img alt on foreign domain → signal", () => {
+  globalThis.SOVIR_BRAND_DOMAINS = BRAND_LEX;
+  const { doc: d, loc } = docHead(
+    '<header><img alt="Netflix logo" src="l.png"></header>',
+    "<title>Member area</title>",
+    "netflix-billing.example",
+  );
+  assert.ok(extract(d, loc).includes("DOM_BRAND_MISMATCH"));
+  delete globalThis.SOVIR_BRAND_DOMAINS;
+});
+
+test("ambiguous single word in og:site_name is not a claim", () => {
+  globalThis.SOVIR_BRAND_DOMAINS = BRAND_LEX;
+  const { doc: d, loc } = docHead(
+    "<p>x</p>",
+    '<meta property="og:site_name" content="Apple Pie Blog">',
+    "recipes.example",
+  );
+  assert.ok(!extract(d, loc).includes("DOM_BRAND_MISMATCH"));
+  delete globalThis.SOVIR_BRAND_DOMAINS;
+});
+
+test("no brand lexicon loaded → abstain even on phish-shaped title", () => {
+  delete globalThis.SOVIR_BRAND_DOMAINS;
+  const { doc: d, loc } = docHead("<p>x</p>", "<title>PayPal - Sign In</title>", "paypa1.example");
+  assert.ok(!extract(d, loc).includes("DOM_BRAND_MISMATCH"));
+});
+
+// ---------------------------------------------------------------------------
+// DOM-guided logo regions (ADR-0024 direction) — geometry only.
+// ---------------------------------------------------------------------------
+const extractLogoRegions = globalThis.sovirExtractLogoRegions;
+
+function rectStub(el, x, y, w, h) {
+  el.getBoundingClientRect = () => ({ x, y, width: w, height: h });
+}
+
+test("header/nav/logo-marked images yield bounded regions", () => {
+  const { doc: d } = doc(
+    '<header><img id="lg"></header><nav><svg id="nv"></svg></nav><img id="buried">',
+  );
+  rectStub(d.getElementById("lg"), 12, 8, 120, 40);
+  rectStub(d.getElementById("nv"), 200, 8, 32, 32);
+  rectStub(d.getElementById("buried"), 0, 900, 300, 200);
+  const r = extractLogoRegions(d);
+  assert.equal(r.regions.length, 2);
+  assert.deepEqual(r.regions[0], { x: 12, y: 8, w: 120, h: 40 });
+  assert.ok(r.vw > 0 && r.vh > 0, "viewport dims emitted for CSS→capture scaling");
+});
+
+test("top-zone plain img is a candidate; buried img is not", () => {
+  const { doc: d } = doc('<img id="top"><img id="deep">');
+  rectStub(d.getElementById("top"), 40, 60, 80, 40);
+  rectStub(d.getElementById("deep"), 40, 600, 80, 40);
+  const r = extractLogoRegions(d);
+  assert.equal(r.regions.length, 1);
+  assert.deepEqual(r.regions[0], { x: 40, y: 60, w: 80, h: 40 });
+});
+
+test("tiny/zero rects and duplicates are dropped; cap is bounded", () => {
+  const { doc: d } = doc(
+    '<header>' +
+      Array.from({ length: 30 }, (_, i) => `<img id="i${i}">`).join("") +
+      '</header>',
+  );
+  for (const img of d.querySelectorAll("img")) {
+    rectStub(img, 0, 0, 0, 0);
+  }
+  rectStub(d.getElementById("i0"), 10, 10, 40, 40);
+  rectStub(d.getElementById("i1"), 10, 10, 40, 40); // exact dup
+  for (let i = 2; i < 30; i++) rectStub(d.getElementById(`i${i}`), i, i, 40, 40);
+  const r = extractLogoRegions(d);
+  assert.ok(r.regions.length <= 16, `bounded: ${r.regions.length}`);
+  assert.equal(
+    r.regions.filter((x) => x.x === 10 && x.y === 10).length,
+    1,
+    "duplicate rect deduped",
+  );
+});
+
+test("missing document fails closed", () => {
+  const r = extractLogoRegions(null);
+  assert.deepEqual(r.regions, []);
+});
