@@ -18,11 +18,11 @@ import pathlib
 import subprocess
 import sys
 
-# UNVERIFIED PLACEHOLDERS — obtain the real Google Drive file IDs from
-# https://github.com/lindsey98/Phishpedia README ("Dataset" section) and
-# paste them here before running. Do not trust IDs from memory or chat.
-PHISH_GDRIVE_ID = "PASTE_FROM_PHISHPEDIA_README"
-BENIGN_GDRIVE_ID = "PASTE_FROM_PHISHPEDIA_README"
+# Verified 2026-11-03 against the official README (line 27): the project
+# publishes ONE Drive file — the 30k phishing benchmark (URL + HTML +
+# screenshot + target brand per site). There is no separate benign zip;
+# benign contrast sites come from our own corpus list, not this archive.
+DATASET_GDRIVE_ID = "12ypEMPRQ43zGRqHGut0Esq2z5en0DH4g"
 
 
 def fetch(file_id: str, out: pathlib.Path) -> None:
@@ -38,13 +38,11 @@ def main() -> int:
     ap.add_argument("--out", default="ml/datasets/phishpedia")
     args = ap.parse_args()
     root = pathlib.Path(args.out)
-    fetch(PHISH_GDRIVE_ID, root / "phish_sample_30k.zip")
-    fetch(BENIGN_GDRIVE_ID, root / "benign_sample_30k.zip")
+    fetch(DATASET_GDRIVE_ID, root / "phishpedia_30k.zip")
     print(
-        "Downloaded. Next: unzip both archives here, then run "
-        "ml/pipelines/build_vision_corpus.py to emit "
-        "ml/datasets/eval-corpus-vision.v1.json (synthetic-downsampled, "
-        "no real-user content)."
+        "Downloaded. Next: unzip the archive here, then run "
+        "ml/pipelines/train_visual.py to build brand prototypes and emit "
+        "ml/datasets/eval-corpus-vision.v1.json for the gated eval."
     )
     return 0
 

@@ -10,7 +10,7 @@
 
 if (typeof importScripts === "function") {
   try {
-    importScripts("vision.js");
+    importScripts("vision.js", "vision_onnx.js");
   } catch {}
 }
 
@@ -352,16 +352,51 @@ async function sha256Hex(bytes) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Learned visual voter (ADR-0024): the artifact ships inside the
+// extension package (models/visual.onnx + models/prototypes.json) once
+// approved and licensed. Missing/unloadable → abstain; the deterministic
+// QR scan stands alone either way. Attempted once per worker lifetime.
+let visionOnnxReady;
+
+async function visionOnnxEnsure() {
+  if (visionOnnxReady !== undefined) return visionOnnxReady;
+  visionOnnxReady = (async () => {
+    const m = globalThis.sovirVisionOnnx;
+    if (!m?.load) return false;
+    try {
+      const base = chrome.runtime.getURL("models/");
+      const [modelRes, protoRes] = await Promise.all([
+        fetch(base + "visual.onnx"),
+        fetch(base + "prototypes.json"),
+      ]);
+      if (!modelRes.ok || !protoRes.ok) return false;
+      return await m.load(await modelRes.arrayBuffer(), await protoRes.json());
+    } catch {
+      return false;
+    }
+  })();
+  return visionOnnxReady;
+}
+
 async function visionScan(tab) {
   if (typeof globalThis.sovirVisionScan !== "function") return { ok: true, skipped: "no_module" };
   if (!tab || typeof tab.windowId !== "number") return { ok: true, skipped: "no_capture" };
   const frame = await capturePixels(tab.windowId);
   const res = globalThis.sovirVisionScan(frame);
-  if (!res || res.signals.length === 0) return { ok: true, signals: [] };
+  let signals = res?.signals ? [...res.signals] : [];
+  if (res?.frame && (await visionOnnxEnsure())) {
+    let host = "";
+    try {
+      host = new URL(tab.url ?? "").hostname;
+    } catch {}
+    const v = await globalThis.sovirVisionOnnx.analyze(res.frame, host);
+    if (v?.signals?.length) signals = [...new Set([...signals, ...v.signals])];
+  }
+  if (!res || signals.length === 0) return { ok: true, signals: [] };
   // Digest binds the analyzed frame only — pixels never leave the worker.
   const digest = `sha256:${await sha256Hex(res.frame.data)}`;
   return emitEvent(tab.id ?? 0, {
-    signals: res.signals,
+    signals,
     digest,
     observed_at_ms: Date.now(),
     modality: "IMAGE_REGION",

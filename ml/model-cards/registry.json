@@ -31,13 +31,14 @@
     {
       "name": "onnx-visual",
       "model_id": "pending-artifact",
-      "card": "sovir-vision-qr-v0.md",
-      "kind": "onnx-classifier",
+      "card": "sovir-onnx-visual.md",
+      "kind": "onnx-embedding-matcher",
       "modality": "visual",
-      "tier": "base",
+      "tier": "edge",
+      "placement": "extension-worker — pixels never reach the council",
       "serves": ["private", "standard"],
       "egress": false,
-      "status": "seam-only — fails closed until ADR-0024 artifact is approved and licensed"
+      "status": "seam-only — apps/extension/vision_onnx.js abstains until an approved artifact ships in apps/extension/models/"
     },
     {
       "name": "onnx-text",

@@ -4,6 +4,7 @@ const observeBtn = document.querySelector("#observe");
 const pauseBtn = document.querySelector("#pause");
 const listEl = document.querySelector("#granted");
 const lastEl = document.querySelector("#last");
+const verdictEl = document.querySelector("#verdict");
 const errorEl = document.querySelector("#error");
 
 let currentTab = null;
@@ -35,6 +36,13 @@ async function paintApi() {
           : ""
       }: ${state.lastObservation.signals.join(", ")}`
     : "";
+  // Council verdict on the last observation — inferred, never a policy
+  // decision; benign votes stay quiet like the rest of the product.
+  const v = state?.lastVerdict;
+  verdictEl.textContent =
+    v && v.hypotheses?.length && !v.hypotheses.every((h) => h === "no_pattern_detected")
+      ? `Concilio (inferido): ${v.hypotheses.join(", ")} · ${v.provenance ?? ""}`
+      : "";
   return state;
 }
 
