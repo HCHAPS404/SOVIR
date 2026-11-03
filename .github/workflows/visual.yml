@@ -1,0 +1,26 @@
+name: SOVIR Visual Gate
+on:
+  pull_request:
+    paths:
+      - 'apps/console/**'
+      - 'packages/ui-web/**'
+      - '.github/workflows/visual.yml'
+
+# Scaffold only. The suite exists but stays non-blocking until the live lane
+# (auth fixture + API) lands; browsers are not installed in CI yet.
+jobs:
+  visual-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Playwright smoke (scaffold — allowed to fail)
+        continue-on-error: true
+        run: |
+          pnpm --filter @sovir/console exec playwright install chromium --with-deps
+          pnpm --filter @sovir/console exec playwright test || true
