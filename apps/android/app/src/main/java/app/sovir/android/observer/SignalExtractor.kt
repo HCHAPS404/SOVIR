@@ -1,5 +1,3 @@
-// NOT_VERIFIED: Android SDK is a deferred toolchain — this file has not
-// been compiled. It targets stable android.view.accessibility APIs only.
 package app.sovir.android.observer
 
 import android.view.accessibility.AccessibilityNodeInfo
@@ -110,8 +108,15 @@ object SignalExtractor {
         signals: MutableSet<String>,
         hint: StringBuilder = StringBuilder(),
     ) {
-        if (node.isPassword) signals += "CREDENTIAL_REQUEST"
-        val text = (node.text ?: node.contentDescription)?.toString().orEmpty()
+        // Password nodes contribute the signal only — whatever the field
+        // exposes stays out of the hint.
+        val text = if (node.isPassword) {
+            signals += "CREDENTIAL_REQUEST"
+            ""
+        } else {
+            node.text?.toString().orEmpty()
+                .ifEmpty { node.contentDescription?.toString().orEmpty() }
+        }
         if (text.isNotEmpty()) {
             var matched = false
             for ((rx, signal) in TABLE) {

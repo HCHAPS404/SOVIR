@@ -1,33 +1,88 @@
-// Local council verdict notifications (ADR-0025): the phone surfaces
-// what the server council decided — hypotheses + confidence + provenance.
-// No server data beyond the typed verdict is shown.
 package app.sovir.android.observer
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
-import org.json.JSONObject
+import android.content.Intent
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import app.sovir.android.MainActivity
+import app.sovir.android.R
+import app.sovir.android.model.Humanize
+import app.sovir.android.model.Verdict
 
+/**
+ * Two channels, so the person can silence one without the other:
+ *  - alerts: policy decisions (interventions) from any device;
+ *  - council: live inferences about what THIS phone just observed.
+ * Notifications carry typed labels only — never observed text.
+ */
 object Notifier {
-    private const val CHANNEL = "sovir_council"
+    private const val ALERTS = "sovir_alerts"
+    private const val COUNCIL = "sovir_council"
+    const val EXTRA_OPEN = "sovir.open"
 
-    fun notifyVerdict(context: Context, verdict: JSONObject) {
-        val nm = context.getSystemService(NotificationManager::class.java) ?: return
+    fun ensureChannels(ctx: Context) {
+        val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "SOVIR concilio", NotificationManager.IMPORTANCE_HIGH),
+            NotificationChannel(ALERTS, "Alertas de SOVIR", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Alertas que la política de SOVIR emitió en cualquiera de tus dispositivos."
+            },
         )
-        val hyps = verdict.optJSONArray("hypotheses")?.let { arr ->
-            (0 until arr.length()).joinToString(", ") { arr.getString(it) }
-        } ?: "?"
-        // Benign verdicts do not interrupt — only risk hypotheses notify.
-        if (hyps == "no_pattern_detected") return
-        val bp = verdict.optInt("confidence_bp", 0)
-        val n = android.app.Notification.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("SOVIR: ${hyps.take(40)}")
-            .setContentText("confianza ${bp / 100}% — ${verdict.optString("provenance").take(60)}")
+        nm.createNotificationChannel(
+            NotificationChannel(COUNCIL, "Análisis de este teléfono", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Hipótesis del concilio sobre lo que este teléfono acaba de observar."
+            },
+        )
+    }
+
+    private fun open(ctx: Context, target: String, req: Int) = PendingIntent.getActivity(
+        ctx, req,
+        Intent(ctx, MainActivity::class.java).putExtra(EXTRA_OPEN, target)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    private fun post(ctx: Context, id: Int, b: NotificationCompat.Builder) {
+        val nm = NotificationManagerCompat.from(ctx)
+        if (!nm.areNotificationsEnabled()) return
+        try {
+            nm.notify(id, b.build())
+        } catch (e: SecurityException) {
+            // POST_NOTIFICATIONS revoked between the check and the post — stay silent.
+        }
+    }
+
+    fun alerts(ctx: Context, titles: List<String>) {
+        if (titles.isEmpty()) return
+        ensureChannels(ctx)
+        val title = if (titles.size == 1) "Nueva alerta de SOVIR" else "${titles.size} alertas nuevas de SOVIR"
+        val b = NotificationCompat.Builder(ctx, ALERTS)
+            .setSmallIcon(R.drawable.ic_stat_sovir)
+            .setContentTitle(title)
+            .setContentText(titles.first())
+            .setStyle(NotificationCompat.InboxStyle().also { s -> titles.take(5).forEach(s::addLine) })
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setContentIntent(open(ctx, "alerts", 1))
             .setAutoCancel(true)
-            .build()
-        nm.notify((System.currentTimeMillis() % 100_000).toInt(), n)
+        post(ctx, 1001, b)
+    }
+
+    /** Council verdict on this phone's own observation. Benign = silent. */
+    fun verdict(ctx: Context, v: Verdict, eventId: String) {
+        if (Humanize.isBenign(v.hypotheses)) return
+        ensureChannels(ctx)
+        val what = v.hypotheses.filter { it != "no_pattern_detected" }
+            .joinToString(", ") { Humanize.hypothesis(it) }
+            .replaceFirstChar { it.uppercase() }
+        val b = NotificationCompat.Builder(ctx, COUNCIL)
+            .setSmallIcon(R.drawable.ic_stat_sovir)
+            .setContentTitle("Posible riesgo en pantalla")
+            .setContentText("$what · inferido, revisa la evidencia")
+            .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
+            .setContentIntent(open(ctx, "event:$eventId", eventId.hashCode()))
+            .setAutoCancel(true)
+        post(ctx, 2000 + (eventId.hashCode() and 0xfff), b)
     }
 }

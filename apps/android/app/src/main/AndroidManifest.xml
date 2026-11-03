@@ -2,16 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      Observador UI_TREE (ADR-0014): INTERNET para la API loopback dev;
+      Observador UI_TREE (ADR-0014): INTERNET para la API de SOVIR;
       AccessibilityService declarado — el usuario lo activa en ajustes del
-      sistema (el SO concede la captura; el grant de SOVIR autoriza la
-      subida). Sin MediaProjection, micrófono, cámara ni SMS.
+      sistema (el SO concede la captura) y además concede en la app el
+      permiso de envío (el grant de SOVIR). Sin MediaProjection,
+      micrófono, cámara, ubicación ni SMS.
     -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Council verdict notifications: normal-level until Android 13,
-         runtime-granted on 33+. The observer asks for it on first
-         activation; denied → verdicts stay silent, nothing breaks. -->
+    <!-- Avisos de alertas: runtime en Android 13+; denegado = sin avisos, nada se rompe. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Solo para que el sondeo periódico de alertas (JobScheduler.setPersisted)
+         sobreviva a un reinicio. No arranca ningún servicio propio al encender. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:allowBackup="false"
@@ -23,10 +25,18 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Vuelta del registro/inicio en el navegador (OIDC + PKCE). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="app.sovir.android" android:host="oauth" />
             </intent-filter>
         </activity>
         <service
@@ -40,5 +50,9 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/sovir_accessibility_service" />
         </service>
+        <service
+            android:name=".observer.AlertSync"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
     </application>
 </manifest>
