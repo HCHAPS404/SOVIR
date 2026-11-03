@@ -143,6 +143,7 @@ object Humanize {
         "consent_granted" -> "Permiso concedido"
         "consent_revoked" -> "Permiso revocado"
         "event_ingested" -> "Señal observada"
+        "inference_called" -> "Análisis del concilio"
         "device_registered" -> "Dispositivo registrado"
         "device_revoked" -> "Dispositivo revocado"
         "intervention_dispatched" -> "Alerta enviada"
