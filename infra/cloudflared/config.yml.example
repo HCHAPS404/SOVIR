@@ -1,0 +1,39 @@
+# SOVIR named tunnel — Opción B de docs/operations/CLOUDFLARE_TUNNEL.md
+# Copy to %USERPROFILE%\.cloudflared\config.yml, then replace:
+#   <tunnel-id>       — from `cloudflared tunnel list` (also the JSON name)
+#   <tudominio>       — your domain parked on Cloudflare DNS
+#
+# One named tunnel fronts ALL FOUR local services. Hostnames must exist
+# as `cloudflared tunnel route dns sovir <hostname>` before first run.
+# Order matters: hostnames first, catch-all 404 LAST.
+
+tunnel: <tunnel-id>
+credentials-file: C:\Users\jesui\.cloudflared\<tunnel-id>.json
+
+ingress:
+  # Public landing (apps/website :3000) — the entry point
+  - hostname: www.<tudominio>
+    service: http://127.0.0.1:3000
+    originRequest:
+      noHappyEyeballs: true
+
+  # Authenticated console (apps/console :3001) — OIDC callback lives here
+  - hostname: console.<tudominio>
+    service: http://127.0.0.1:3001
+    originRequest:
+      noHappyEyeballs: true
+
+  # Backend API (:8787) — extension + Android emit here
+  - hostname: api.<tudominio>
+    service: http://127.0.0.1:8787
+    originRequest:
+      noHappyEyeballs: true
+
+  # Keycloak (:8080) — OIDC issuer; iss must equal this hostname
+  - hostname: auth.<tudominio>
+    service: http://127.0.0.1:8080
+    originRequest:
+      noHappyEyeballs: true
+
+  # Everything else → 404 (never fall through to a public origin)
+  - service: http_status:404
