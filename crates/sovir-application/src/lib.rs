@@ -3,11 +3,11 @@ use sovir_domain::{
     data_class_label, detect_sequences, intervention_for, next_attempt_ms, normalize_events,
     risk_signal_label, valid_identifier, validate_consent, validate_device, validate_event,
     validate_url_for_egress, AuditAction, AuditEvent, ConsentGrant, DecisionKind, DeletionReceipt,
-    DeliveryAuditEntry, DeliveryState, Device, DomainError, EventDecision, InferenceRequest,
-    InferenceVerdict, IntelIndicator, Intervention, Investigation, InvestigationFact,
-    InvestigationFactKind, ObservedEvent, Platform, Principal, RiskLevel, Scope, SequencePattern,
-    Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS, MAX_INVESTIGATION_EVENTS,
-    MAX_INVESTIGATION_WINDOW_MS,
+    DeliveryAuditEntry, DeliveryState, Device, DomainError, EventDecision, EventFeedback,
+    FeedbackVerdict, InferenceRequest, InferenceVerdict, IntelIndicator, Intervention,
+    Investigation, InvestigationFact, InvestigationFactKind, ObservedEvent, Platform, Principal,
+    RiskLevel, Scope, SequencePattern, Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
+    MAX_INVESTIGATION_EVENTS, MAX_INVESTIGATION_WINDOW_MS,
 };
 use sovir_ports::{
     AuditLog, BudgetLedger, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel,
@@ -33,6 +33,8 @@ pub struct PrincipalDataExport {
     pub deletion_receipts: Vec<DeletionReceipt>,
     /// Caller's own audit tombstones (metadata only — survives purges).
     pub audit_events: Vec<sovir_domain::AuditEvent>,
+    /// Human eval-loop labels the principal left on their events (B3).
+    pub feedback_labels: Vec<EventFeedback>,
 }
 #[derive(Debug, serde::Serialize)]
 pub struct PurgeReport {
@@ -686,7 +688,47 @@ impl SovirService {
                 .audit
                 .list_by_principal(&principal.tenant_id, &principal.principal_id)
                 .await?,
+            feedback_labels: self
+                .events
+                .list_feedback(&principal.tenant_id, &principal.principal_id)
+                .await?,
         })
+    }
+
+    /// Eval loop (B3): records the principal's own human verdict on an
+    /// event. The port refuses labels on foreign/missing events — in
+    /// Postgres the check is atomic (`INSERT ... WHERE EXISTS`), so there
+    /// is no TOCTOU between reading the event and attaching the label.
+    pub async fn record_feedback(
+        &self,
+        principal: &Principal,
+        event_id: &str,
+        verdict: FeedbackVerdict,
+    ) -> Result<(), AppError> {
+        if !valid_identifier(event_id) {
+            return Err(AppError::InvalidRequest);
+        }
+        let attached = self
+            .events
+            .put_feedback(EventFeedback {
+                event_id: event_id.to_string(),
+                tenant_id: principal.tenant_id.clone(),
+                principal_id: principal.principal_id.clone(),
+                verdict,
+                labeled_at_ms: self.clock.now_ms(),
+            })
+            .await?;
+        if !attached {
+            return Err(AppError::InvalidRequest);
+        }
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::FeedbackLabeled,
+            &format!("feedback:{event_id}"),
+        )
+        .await?;
+        Ok(())
     }
 
     /// Retention (B16): hard-deletes the caller's events and terminal
@@ -777,6 +819,13 @@ impl SovirService {
     /// the request still completes.
     pub async fn purge_data(&self, principal: &Principal) -> Result<PurgeReport, AppError> {
         let now = self.clock.now_ms();
+        // Feedback labels die via cascade with their events — count them
+        // first so the receipt records every scrubbed label.
+        let feedback_count = self
+            .events
+            .list_feedback(&principal.tenant_id, &principal.principal_id)
+            .await?
+            .len() as u64;
         let mut report = PurgeReport {
             receipt_id: uuid::Uuid::new_v4().simple().to_string(),
             events_deleted: self
@@ -796,7 +845,7 @@ impl SovirService {
                 .revoke_by_principal(&principal.tenant_id, &principal.principal_id)
                 .await?,
             devices_revoked: 0,
-            labels_scrubbed: 0,
+            labels_scrubbed: feedback_count,
             idem_keys_deleted: self
                 .idem
                 .delete_by_principal(&principal.tenant_id, &principal.principal_id)

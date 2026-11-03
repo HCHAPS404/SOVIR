@@ -6,6 +6,7 @@ import {
   dispatchInterventionsAction,
   emitSequencePair,
   emitUiTreeObservation,
+  sendEventFeedbackAction,
 } from "../../lib/actions";
 import { exportData, type InferenceVerdict } from "../../lib/api";
 import { timeAgo } from "../../lib/digest";
@@ -74,6 +75,7 @@ export default async function IncidentsPage() {
 
   const items = data?.interventions ?? [];
   const events = data?.events ?? [];
+  const labels = new Map((data?.feedback_labels ?? []).map((f) => [f.event_id, f.verdict]));
   const pending = items.filter((i) => i.state === "pending");
   const delivered = items.filter((i) => i.state === "delivered");
   const failedOrOther = items.filter((i) => i.state !== "pending" && i.state !== "delivered");
@@ -390,6 +392,33 @@ export default async function IncidentsPage() {
                         <input type="hidden" name="signals" value={e.signals.join(",")} />
                         <input type="hidden" name="privacy" value="standard" />
                         <SubmitButton label="Analizar con IA" pendingLabel="Analizando…" />
+                      </form>
+                    ) : null}
+                    {e.signals.length > 0 ? (
+                      <form action={sendEventFeedbackAction} className="form-row">
+                        <input type="hidden" name="event_id" value={e.event_id} />
+                        <button
+                          className="btn-op"
+                          type="submit"
+                          name="verdict"
+                          value={labels.get(e.event_id) === "correct" ? "unsure" : "correct"}
+                          title="Etiqueta el aviso como acertado para el eval"
+                        >
+                          {labels.get(e.event_id) === "correct" ? "✓ acertado" : "acertado"}
+                        </button>
+                        <button
+                          className="btn-op"
+                          type="submit"
+                          name="verdict"
+                          value={
+                            labels.get(e.event_id) === "false_positive"
+                              ? "unsure"
+                              : "false_positive"
+                          }
+                          title="Etiqueta el aviso como falso positivo para el eval"
+                        >
+                          {labels.get(e.event_id) === "false_positive" ? "✓ falso+" : "falso pos."}
+                        </button>
                       </form>
                     ) : null}
                     {lastInference?.event_id === e.event_id ? (

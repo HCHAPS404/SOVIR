@@ -7,9 +7,10 @@
 //! resolve another tenant's rows. Records carry the sealed tenant binding.
 use async_trait::async_trait;
 use sovir_domain::{
-    Assessment, AuditEvent, ConsentGrant, DeletionReceipt, Device, IdempotentResponse,
-    InferenceRequest, InferenceVerdict, IntelIndicator, Intervention, InterventionKind,
-    Investigation, ObservedEvent, PrivacyMode, Session, VerifiedIdentity, WebhookEndpoint,
+    Assessment, AuditEvent, ConsentGrant, DeletionReceipt, Device, EventFeedback,
+    IdempotentResponse, InferenceRequest, InferenceVerdict, IntelIndicator, Intervention,
+    InterventionKind, Investigation, ObservedEvent, PrivacyMode, Session, VerifiedIdentity,
+    WebhookEndpoint,
 };
 use thiserror::Error;
 
@@ -85,6 +86,15 @@ pub trait EventRepository: Send + Sync {
         principal_id: &str,
         since_ms: u64,
     ) -> Result<Vec<ObservedEvent>, PortError>;
+    /// Human eval-loop label on an event (B3). `false` = the referenced
+    /// event does not exist for this tenant+principal — labels never
+    /// attach to foreign or missing events.
+    async fn put_feedback(&self, feedback: EventFeedback) -> Result<bool, PortError>;
+    async fn list_feedback(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<Vec<EventFeedback>, PortError>;
 }
 pub trait RiskAnalyzer: Send + Sync {
     fn analyze(&self, event: &ObservedEvent) -> Assessment;

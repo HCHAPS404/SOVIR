@@ -229,6 +229,28 @@ impl Device {
     }
 }
 
+/// Human verdict on an emitted decision — the eval-loop label (B3).
+/// Closed taxonomy; anything else fails deserialization, never guesses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FeedbackVerdict {
+    Correct,
+    FalsePositive,
+    Unsure,
+}
+
+/// One durable label on an event the principal was alerted about. Facts
+/// vs judgement stay distinct: this records what a HUMAN said happened,
+/// never asserts the event actually was what the verdict claims.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventFeedback {
+    pub event_id: String,
+    pub tenant_id: String,
+    pub principal_id: String,
+    pub verdict: FeedbackVerdict,
+    pub labeled_at_ms: u64,
+}
+
 /// Durable audit tombstone produced by erasure. Carries only counts and the
 /// pseudonymous principal id — never payloads. Retained after purge so the
 /// deletion itself is auditable.
@@ -460,6 +482,7 @@ pub enum AuditAction {
     IntelPulled,
     ReservationsSwept,
     InvestigationRan,
+    FeedbackLabeled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

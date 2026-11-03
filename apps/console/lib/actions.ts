@@ -18,6 +18,7 @@ import {
   revokeConsent,
   revokeDevice,
   runInvestigation,
+  sendEventFeedback,
 } from "./api";
 
 const LAB_SOURCE = "console-lab";
@@ -332,6 +333,26 @@ export async function assessEventSignalsAction(formData: FormData): Promise<void
       JSON.stringify({ ok: false, privacy, signals, event_id: eventId, at_ms: Date.now(), error: code }),
       { httpOnly: true, sameSite: "lax", secure: false, path: "/" },
     );
+  }
+  revalidatePath("/incidents");
+  revalidatePath("/", "layout");
+}
+
+// Human verdict on one of the caller's own events (POST /v1/events/{id}/feedback).
+// Labels feed the eval loop; a foreign or missing event is refused upstream.
+export async function sendEventFeedbackAction(formData: FormData): Promise<void> {
+  const { token } = await sessionOrRedirect();
+  const eventId = String(formData.get("event_id") ?? "").slice(0, 64);
+  const raw = String(formData.get("verdict") ?? "");
+  const verdict =
+    raw === "correct" || raw === "false_positive" || raw === "unsure" ? raw : null;
+  if (!eventId || !verdict) return;
+  try {
+    await sendEventFeedback(token, eventId, verdict);
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/incidents?error=backend");
+    throw e;
   }
   revalidatePath("/incidents");
   revalidatePath("/", "layout");

@@ -6,10 +6,10 @@
 //! In-memory adapters remain the default when `DATABASE_URL` is unset.
 use async_trait::async_trait;
 use sovir_domain::{
-    ConsentGrant, DeletionReceipt, DeliveryState, Device, IdempotentResponse, InferenceReservation,
-    InferenceUsage, Intervention, InterventionKind, Investigation, InvestigationFact, Modality,
-    ObservedEvent, Platform, ReservationState, RiskSignal, Scope, SensitiveDataClass,
-    SequenceFinding, Session, WebhookEndpoint,
+    ConsentGrant, DeletionReceipt, DeliveryState, Device, EventFeedback, FeedbackVerdict,
+    IdempotentResponse, InferenceReservation, InferenceUsage, Intervention, InterventionKind,
+    Investigation, InvestigationFact, Modality, ObservedEvent, Platform, ReservationState,
+    RiskSignal, Scope, SensitiveDataClass, SequenceFinding, Session, WebhookEndpoint,
 };
 use sovir_ports::{
     BudgetReservations, ConsentRepository, DeletionReceiptStore, DeviceRegistry, EventRepository,
@@ -329,6 +329,23 @@ fn signal_str(s: RiskSignal) -> &'static str {
         RiskSignal::DomBrandMismatch => "DOM_BRAND_MISMATCH",
     }
 }
+fn feedback_verdict_str(v: FeedbackVerdict) -> &'static str {
+    match v {
+        FeedbackVerdict::Correct => "correct",
+        FeedbackVerdict::FalsePositive => "false_positive",
+        FeedbackVerdict::Unsure => "unsure",
+    }
+}
+/// CHECK constraint keeps only the closed taxonomy on disk; an unknown
+/// value maps to `Unsure` rather than panicking — a stored label is
+/// degraded, never lost.
+fn parse_feedback_verdict(s: &str) -> FeedbackVerdict {
+    match s {
+        "correct" => FeedbackVerdict::Correct,
+        "false_positive" => FeedbackVerdict::FalsePositive,
+        _ => FeedbackVerdict::Unsure,
+    }
+}
 fn scope_str(s: Scope) -> &'static str {
     match s {
         Scope::ConsentWrite => "consent_write",
@@ -646,6 +663,68 @@ impl EventRepository for PgStore {
             <Self as EventRepository>::list_by_principal(self, tenant_id, principal_id).await?;
         events.retain(|e| e.observed_at_ms >= since_ms);
         Ok(events)
+    }
+    /// Ownership is enforced in the same statement: the insert runs only
+    /// when a matching event row exists for this tenant+principal, so a
+    /// label can never attach to a foreign or missing event.
+    async fn put_feedback(&self, fb: EventFeedback) -> Result<bool, PortError> {
+        let mut tx = self.tenant_tx(&fb.tenant_id).await?;
+        let res = (async {
+            let n = sqlx::query(
+                "INSERT INTO event_feedback
+                   (event_id, tenant_id, principal_id, verdict, labeled_at_ms)
+                 SELECT $1, $2, $3, $4, $5
+                 WHERE EXISTS (
+                   SELECT 1 FROM observation_events
+                   WHERE event_id = $1 AND tenant_id = $2 AND principal_id = $3
+                 )
+                 ON CONFLICT (event_id)
+                 DO UPDATE SET verdict = $4, labeled_at_ms = $5",
+            )
+            .bind(&fb.event_id)
+            .bind(&fb.tenant_id)
+            .bind(&fb.principal_id)
+            .bind(feedback_verdict_str(fb.verdict))
+            .bind(fb.labeled_at_ms as i64)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage)?
+            .rows_affected();
+            Ok(n > 0)
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
+    }
+    async fn list_feedback(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<Vec<EventFeedback>, PortError> {
+        let rows = sqlx::query_as::<_, (String, String, String, String, i64)>(
+            "SELECT event_id, tenant_id, principal_id, verdict, labeled_at_ms
+             FROM event_feedback
+             WHERE tenant_id = $1 AND principal_id = $2",
+        )
+        .bind(tenant_id)
+        .bind(principal_id)
+        .fetch_all(self.global())
+        .await
+        .map_err(map_storage)?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(event_id, tenant_id, principal_id, verdict, labeled_at_ms)| EventFeedback {
+                    event_id,
+                    tenant_id,
+                    principal_id,
+                    verdict: parse_feedback_verdict(&verdict),
+                    labeled_at_ms: labeled_at_ms as u64,
+                },
+            )
+            .collect())
     }
 }
 
@@ -1744,6 +1823,7 @@ fn audit_action_str(a: sovir_domain::AuditAction) -> &'static str {
         IntelPulled => "intel_pulled",
         ReservationsSwept => "reservations_swept",
         InvestigationRan => "investigation_ran",
+        FeedbackLabeled => "feedback_labeled",
     }
 }
 fn audit_action_from(s: &str) -> sovir_domain::AuditAction {
@@ -1763,6 +1843,7 @@ fn audit_action_from(s: &str) -> sovir_domain::AuditAction {
         "intel_pulled" => IntelPulled,
         "reservations_swept" => ReservationsSwept,
         "investigation_ran" => InvestigationRan,
+        "feedback_labeled" => FeedbackLabeled,
         _ => DispatchRan,
     }
 }

@@ -7,8 +7,8 @@ use sovir_adapters::{
 };
 use sovir_application::{AppError, ServicePorts, SovirService};
 use sovir_domain::{
-    ConsentGrant, DeliveryState, DomainError, Intervention, InterventionKind, Modality,
-    ObservedEvent, Platform, Principal, RiskLevel, RiskSignal, Scope, SensitiveDataClass,
+    ConsentGrant, DeliveryState, DomainError, FeedbackVerdict, Intervention, InterventionKind,
+    Modality, ObservedEvent, Platform, Principal, RiskLevel, RiskSignal, Scope, SensitiveDataClass,
 };
 use sovir_ports::{Clock, InterventionSink};
 use std::sync::Arc;
@@ -936,4 +936,61 @@ async fn investigation_requires_events_scope_and_clamps_window() {
     let inv = s.run_investigation(&p, u64::MAX).await.unwrap();
     assert_eq!(inv.window_ms, sovir_domain::MAX_INVESTIGATION_WINDOW_MS);
     assert_eq!(inv.events_examined, 1);
+}
+
+#[tokio::test]
+async fn feedback_labels_own_events_only_and_survive_export() {
+    let s = service();
+    let p = principal("p-1");
+    s.grant(&p, grant()).await.unwrap();
+    s.ingest(&p, event()).await.unwrap();
+
+    // A verdict on a foreign or missing event is refused � labels never
+    // attach to anything the principal does not own.
+    assert!(matches!(
+        s.record_feedback(&p, "no-such-event", FeedbackVerdict::Correct)
+            .await,
+        Err(AppError::InvalidRequest)
+    ));
+    let other = principal("p-2");
+    assert!(matches!(
+        s.record_feedback(&other, "event-1", FeedbackVerdict::FalsePositive)
+            .await,
+        Err(AppError::InvalidRequest)
+    ));
+
+    s.record_feedback(&p, "event-1", FeedbackVerdict::FalsePositive)
+        .await
+        .unwrap();
+    // Upsert: re-labeling the same event replaces the verdict.
+    s.record_feedback(&p, "event-1", FeedbackVerdict::Correct)
+        .await
+        .unwrap();
+
+    let export = s.export_data(&p).await.unwrap();
+    assert_eq!(export.feedback_labels.len(), 1);
+    assert_eq!(export.feedback_labels[0].verdict, FeedbackVerdict::Correct);
+    assert_eq!(export.feedback_labels[0].event_id, "event-1");
+    // The foreign principal's export carries no labels.
+    assert!(s
+        .export_data(&other)
+        .await
+        .unwrap()
+        .feedback_labels
+        .is_empty());
+}
+
+#[tokio::test]
+async fn purge_scrubs_feedback_labels_and_counts_them() {
+    let s = service();
+    let p = principal("p-1");
+    s.grant(&p, grant()).await.unwrap();
+    s.ingest(&p, event()).await.unwrap();
+    s.record_feedback(&p, "event-1", FeedbackVerdict::Unsure)
+        .await
+        .unwrap();
+
+    let report = s.purge_data(&p).await.unwrap();
+    assert_eq!(report.labels_scrubbed, 1);
+    assert!(s.export_data(&p).await.unwrap().feedback_labels.is_empty());
 }

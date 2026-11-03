@@ -101,6 +101,16 @@ export interface DeletionReceipt {
   idem_keys_deleted: number;
 }
 
+export type FeedbackVerdict = "correct" | "false_positive" | "unsure";
+
+export interface EventFeedback {
+  event_id: string;
+  tenant_id: string;
+  principal_id: string;
+  verdict: FeedbackVerdict;
+  labeled_at_ms: number;
+}
+
 export interface PrincipalDataExport {
   principal_id: string;
   grants: ConsentGrant[];
@@ -109,6 +119,7 @@ export interface PrincipalDataExport {
   interventions: Intervention[];
   deletion_receipts: DeletionReceipt[];
   audit_events: AuditEvent[];
+  feedback_labels: EventFeedback[];
 }
 
 export type PrivacyMode = "private" | "standard";
@@ -280,4 +291,10 @@ export const ingestEvent = (t: string, event: ObservedEvent, idemKey: string) =>
     method: "POST",
     headers: { "idempotency-key": idemKey },
     body: JSON.stringify(event),
+  });
+
+export const sendEventFeedback = (t: string, eventId: string, verdict: FeedbackVerdict) =>
+  call<void>(`/v1/events/${encodeURIComponent(eventId)}/feedback`, t, {
+    method: "POST",
+    body: JSON.stringify({ verdict }),
   });

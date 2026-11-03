@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use sovir_domain::{
-    Assessment, AuditEvent, ConsentGrant, DeletionReceipt, DeliveryState, Device,
+    Assessment, AuditEvent, ConsentGrant, DeletionReceipt, DeliveryState, Device, EventFeedback,
     IdempotentResponse, InferenceReservation, InferenceUsage, Intervention, InterventionKind,
     Investigation, ObservedEvent, PolicyPack, ReservationState, Session, VerifiedIdentity,
     WebhookEndpoint,
@@ -105,11 +105,44 @@ impl ConsentRepository for InMemoryConsentRepository {
     }
 }
 #[derive(Default)]
-pub struct InMemoryEventRepository(Mutex<HashMap<String, ObservedEvent>>);
+pub struct InMemoryEventRepository {
+    events: Mutex<HashMap<String, ObservedEvent>>,
+    feedback: Mutex<HashMap<String, EventFeedback>>,
+}
 #[async_trait]
 impl EventRepository for InMemoryEventRepository {
+    async fn put_feedback(&self, fb: EventFeedback) -> Result<bool, PortError> {
+        let events = self.events.lock().map_err(|_| PortError::Storage)?;
+        let owned = events
+            .get(&fb.event_id)
+            .is_some_and(|e| e.tenant_id == fb.tenant_id && e.principal_id == fb.principal_id);
+        if !owned {
+            return Ok(false);
+        }
+        drop(events);
+        self.feedback
+            .lock()
+            .map_err(|_| PortError::Storage)?
+            .insert(fb.event_id.clone(), fb);
+        Ok(true)
+    }
+    async fn list_feedback(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+    ) -> Result<Vec<EventFeedback>, PortError> {
+        self.feedback
+            .lock()
+            .map(|f| {
+                f.values()
+                    .filter(|x| x.tenant_id == tenant_id && x.principal_id == principal_id)
+                    .cloned()
+                    .collect()
+            })
+            .map_err(|_| PortError::Storage)
+    }
     async fn insert_once(&self, event: ObservedEvent) -> Result<(), PortError> {
-        let mut events = self.0.lock().map_err(|_| PortError::Storage)?;
+        let mut events = self.events.lock().map_err(|_| PortError::Storage)?;
         if events.contains_key(&event.event_id) {
             return Err(PortError::Duplicate);
         }
@@ -121,7 +154,7 @@ impl EventRepository for InMemoryEventRepository {
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<Vec<ObservedEvent>, PortError> {
-        self.0
+        self.events
             .lock()
             .map(|e| {
                 e.values()
@@ -136,10 +169,16 @@ impl EventRepository for InMemoryEventRepository {
         tenant_id: &str,
         principal_id: &str,
     ) -> Result<u64, PortError> {
-        let mut events = self.0.lock().map_err(|_| PortError::Storage)?;
+        let mut events = self.events.lock().map_err(|_| PortError::Storage)?;
         let before = events.len();
         events.retain(|_, e| !(e.tenant_id == tenant_id && e.principal_id == principal_id));
-        Ok((before - events.len()) as u64)
+        let deleted = (before - events.len()) as u64;
+        // FK-cascade equivalent: feedback rows die with their events.
+        self.feedback
+            .lock()
+            .map_err(|_| PortError::Storage)?
+            .retain(|id, _| events.contains_key(id));
+        Ok(deleted)
     }
     async fn delete_older_than(
         &self,
@@ -147,7 +186,7 @@ impl EventRepository for InMemoryEventRepository {
         principal_id: &str,
         cutoff_ms: u64,
     ) -> Result<u64, PortError> {
-        let mut events = self.0.lock().map_err(|_| PortError::Storage)?;
+        let mut events = self.events.lock().map_err(|_| PortError::Storage)?;
         let before = events.len();
         events.retain(|_, e| {
             !(e.tenant_id == tenant_id && e.principal_id == principal_id)
@@ -156,7 +195,7 @@ impl EventRepository for InMemoryEventRepository {
         Ok((before - events.len()) as u64)
     }
     async fn delete_older_than_any(&self, cutoff_ms: u64) -> Result<u64, PortError> {
-        let mut events = self.0.lock().map_err(|_| PortError::Storage)?;
+        let mut events = self.events.lock().map_err(|_| PortError::Storage)?;
         let before = events.len();
         events.retain(|_, e| e.observed_at_ms >= cutoff_ms);
         Ok((before - events.len()) as u64)
@@ -167,7 +206,7 @@ impl EventRepository for InMemoryEventRepository {
         principal_id: &str,
         since_ms: u64,
     ) -> Result<Vec<ObservedEvent>, PortError> {
-        self.0
+        self.events
             .lock()
             .map(|e| {
                 e.values()

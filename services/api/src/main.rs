@@ -15,8 +15,8 @@ use sovir_adapters::{
 };
 use sovir_application::{AppError, PrincipalDataExport, PurgeReport, ServicePorts, SovirService};
 use sovir_domain::{
-    ConsentGrant, Device, DomainError, EventDecision, Intervention, InterventionKind,
-    ObservedEvent, Platform, Principal, Session, WebhookEndpoint,
+    ConsentGrant, Device, DomainError, EventDecision, FeedbackVerdict, Intervention,
+    InterventionKind, ObservedEvent, Platform, Principal, Session, WebhookEndpoint,
 };
 use sovir_persistence::PgStore;
 use sovir_ports::PortError;
@@ -727,6 +727,26 @@ async fn list_events(
     items.truncate(list_limit(&q));
     Ok(Json(items))
 }
+/// Human eval-loop label on one of the caller's own events (B3). The
+/// closed `FeedbackVerdict` taxonomy deserializes or the request fails;
+/// a verdict on a foreign or missing event is refused.
+#[derive(serde::Deserialize)]
+struct FeedbackBody {
+    verdict: FeedbackVerdict,
+}
+async fn post_feedback(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<FeedbackBody>,
+) -> Result<StatusCode, ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    s.service
+        .record_feedback(&p, &id, body.verdict)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    Ok(StatusCode::NO_CONTENT)
+}
 /// Served contract revision — single source for the version endpoint and
 /// the `sovir-contract-version` response header.
 const CONTRACT_VERSION: &str = "backend-dev.v0";
@@ -1197,6 +1217,7 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/consents", post(grant))
         .route("/v1/consents/{id}/revoke", post(revoke))
         .route("/v1/events", post(ingest).get(list_events))
+        .route("/v1/events/{id}/feedback", post(post_feedback))
         .route("/v1/version", get(version))
         .route("/v1/interventions", get(list_interventions))
         .route("/v1/interventions/dispatch", post(dispatch))
