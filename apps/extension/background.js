@@ -268,8 +268,9 @@ async function emitEvent(tabId, { signals, digest, observed_at_ms, modality = "T
     signals: emitted,
   };
   let st = await ensureConnected();
+  let res;
   try {
-    await api("/v1/events", {
+    res = await api("/v1/events", {
       token: st.token,
       method: "POST",
       idem: `extidem-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`,
@@ -279,7 +280,7 @@ async function emitEvent(tabId, { signals, digest, observed_at_ms, modality = "T
     if (e.status === 401) {
       // Session died (restart/expiry): mint once and retry exactly once.
       st = await connect();
-      await api("/v1/events", {
+      res = await api("/v1/events", {
         token: st.token,
         method: "POST",
         idem: `extidem-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`,
@@ -287,6 +288,29 @@ async function emitEvent(tabId, { signals, digest, observed_at_ms, modality = "T
       });
     } else {
       throw e;
+    }
+  }
+  // The authoritative EventDecision — the council's policy answer. A
+  // warn marks the tab's badge ("!" — no notification permission, no
+  // content) and persists in session state for the popup.
+  const a = res?.assessment;
+  if (a?.decision) {
+    await setState({
+      lastDecision: {
+        risk_level: a.risk_level,
+        decision: a.decision,
+        at_ms: Date.now(),
+      },
+    });
+    if (typeof tabId === "number") {
+      const warn = a.decision === "warn";
+      await chrome.action
+        .setBadgeText({ tabId, text: warn ? "!" : "" })
+        .catch(() => {});
+      if (warn)
+        await chrome.action
+          .setBadgeBackgroundColor({ tabId, color: "#c0392b" })
+          .catch(() => {});
     }
   }
   await setState({
@@ -458,6 +482,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           paused: s.paused,
           lastError: s.lastError,
           lastObservation: s.lastObservation,
+          lastDecision: s.lastDecision,
           api: base,
         }),
       )

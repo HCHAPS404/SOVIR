@@ -18,6 +18,7 @@ let fetchCalls;
 let fetchBehavior;
 let permissionOrigins;
 let permAddedListeners;
+let badgeCalls;
 
 function installMocks() {
   storageLocal = {};
@@ -28,6 +29,7 @@ function installMocks() {
   permissionOrigins = [];
   messageHandler = null;
   permAddedListeners = [];
+  badgeCalls = [];
   fetchBehavior = (url, init) =>
     new Response(JSON.stringify({ token: "tok-1", principal_id: "ext-demo" }), { status: 200 });
 
@@ -45,6 +47,10 @@ function installMocks() {
       getAll: async () => ({ origins: permissionOrigins }),
       onAdded: { addListener: (fn) => permAddedListeners.push(fn) },
       onRemoved: { addListener: () => {} },
+    },
+    action: {
+      setBadgeText: async (o) => (badgeCalls.push({ fn: "text", ...o })),
+      setBadgeBackgroundColor: async (o) => (badgeCalls.push({ fn: "color", ...o })),
     },
     scripting: {
       unregisterContentScripts: async ({ ids }) => unregisteredIds.push(...ids),
@@ -357,4 +363,41 @@ test("logo_frame from the page reaches the ONNX analyzer", async () => {
   assert.deepEqual(seen, frame, "DOM logo regions forwarded to the matcher");
   delete globalThis.ort;
   delete globalThis.sovirVisionOnnx;
+});
+
+test("warn decision marks the badge and stores lastDecision", async () => {
+  fetchBehavior = () =>
+    new Response(
+      JSON.stringify({
+        assessment: { risk_level: "high", decision: "warn" },
+      }),
+      { status: 200 },
+    );
+  // Dev-session + device + consent calls need their own responses; the
+  // events POST is what returns the EventDecision. Route by path.
+  fetchBehavior = (url) => {
+    if (url.endsWith("/v1/events"))
+      return new Response(
+        JSON.stringify({ assessment: { risk_level: "high", decision: "warn" } }),
+        { status: 200 },
+      );
+    return okJson({ token: "tok-1", principal_id: "ext-demo" });
+  };
+  await send({
+    type: "observation",
+    signals: ["PAYMENT_REQUEST"],
+    digest: "sha256:w1",
+    observed_at_ms: 1,
+  });
+  const badge = badgeCalls.find((b) => b.fn === "text" && b.tabId === 7);
+  assert.equal(badge?.text, "!", "warn decision → ! badge on the tab");
+  assert.ok(
+    badgeCalls.some((b) => b.fn === "color"),
+    "warn color set",
+  );
+  const state = await new Promise((r) =>
+    messageHandler({ type: "get-state" }, {}, r),
+  );
+  assert.equal(state.lastDecision?.decision, "warn");
+  assert.equal(state.lastDecision?.risk_level, "high");
 });

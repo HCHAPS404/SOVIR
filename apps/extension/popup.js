@@ -5,6 +5,7 @@ const pauseBtn = document.querySelector("#pause");
 const listEl = document.querySelector("#granted");
 const lastEl = document.querySelector("#last");
 const verdictEl = document.querySelector("#verdict");
+const decisionEl = document.querySelector("#decision");
 const errorEl = document.querySelector("#error");
 
 let currentTab = null;
@@ -43,6 +44,12 @@ async function paintApi() {
     v && v.hypotheses?.length && !v.hypotheses.every((h) => h === "no_pattern_detected")
       ? `Concilio (inferido): ${v.hypotheses.join(", ")} · ${v.provenance ?? ""}`
       : "";
+  // The authoritative EventDecision — what policy actually decided.
+  const d = state?.lastDecision;
+  decisionEl.textContent = d
+    ? `Decisión: ${d.decision} · riesgo ${d.risk_level} · ${fmtTime(d.at_ms)}`
+    : "";
+  decisionEl.classList.toggle("is-warn", d?.decision === "warn");
   return state;
 }
 
@@ -98,7 +105,7 @@ observeBtn.addEventListener("click", async () => {
   // future loads on this origin (background.js sync).
   await chrome.scripting.executeScript({
     target: { tabId: currentTab.id },
-    files: ["extractor.js", "content.js"],
+    files: ["brand-domains.js", "extractor.js", "content.js"],
   });
   await paintSite();
   await paintList();
