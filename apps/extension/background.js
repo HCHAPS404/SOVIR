@@ -10,7 +10,11 @@
 
 if (typeof importScripts === "function") {
   try {
-    importScripts("vision.js", "vision_onnx.js");
+    // MV3 constraint: extension service workers may only importScripts
+    // during initial evaluation — lazy loads later throw NetworkError.
+    // The 49KB ort JS loader is cheap to import eagerly; the 11MB wasm,
+    // 3.7MB model and 1.8MB bank stay lazy inside visionOnnxEnsure().
+    importScripts("vision.js", "vision_onnx.js", "ort/ort.wasm.min.js");
   } catch {}
 }
 
@@ -19,7 +23,10 @@ const API_URL_KEY = "sovir-api-url"; // storage.local — user setting
 const PRINCIPAL_KEY = "sovir-principal"; // storage.local — console identity
 const SOURCE = "screen-observer:ext";
 const DEVICE = "ext-web";
-const GRANT = "ext-observer-grant";
+// Consent is (principal, device)-bound: the grant id carries the device so
+// a second device can neither renew nor hijack this device's consent, and
+// each daily reconnect renews its own grant in place (server-side refresh).
+const GRANT = `ext-observer-grant:${DEVICE}`;
 const STATE_KEY = "sovir-ext-state";
 const SEEN_KEY = "sovir-ext-seen";
 const SEEN_TTL_MS = 60_000;
@@ -390,10 +397,10 @@ async function visionOnnxEnsure() {
     if (!m?.load) return false;
     try {
       // Vendored onnxruntime-web (ort/): wasm backend, single-threaded —
-      // MV3 workers lack crossOriginIsolated so SAB/threading is out.
-      if (!globalThis.ort) {
-        importScripts("ort/ort.wasm.min.js");
-      }
+      // MV3 workers lack crossOriginIsolated so SAB/threading is out. The
+      // JS loader arrives at worker boot (importScripts is startup-only
+      // in MV3); here we only point it at the wasm binary + fetch models.
+      if (!globalThis.ort) return false;
       if (globalThis.ort?.env?.wasm) {
         globalThis.ort.env.wasm.wasmPaths = chrome.runtime.getURL("ort/");
         globalThis.ort.env.wasm.numThreads = 1;
