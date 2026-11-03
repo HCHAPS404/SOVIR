@@ -88,19 +88,40 @@ object SignalExtractor {
         PRIZE_LOTTERY to "PRIZE_LOTTERY_CLAIM",
     )
 
-    fun extract(root: AccessibilityNodeInfo?): Set<String> {
-        if (root == null) return emptySet()
+    fun extract(root: AccessibilityNodeInfo?): Set<String> = extractWithHint(root).first
+
+    /**
+     * Signals + bounded text_hint for the LOCAL council's onnx-text voter
+     * (ADR-0025). Only node texts that fired a pattern are collected —
+     * the scam-relevant span, ≤1500 chars. Ephemeral: forwarded to the
+     * local assess endpoint, never persisted, never leaves the device
+     * except to the configured SOVIR API.
+     */
+    fun extractWithHint(root: AccessibilityNodeInfo?): Pair<Set<String>, String> {
+        if (root == null) return emptySet<String>() to ""
         val signals = mutableSetOf<String>()
-        walk(root, signals)
-        return signals
+        val hint = StringBuilder()
+        walk(root, signals, hint)
+        return signals to hint.toString().take(1500)
     }
 
-    private fun walk(node: AccessibilityNodeInfo, signals: MutableSet<String>) {
+    private fun walk(
+        node: AccessibilityNodeInfo,
+        signals: MutableSet<String>,
+        hint: StringBuilder = StringBuilder(),
+    ) {
         if (node.isPassword) signals += "CREDENTIAL_REQUEST"
         val text = (node.text ?: node.contentDescription)?.toString().orEmpty()
         if (text.isNotEmpty()) {
+            var matched = false
             for ((rx, signal) in TABLE) {
-                if (rx.containsMatchIn(text)) signals += signal
+                if (rx.containsMatchIn(text)) {
+                    signals += signal
+                    matched = true
+                }
+            }
+            if (matched && hint.length < 1500) {
+                hint.append(text.trim().replace(Regex("\\s+"), " ").take(200)).append('\n')
             }
         }
         // A pre-checked checkbox inside a dialog is the classic consent
@@ -109,7 +130,7 @@ object SignalExtractor {
             signals += "CONSENT_DARK_PATTERN"
         }
         for (i in 0 until node.childCount) {
-            node.getChild(i)?.let { walk(it, signals) }
+            node.getChild(i)?.let { walk(it, signals, hint) }
         }
     }
 }

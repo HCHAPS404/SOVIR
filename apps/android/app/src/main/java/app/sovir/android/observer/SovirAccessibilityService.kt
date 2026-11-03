@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
  */
 class SovirAccessibilityService : AccessibilityService() {
 
-    private val api by lazy { ObserverApi() }
+    private val api by lazy { SessionStore.init(applicationContext); ObserverApi() }
     private val executor = Executors.newSingleThreadExecutor()
     private val lastDigestByPackage = mutableMapOf<String, Pair<String, Long>>()
 
@@ -35,7 +35,7 @@ class SovirAccessibilityService : AccessibilityService() {
             android.util.Log.d("SovirObserver", "event type=${event.eventType} pkg=$pkg")
         }
         val root = rootInActiveWindow ?: return
-        val signals = SignalExtractor.extract(root)
+        val (signals, hint) = SignalExtractor.extractWithHint(root)
         if (signals.isEmpty()) return
         if (app.sovir.android.BuildConfig.DEBUG) {
             android.util.Log.i("SovirObserver", "signals $pkg -> $signals")
@@ -48,6 +48,11 @@ class SovirAccessibilityService : AccessibilityService() {
         executor.execute {
             runCatching { api.emit(pkg, signals) }
                 .onFailure { android.util.Log.w("SovirObserver", "emit failed", it) }
+            // Council verdict → local notification. Best-effort: a failed
+            // assess never blocks the durable event record above.
+            if (hint.isNotBlank()) {
+                api.assess(signals, hint)?.let { Notifier.notifyVerdict(this, it) }
+            }
         }
     }
 

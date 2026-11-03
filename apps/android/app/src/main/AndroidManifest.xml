@@ -8,6 +8,10 @@
       subida). Sin MediaProjection, micrófono, cámara ni SMS.
     -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Council verdict notifications: normal-level until Android 13,
+         runtime-granted on 33+. The observer asks for it on first
+         activation; denied → verdicts stay silent, nothing breaks. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="false"

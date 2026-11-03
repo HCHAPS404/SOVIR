@@ -19,8 +19,6 @@ class ObserverApi(
     private val base: String = app.sovir.android.BuildConfig.SOVIR_API_BASE,
     private val oidcTokenUrl: String = app.sovir.android.BuildConfig.SOVIR_OIDC_TOKEN_URL,
     private val oidcClientId: String = "sovir-extension",
-    private val oidcUser: String = "jesui",
-    private val oidcPass: String = "local_only",
     private val sourceId: String = "screen-observer:android",
     private val grantId: String = "android-observer-grant",
     private val deviceId: String = "android-device",
@@ -29,7 +27,8 @@ class ObserverApi(
 
     /** Real OIDC login (private-overlay deploy disables dev-session). */
     fun connectOidc() {
-        val form = "grant_type=password&client_id=$oidcClientId&username=$oidcUser&password=$oidcPass"
+        val form = "grant_type=password&client_id=$oidcClientId" +
+            "&username=${SessionStore.user()}&password=${SessionStore.pass()}"
         val conn = (URL(oidcTokenUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             setRequestProperty("content-type", "application/x-www-form-urlencoded")
@@ -102,6 +101,24 @@ class ObserverApi(
             .put("sensitive_data_class", "PUBLIC")
             .put("signals", org.json.JSONArray(signals.toList()))
         post("/v1/events", event)
+    }
+
+    /**
+     * Council assess with the ephemeral text_hint (ADR-0025): the onnx-text
+     * voter scores the matched span on the LOCAL api. STANDARD privacy is
+     * safe — the remote envelope never carries text_hint (adapter-tested).
+     * Returns the raw verdict JSON, or null on any failure (assess is
+     * best-effort; the event emit above is the durable record).
+     */
+    fun assess(signals: Set<String>, textHint: String): JSONObject? {
+        if (signals.isEmpty() || textHint.isBlank()) return null
+        if (token == null) connect()
+        val body = JSONObject()
+            .put("request_id", "and-assess-${shortId()}")
+            .put("signals", org.json.JSONArray(signals.toList()))
+            .put("privacy", "STANDARD")
+            .put("text_hint", textHint)
+        return runCatching { JSONObject(post("/v1/inference/assess", body)) }.getOrNull()
     }
 
     private fun post(path: String, body: JSONObject, token: String? = this.token): String {

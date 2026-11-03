@@ -20,7 +20,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import app.sovir.android.model.Copy
+import app.sovir.android.observer.ObserverApi
+import app.sovir.android.observer.SessionStore
 import app.sovir.android.model.Door
 import app.sovir.android.model.GateKind
 import app.sovir.android.model.emailProblem
@@ -59,13 +62,35 @@ fun AccessScreen(
     var problem by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf<String?>(null) }
     val palette = LocalPalette.current
+    val context = LocalContext.current
+    val loginExecutor = remember { java.util.concurrent.Executors.newSingleThreadExecutor() }
 
     fun finish(door: Door) {
+        // Capture before clearing — the fields are wiped on every finish.
+        val u = email.trim()
+        val p = secret
         email = ""
         secret = ""
         problem = null
-        result = refuse(kind, door).message
         showMail = false
+        if (door == Door.Email) {
+            // Real OIDC login (password grant against the configured
+            // Keycloak): success stores the creds the observer service
+            // uses for every assess/emit call.
+            result = "Conectando…"
+            loginExecutor.execute {
+                SessionStore.init(context)
+                SessionStore.save(u, p)
+                val ok = runCatching { ObserverApi().connectOidc() }.isSuccess
+                result = if (ok) {
+                    "Sesión iniciada — el observador usará esta cuenta."
+                } else {
+                    "No se pudo conectar: credenciales o API inalcanzable."
+                }
+            }
+            return
+        }
+        result = refuse(kind, door).message
     }
 
     Page {
