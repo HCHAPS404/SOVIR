@@ -297,9 +297,10 @@ async function emitEvent(tabId, { signals, digest, observed_at_ms, modality = "T
 
 // Local council assess with the ephemeral text_hint (ADR-0025): feeds the
 // ONNX text voter so real observations get a classifier vote, not just the
-// heuristic. STANDARD privacy is safe here — the hint never reaches the
-// remote envelope (field-by-field build, proven by adapter tests). The
-// verdict is kept in worker state for the popup; nothing text-like persists.
+// heuristic. Private mode: automatic page observations must never spend
+// remote budget; the remote envelope also never carries the hint. Wire
+// value is snake_case (sovir-domain PrivacyMode) — "STANDARD" was a 422.
+// The verdict is kept in worker state for the popup; nothing text-like persists.
 async function assessWithHint(st, message) {
   const verdict = await api("/v1/inference/assess", {
     token: st.token,
@@ -307,7 +308,7 @@ async function assessWithHint(st, message) {
     body: {
       request_id: `ext-assess-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`,
       signals: message.signals,
-      privacy: "STANDARD",
+      privacy: "private",
       text_hint: message.text_hint,
     },
   });

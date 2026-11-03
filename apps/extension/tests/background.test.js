@@ -99,6 +99,24 @@ test("observation mints session, registers device+grant, posts event", async () 
   assert.equal(event.init.headers["idempotency-key"].startsWith("extidem-"), true);
 });
 
+test("text_hint goes to a private, snake_case council assess — never STANDARD", async () => {
+  await send({
+    type: "observation",
+    signals: ["PAYMENT_REQUEST"],
+    digest: "sha256:hint",
+    observed_at_ms: 1,
+    text_hint: "Pague la tasa de aduana ahora",
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  const assess = fetchCalls.find((c) => c.url.endsWith("/v1/inference/assess"));
+  assert.ok(assess, "assess called when a hint exists");
+  const body = JSON.parse(assess.init.body);
+  assert.equal(body.privacy, "private");
+  assert.equal(body.text_hint, "Pague la tasa de aduana ahora");
+  const event = fetchCalls.find((c) => c.url.endsWith("/v1/events"));
+  assert.equal(JSON.parse(event.init.body).text_hint, undefined, "stored event stays signal-only");
+});
+
 test("dedupe suppresses the same digest within the TTL window", async () => {
   const obs = {
     type: "observation",
