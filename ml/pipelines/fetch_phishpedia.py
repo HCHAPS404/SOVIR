@@ -18,17 +18,17 @@ import pathlib
 import subprocess
 import sys
 
-# Verified 2026-11-03 against the official README (line 27): the project
-# publishes ONE Drive file — the 30k phishing benchmark (URL + HTML +
-# screenshot + target brand per site). There is no separate benign zip;
-# benign contrast sites come from our own corpus list, not this archive.
+# Verified 2026-11-03 against the official README (line 27) and
+# setup.sh: the 30k benchmark (eval data) and the expand_targetlist
+# (brand logos → prototypes) are two separate Drive files.
 DATASET_GDRIVE_ID = "12ypEMPRQ43zGRqHGut0Esq2z5en0DH4g"
+TARGETLIST_GDRIVE_ID = "1fr5ZxBKyDiNZ_1B6rRAfZbAHBBoUjZ7I"
 
 
 def fetch(file_id: str, out: pathlib.Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        [sys.executable, "-m", "gdown", "--id", file_id, "-O", str(out)],
+        [sys.executable, "-m", "gdown", file_id, "-O", str(out)],
         check=True,
     )
 
@@ -39,8 +39,9 @@ def main() -> int:
     args = ap.parse_args()
     root = pathlib.Path(args.out)
     fetch(DATASET_GDRIVE_ID, root / "phishpedia_30k.zip")
+    fetch(TARGETLIST_GDRIVE_ID, root / "expand_targetlist.zip")
     print(
-        "Downloaded. Next: unzip the archive here, then run "
+        "Downloaded. Next: unzip both archives here, then run "
         "ml/pipelines/train_visual.py to build brand prototypes and emit "
         "ml/datasets/eval-corpus-vision.v1.json for the gated eval."
     )
