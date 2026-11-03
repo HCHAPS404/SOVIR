@@ -7,11 +7,30 @@ import {
   revokeConsentAction,
 } from "../../lib/actions";
 import { exportData } from "../../lib/api";
+import type { DeletionReceipt } from "../../lib/api";
 import { describeSource, grantStatus } from "../../lib/humanize";
 import { live } from "../../lib/live";
 import { getView } from "../../lib/view";
 
 export const metadata = { title: "Privacidad y permisos" };
+
+const receiptCounts = (r: DeletionReceipt) =>
+  (
+    [
+      [r.events_deleted, "eventos"],
+      [r.grants_deleted, "permisos"],
+      [r.interventions_deleted, "intervenciones"],
+      [r.sessions_revoked, "sesiones"],
+      [r.devices_revoked, "dispositivos"],
+      [r.labels_scrubbed, "etiquetas"],
+      [r.idem_keys_deleted, "claves"],
+    ] as const
+  )
+    .filter(([n]) => n > 0)
+    .map(([n, l]) => `${n} ${l}`)
+    .join(" · ") || "sin filas";
+
+const shortId = (id: string) => `${id.slice(0, 12)}…`;
 
 export default async function PermissionsPage() {
   await requireApiSession();
@@ -22,7 +41,10 @@ export default async function PermissionsPage() {
 
   const grants = data?.grants ?? [];
   const activeGrants = grants.filter((g) => !g.revoked && g.expires_at_ms > now);
-  const receiptsCount = data?.deletion_receipts?.length ?? 0;
+  const receipts = [...(data?.deletion_receipts ?? [])].sort(
+    (a, b) => b.purged_at_ms - a.purged_at_ms,
+  );
+  const receiptsCount = receipts.length;
 
   if (data === null) {
     return (
@@ -191,6 +213,15 @@ export default async function PermissionsPage() {
                   </div>
                 </li>
               </ul>
+              {receipts.length > 0 ? (
+                <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.9rem 0 0" }}>
+                  Última purga verificada el{" "}
+                  {new Date(receipts[0].purged_at_ms).toLocaleDateString("es", {
+                    dateStyle: "medium",
+                  })}{" "}
+                  · recibo {shortId(receipts[0].receipt_id)}
+                </p>
+              ) : null}
               <div className="head-actions" style={{ marginTop: "auto" }}>
                 <form action={purgeDataAction}>
                   <button className="btn-op btn-op--danger" type="submit">
@@ -333,6 +364,24 @@ export default async function PermissionsPage() {
                   Purgar datos del principal ({data.events.length} eventos)
                 </button>
               </form>
+              {receipts.length > 0 ? (
+                <ul className="kv-list" style={{ marginTop: "0.9rem" }}>
+                  {receipts.slice(0, 5).map((r) => (
+                    <li key={r.receipt_id}>
+                      <span>
+                        {new Date(r.purged_at_ms).toLocaleString("es", {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })}
+                        <code className="row-tech" style={{ display: "block" }}>
+                          {shortId(r.receipt_id)}
+                        </code>
+                      </span>
+                      <strong>{receiptCounts(r)}</strong>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </section>
           </div>
         </div>

@@ -87,13 +87,27 @@ export interface ObservedEvent {
   signals: string[];
 }
 
+export interface DeletionReceipt {
+  receipt_id: string;
+  principal_id: string;
+  tenant_id: string;
+  purged_at_ms: number;
+  events_deleted: number;
+  grants_deleted: number;
+  interventions_deleted: number;
+  sessions_revoked: number;
+  devices_revoked: number;
+  labels_scrubbed: number;
+  idem_keys_deleted: number;
+}
+
 export interface PrincipalDataExport {
   principal_id: string;
   grants: ConsentGrant[];
   events: ObservedEvent[];
   devices: Device[];
   interventions: Intervention[];
-  deletion_receipts: unknown[];
+  deletion_receipts: DeletionReceipt[];
   audit_events: AuditEvent[];
 }
 

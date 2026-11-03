@@ -23,6 +23,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   SEED_PHRASE_REQUEST: "Solicitud de frases de recuperación",
   DELIVERY_CUSTOMS_FEE: "Fraudes de paquete retenido",
   AUTHORITY_IMPERSONATION: "Suplantación de autoridades",
+  DOM_BRAND_MISMATCH: "Marca servida desde dominio ajeno",
   SCARCITY_PRESSURE: "Presión por escasez o tiempo límite",
   JOB_SCAM_OFFER: "Ofertas de trabajo sospechosas",
   ROMANCE_BAIT: "Cebo sentimental con petición de dinero",
