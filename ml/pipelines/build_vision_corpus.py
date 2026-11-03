@@ -17,38 +17,41 @@ Usage:
         --data ml/datasets/phishpedia --n 300
 """
 import argparse
+import ast
 import json
 import pathlib
 import random
-import re
 import sys
 from urllib.parse import urlparse
 
-BRAND_RE = re.compile(r"(?:target|brand)[:\s]+([A-Za-z0-9_.-]+)", re.I)
-URL_RE = re.compile(r"https?://[^\s'\"]+", re.I)
-
 
 def parse_site(site_dir: pathlib.Path):
-    """→ {shot, host, brand} or None when metadata is absent."""
+    """-> {shot, host, brand} or None when metadata is absent.
+
+    Phishpedia info.txt is a Python-dict literal:
+    {'url': ..., 'host': ..., 'brand': ..., ...}
+    """
     shot = next(
         (site_dir / n for n in ("shot.png", "screenshot.png", "shot.jpg") if (site_dir / n).exists()),
         None,
     )
-    meta = b""
-    for name in ("info.txt", "meta.json", "url.txt"):
-        p = site_dir / name
-        if p.exists():
-            meta = p.read_bytes()
-            break
-    if shot is None or not meta:
+    info = site_dir / "info.txt"
+    if shot is None or not info.exists():
         return None
-    text = meta.decode("utf-8", "replace")
-    brand = BRAND_RE.search(text)
-    url = URL_RE.search(text)
+    try:
+        meta = ast.literal_eval(info.read_text(errors="replace"))
+    except (ValueError, SyntaxError):
+        return None
+    if not isinstance(meta, dict):
+        return None
+    brand = meta.get("brand")
+    host = meta.get("host") or (
+        urlparse(meta["url"]).hostname if meta.get("url") else None
+    )
     return {
         "shot": str(shot),
-        "brand": brand.group(1).lower() if brand else None,
-        "host": urlparse(url.group(0)).hostname if url else None,
+        "brand": brand.lower() if isinstance(brand, str) else None,
+        "host": host,
     }
 
 
@@ -97,8 +100,8 @@ def main() -> int:
     }
     out = pathlib.Path(args.out)
     out.write_text(json.dumps(corpus, indent=2))
-    print(f"wrote {len(cases)} cases → {out}")
-    print("NEXT: train_visual.py → eval the artifact against this corpus")
+    print(f"wrote {len(cases)} cases -> {out}")
+    print("NEXT: train_visual.py -> eval the artifact against this corpus")
     return 0
 
 
