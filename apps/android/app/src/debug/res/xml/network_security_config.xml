@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug builds only: cleartext stays permitted so the API can be reached
+  over plain HTTP on the dev LAN (http://<pc>:8787) without TLS setup.
+  Release builds use the strict main-res config (loopback + TLS only).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

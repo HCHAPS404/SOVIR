@@ -23,6 +23,7 @@ import app.sovir.android.BuildConfig
 import app.sovir.android.data.Api
 import app.sovir.android.data.Auth
 import app.sovir.android.data.PhoneLink
+import app.sovir.android.model.Humanize
 import app.sovir.android.model.ThemeChoice
 import app.sovir.android.model.Tone
 import app.sovir.android.model.timeAgo
@@ -116,6 +117,24 @@ fun AccountScreen(model: AppModel, theme: ThemeChoice, onTheme: (ThemeChoice) ->
             SecondaryButton("Borrar todos mis datos", { confirm = AccountConfirm.Purge }, tone = Tone.Danger, loading = purging)
             Notice(msg, if (msg == PURGED) Tone.Success else Tone.Danger)
             Gap(4.dp)
+        }
+
+        Gap(14.dp)
+        Panel {
+            PanelHead("Registro de auditoría", kicker = "Lo que el servidor anotó")
+            val items = (model.data?.audit ?: emptyList()).take(8)
+            if (items.isEmpty()) {
+                Text("El servidor aún no anotó acciones de tu cuenta.", style = MaterialTheme.typography.bodyMedium, color = p.muted)
+            }
+            items.forEachIndexed { n, a ->
+                Line(
+                    Humanize.auditAction(a.action),
+                    a.detail.ifBlank { null },
+                    meta = timeAgo(a.atMs, now),
+                    tone = Humanize.auditTone(a.action),
+                    divider = n < items.lastIndex,
+                )
+            }
         }
 
         Gap(20.dp)
