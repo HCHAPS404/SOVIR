@@ -97,6 +97,8 @@
 
 html { background: var(--bg); color: var(--text); }
 
+::selection { background: color-mix(in srgb, var(--accent-amber) 28%, transparent); }
+
 body {
   margin: 0;
   font-family: var(--body);
@@ -268,7 +270,8 @@ a:focus-visible, button:focus-visible, summary:focus-visible {
 }
 .masthead-enter:hover {
   background: var(--surface);
-  border-color: var(--text-muted);
+  border-color: var(--accent-amber);
+  color: var(--accent-amber);
 }
 .masthead a.masthead-register {
   background: var(--text);
@@ -790,8 +793,8 @@ h1 {
   font-family: var(--display);
   font-weight: 500;
   font-size: clamp(2.4rem, 6vw, 4.6rem);
-  line-height: 0.98;
-  letter-spacing: -0.03em;
+  line-height: 1.06;
+  letter-spacing: -0.015em;
   max-width: 16ch;
   margin: 0 0 1rem;
 }
@@ -853,7 +856,7 @@ th { font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; }
   padding: 0.22rem 0;
 }
 .footer li a:hover,
-.footer li a[aria-current="page"] { color: var(--text); }
+.footer li a[aria-current="page"] { color: var(--accent-amber); }
 .footer-end {
   display: flex;
   justify-content: space-between;
@@ -866,14 +869,12 @@ th { font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; }
   position: relative;
   width: calc(100% + 3.5rem);
   margin: 3.25rem -1.75rem 0;
-  background: #000;
 }
 .footer-wave {
   display: block;
   width: 100%;
   height: auto;
   aspect-ratio: 5120 / 1869;
-  background: #000;
 }
 .footer-figure .footer-end {
   position: absolute;
@@ -883,18 +884,18 @@ th { font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; }
   width: min(1120px, calc(100% - 3.5rem));
   margin: 0;
   padding: 0;
-  color: #f4f0e6;
+  color: var(--text);
 }
-.footer-figure .brand-lockup { color: #f4f0e6; }
+.footer-figure .brand-lockup { color: var(--text); }
 .footer-figure .mark { width: 1.35rem; height: 1.05rem; }
-.footer-figure .brand-name { font-size: 0.82rem; color: #f4f0e6; }
+.footer-figure .brand-name { font-size: 0.82rem; color: var(--text); }
 .footer-year {
   font-family: var(--body);
   font-weight: 400;
   font-size: 1.05rem;
   letter-spacing: 0;
   line-height: 1.4;
-  color: #f4f0e6;
+  color: var(--text-muted);
 }
 
 @media (max-width: 1100px) {
@@ -910,6 +911,7 @@ th { font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; }
 }
 .pattern h3 { margin: 0 0 0.35rem; font-size: 1.05rem; }
 .kicker { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.kicker::before { content: "—"; color: var(--accent-amber); margin-right: 0.45em; }
 .fact { margin: 0.35rem 0; }
 .tag { font-family: var(--mono); font-size: 0.72rem; }
 .tag.observed { color: var(--text); }

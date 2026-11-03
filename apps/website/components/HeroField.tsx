@@ -239,8 +239,12 @@ export function HeroField() {
     observer.observe(canvas);
     const seen = new IntersectionObserver((entries) => {
       visible = entries[0]?.isIntersecting ?? false;
-      if (visible) request();
-      else cancelAnimationFrame(frame);
+      if (visible) {
+        request();
+      } else {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      }
     });
     seen.observe(host);
     const onMotion = () => request();

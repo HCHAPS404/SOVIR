@@ -298,7 +298,6 @@ export const footerColumns: { heading: string; links: { href: string; label: str
       { href: "https://www.tiktok.com/@sovir", label: "TikTok", external: true },
       { href: "https://x.com/sovir", label: "X", external: true },
       { href: "https://www.youtube.com/@sovir", label: "YouTube", external: true },
-      { href: "https://github.com/HCHAPS404/SOVIR", label: "GitHub", external: true },
     ],
   },
 ];
