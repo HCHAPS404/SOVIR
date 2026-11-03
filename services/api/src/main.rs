@@ -330,6 +330,33 @@ fn inference_gateway(
         )),
     }
 }
+/// Verdict cache wrapper (B4 token-saver): identical repeat requests are
+/// served from memory — the provider is never re-billed for a duplicate.
+/// `SOVIR_INFER_CACHE_TTL_MS` (default 5 min, 0 disables pass-through)
+/// and `SOVIR_INFER_CACHE_CAP` (default 512 entries) bound it.
+fn cached_inference(
+    gw: Option<Arc<dyn sovir_ports::InferenceGateway>>,
+) -> Option<Arc<dyn sovir_ports::InferenceGateway>> {
+    let ttl: u64 = env::var("SOVIR_INFER_CACHE_TTL_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(300_000);
+    if ttl == 0 {
+        return gw;
+    }
+    let cap: usize = env::var("SOVIR_INFER_CACHE_CAP")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(512);
+    gw.map(|g| {
+        Arc::new(sovir_adapters::CachingInferenceGateway::new(
+            g,
+            Arc::new(SystemClock),
+            ttl,
+            cap,
+        )) as Arc<dyn sovir_ports::InferenceGateway>
+    })
+}
 /// Loads a versioned policy pack from `SOVIR_POLICY_PACK` (JSON file path).
 /// Unset → `dev_pack()`; set-but-invalid → startup refuses (fail closed).
 fn risk_analyzer() -> Arc<dyn sovir_ports::RiskAnalyzer> {
@@ -478,7 +505,11 @@ async fn compose_service(
                 receipts: Arc::new(pg.clone()),
                 idem: Arc::new(pg.clone()),
                 audit: Arc::new(pg.clone()),
-                inference: inference_gateway(&egress, &transport_allowlist, sovir_env),
+                inference: cached_inference(inference_gateway(
+                    &egress,
+                    &transport_allowlist,
+                    sovir_env,
+                )),
                 budget: budget.clone(),
                 reservations: Arc::new(pg.clone()),
                 intel: intel_feed(Arc::new(pg.clone())),
@@ -573,11 +604,11 @@ fn dev_service_with(
                 receipts: Arc::new(InMemoryDeletionReceiptStore::default()),
                 idem: Arc::new(InMemoryIdempotencyStore::default()),
                 audit: Arc::new(InMemoryAuditLog::default()),
-                inference: webhooks.as_ref().and_then(|(_, e)| {
+                inference: cached_inference(webhooks.as_ref().and_then(|(_, e)| {
                     let allowlist = egress_allowlist_env(&webhook_allowlist_env());
                     let sovir_env = env::var("SOVIR_ENV").unwrap_or_default();
                     inference_gateway(e, &allowlist, &sovir_env)
-                }),
+                })),
                 budget: budget.clone(),
                 reservations: reservations.clone()
                     as std::sync::Arc<dyn sovir_ports::BudgetReservations>,

@@ -1567,6 +1567,127 @@ impl InferenceGateway for CouncilGateway {
             || self.deferred.iter().any(|(_, v)| v.serves(mode))
     }
 }
+/// Bounded TTL verdict cache (B4 token-saver). Wraps any gateway: an
+/// identical repeat — same signal set, privacy mode and text hint — is
+/// served from memory so the provider is never re-billed for a duplicate
+/// call. The key hashes canonical signal labels plus a digest of the
+/// local-only `text_hint`; raw hint text is never stored. A hit answers
+/// under the caller's request_id with `cache:`-prefixed provenance and an
+/// explicit zero `ReportedUsage`, so audits tell a served-from-memory
+/// verdict from a real call.
+pub struct CachingInferenceGateway {
+    inner: Arc<dyn InferenceGateway>,
+    clock: Arc<dyn Clock>,
+    ttl_ms: u64,
+    cap: usize,
+    entries: Mutex<HashMap<u64, CacheEntry>>,
+}
+struct CacheEntry {
+    stored_at_ms: u64,
+    model_id: String,
+    hypotheses: Vec<String>,
+    confidence_bp: u16,
+    provenance: String,
+    votes: Option<Vec<sovir_domain::VoterVerdict>>,
+}
+impl CachingInferenceGateway {
+    pub fn new(
+        inner: Arc<dyn InferenceGateway>,
+        clock: Arc<dyn Clock>,
+        ttl_ms: u64,
+        cap: usize,
+    ) -> Self {
+        Self {
+            inner,
+            clock,
+            ttl_ms,
+            cap,
+            entries: Mutex::new(HashMap::new()),
+        }
+    }
+    /// Deterministic key over sorted signal labels + privacy + the hint
+    /// digest. `DefaultHasher` is fixed-key SipHash — stable within the
+    /// process, which is all a local cache needs.
+    fn key(req: &sovir_domain::InferenceRequest) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut sig: Vec<&str> = req
+            .signals
+            .iter()
+            .map(|s| sovir_domain::risk_signal_label(*s))
+            .collect();
+        sig.sort_unstable();
+        let mut h = DefaultHasher::new();
+        sig.hash(&mut h);
+        match req.privacy {
+            sovir_domain::PrivacyMode::Private => 0u8.hash(&mut h),
+            sovir_domain::PrivacyMode::Standard => 1u8.hash(&mut h),
+        }
+        // The hint lands in the key only as a hash — never stored raw.
+        req.text_hint.as_deref().unwrap_or("").hash(&mut h);
+        h.finish()
+    }
+}
+#[async_trait]
+impl InferenceGateway for CachingInferenceGateway {
+    async fn assess(
+        &self,
+        req: &sovir_domain::InferenceRequest,
+    ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+        let key = Self::key(req);
+        let now = self.clock.now_ms();
+        {
+            let mut map = self.entries.lock().map_err(|_| PortError::Storage)?;
+            if let Some(e) = map.get(&key) {
+                if now.saturating_sub(e.stored_at_ms) <= self.ttl_ms {
+                    return Ok(sovir_domain::InferenceVerdict {
+                        request_id: req.request_id.clone(),
+                        model_id: e.model_id.clone(),
+                        hypotheses: e.hypotheses.clone(),
+                        confidence_bp: e.confidence_bp,
+                        provenance: format!("cache:{}", e.provenance),
+                        usage: Some(sovir_domain::ReportedUsage {
+                            tokens_input: 0,
+                            tokens_output: 0,
+                            cost_micro_usd: Some(0),
+                        }),
+                        votes: e.votes.clone(),
+                    });
+                }
+                map.remove(&key); // expired
+            }
+        }
+        let v = self.inner.assess(req).await?;
+        let mut map = self.entries.lock().map_err(|_| PortError::Storage)?;
+        if map.len() >= self.cap {
+            map.retain(|_, e| now.saturating_sub(e.stored_at_ms) <= self.ttl_ms);
+            if map.len() >= self.cap {
+                if let Some(oldest) = map
+                    .iter()
+                    .min_by_key(|(_, e)| e.stored_at_ms)
+                    .map(|(k, _)| *k)
+                {
+                    map.remove(&oldest);
+                }
+            }
+        }
+        map.insert(
+            key,
+            CacheEntry {
+                stored_at_ms: now,
+                model_id: v.model_id.clone(),
+                hypotheses: v.hypotheses.clone(),
+                confidence_bp: v.confidence_bp,
+                provenance: v.provenance.clone(),
+                votes: v.votes.clone(),
+            },
+        );
+        Ok(v)
+    }
+    fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+        self.inner.serves(mode)
+    }
+}
 /// Visual ONNX voter seam (ADR-0024 + ADR-0025). Fails CLOSED by
 /// construction: `serves()` is false until BOTH an approved, licensed
 /// artifact path is configured (`SOVIR_ONNX_VISION_MODEL`) AND the
@@ -3896,6 +4017,99 @@ mod tests {
         assert!(
             total_hit * 3 >= total * 2,
             "onnx-text eval below gate: {total_hit}/{total} ({misses:?})"
+        );
+    }
+
+    // --- verdict cache (B4 token-saver) --------------------------------------
+    struct CountingVoter(Arc<std::sync::atomic::AtomicUsize>);
+    #[async_trait]
+    impl InferenceGateway for CountingVoter {
+        async fn assess(
+            &self,
+            req: &sovir_domain::InferenceRequest,
+        ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(sovir_domain::InferenceVerdict {
+                request_id: req.request_id.clone(),
+                model_id: "counting-1".into(),
+                hypotheses: vec!["payment_fraud_attempt".into()],
+                confidence_bp: 8000,
+                provenance: "counting".into(),
+                usage: Some(sovir_domain::ReportedUsage {
+                    tokens_input: 100,
+                    tokens_output: 20,
+                    cost_micro_usd: Some(5),
+                }),
+                votes: None,
+            })
+        }
+        fn serves(&self, _: sovir_domain::PrivacyMode) -> bool {
+            true
+        }
+    }
+    struct StepClock(Mutex<u64>);
+    impl Clock for StepClock {
+        fn now_ms(&self) -> u64 {
+            *self.0.lock().unwrap()
+        }
+    }
+    fn infer_req(id: &str, hint: Option<&str>) -> sovir_domain::InferenceRequest {
+        sovir_domain::InferenceRequest {
+            request_id: id.into(),
+            signals: vec![sovir_domain::RiskSignal::PaymentRequest],
+            privacy: sovir_domain::PrivacyMode::Standard,
+            est_cost_micro_usd: 0,
+            text_hint: hint.map(str::to_string),
+        }
+    }
+    #[tokio::test]
+    async fn verdict_cache_hit_skips_provider_and_marks_provenance() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let voter = Arc::new(CountingVoter(calls.clone()));
+        let cache =
+            CachingInferenceGateway::new(voter, Arc::new(StepClock(Mutex::new(1_000))), 60_000, 8);
+        let r1 = cache.assess(&infer_req("r1", None)).await.unwrap();
+        let r2 = cache.assess(&infer_req("r2", None)).await.unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(r2.request_id, "r2");
+        assert!(r2.provenance.starts_with("cache:"));
+        assert_eq!(
+            r2.usage.map(|u| (u.tokens_input, u.cost_micro_usd)),
+            Some((0, Some(0))),
+            "a cached verdict must not re-report provider spend"
+        );
+        // A different text hint is a different request — no wrong-answer risk.
+        cache.assess(&infer_req("r3", Some("hola"))).await.unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        let _ = r1;
+    }
+    #[tokio::test]
+    async fn verdict_cache_expires_and_evicts_oldest() {
+        let clock = Arc::new(StepClock(Mutex::new(0)));
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let voter = Arc::new(CountingVoter(calls.clone()));
+        let cache = CachingInferenceGateway::new(voter, clock.clone(), 100, 2);
+        // request_id is NOT part of the key — hints distinguish entries.
+        cache.assess(&infer_req("a", Some("x"))).await.unwrap(); // t=0   call 1
+        *clock.0.lock().unwrap() = 150;
+        // 'a' expired at t=150 (ttl=100) — refetched.
+        cache.assess(&infer_req("a2", Some("x"))).await.unwrap(); // call 2
+        *clock.0.lock().unwrap() = 160;
+        cache.assess(&infer_req("b", Some("y"))).await.unwrap(); // call 3
+        *clock.0.lock().unwrap() = 180;
+        // 'b' is 20ms old → hit; no new call.
+        cache.assess(&infer_req("b2", Some("y"))).await.unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
+        // Third distinct key at cap=2 evicts the oldest ('a2' @ t=150).
+        cache.assess(&infer_req("c", Some("z"))).await.unwrap(); // call 4
+        cache.assess(&infer_req("a3", Some("x"))).await.unwrap(); // evicted → call 5
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 5);
+        // Reinserting 'a' at cap=2 evicts 'b' (now the oldest live entry).
+        cache.assess(&infer_req("b3", Some("y"))).await.unwrap();
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            6,
+            "cap=2 holds only the two most recent distinct keys"
         );
     }
 }
