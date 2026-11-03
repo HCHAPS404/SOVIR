@@ -835,4 +835,79 @@ mod tests {
         assert_ne!(a, sha256_hex("chrome.exe|URGENT_ACTION,otro titulo"));
         assert_eq!(a.len(), 64);
     }
+
+    #[test]
+    fn env_readers_honor_values_clamps_and_defaults() {
+        // env is process-global: a single test mutates and restores so the
+        // parallel suite can never race on these vars.
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _g = LOCK.lock().unwrap();
+        for (k, v) in [
+            ("SOVIR_API_URL", "https://api.example.test"),
+            ("SOVIR_OBSERVER_POLL_MS", "750"),
+            ("SOVIR_OBSERVER_QUEUE_MAX", "8"),
+            ("SOVIR_OBSERVER_EXCLUDE", "KeepassXC.exe, SVCHOST.exe"),
+            ("SOVIR_OBSERVER_DISABLE", "1"),
+            ("SOVIR_OBSERVER_VISION", "1"),
+            ("SOVIR_OBSERVER_VISION_SOURCE", "synthetic"),
+            ("SOVIR_OBSERVER_VISION_MS", "7000"),
+        ] {
+            env::set_var(k, v);
+        }
+        assert_eq!(api_base(), "https://api.example.test");
+        assert_eq!(poll_ms(), 750);
+        assert_eq!(queue_max(), 8);
+        assert_eq!(excluded_processes(), vec!["keepassxc.exe", "svchost.exe"]);
+        assert!(disabled());
+        assert!(vision_enabled());
+        assert_eq!(vision_source_name(), "synthetic");
+        assert_eq!(vision_ms(), 7000);
+        // Kill-switch beats the opt-in — the deployed classifier can be
+        // shut off without touching user configuration.
+        env::set_var("SOVIR_EDGE_VISION", "0");
+        assert!(!vision_enabled());
+        env::remove_var("SOVIR_EDGE_VISION");
+        // Out-of-range numerics clamp into the documented bounds.
+        env::set_var("SOVIR_OBSERVER_POLL_MS", "99999999");
+        env::set_var("SOVIR_OBSERVER_QUEUE_MAX", "0");
+        env::set_var("SOVIR_OBSERVER_VISION_MS", "1");
+        assert_eq!(poll_ms(), 60_000);
+        assert_eq!(queue_max(), 1);
+        assert_eq!(vision_ms(), 1_000);
+        for k in [
+            "SOVIR_API_URL",
+            "SOVIR_OBSERVER_POLL_MS",
+            "SOVIR_OBSERVER_QUEUE_MAX",
+            "SOVIR_OBSERVER_EXCLUDE",
+            "SOVIR_OBSERVER_DISABLE",
+            "SOVIR_OBSERVER_VISION",
+            "SOVIR_OBSERVER_VISION_SOURCE",
+            "SOVIR_OBSERVER_VISION_MS",
+            "SOVIR_EDGE_VISION",
+        ] {
+            env::remove_var(k);
+        }
+        assert_eq!(api_base(), "http://127.0.0.1:8787");
+        assert_eq!(poll_ms(), 2_000);
+        assert_eq!(queue_max(), 64);
+        assert!(excluded_processes().is_empty());
+        assert!(!disabled());
+        // Pixel observation is opt-in: unset means OFF, and the source
+        // defaults to the real capture path.
+        assert!(!vision_enabled());
+        assert_eq!(vision_source_name(), "wgc");
+        assert_eq!(vision_ms(), 5_000);
+    }
+
+    #[test]
+    fn now_ms_is_unix_epoch_millis() {
+        assert!(now_ms() > 1_700_000_000_000);
+    }
+
+    #[test]
+    fn short_id_is_12_hex_chars() {
+        let id = short_id();
+        assert_eq!(id.len(), 12);
+        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+    }
 }

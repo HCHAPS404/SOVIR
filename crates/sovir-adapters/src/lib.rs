@@ -1454,7 +1454,7 @@ impl InferenceGateway for CouncilGateway {
                 }
             }
         }
-        ranked.sort_by(|a, b| b.0.cmp(&a.0));
+        ranked.sort_by_key(|a| std::cmp::Reverse(a.0));
         let mut hypotheses: Vec<String> = ranked.into_iter().map(|(_, h)| h).collect();
         if hypotheses.is_empty() {
             hypotheses.push("no_pattern_detected".into());

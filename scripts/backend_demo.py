@@ -137,16 +137,20 @@ status,faudit=get('/v1/me/audit?limit=50',t4)
 assert status==200 and all(a['action']!='event_ingested' or True for a in faudit)
 assert all('seq' not in (a.get('detail') or '') for a in faudit) or faudit==[]
 
-# B4 seam: standard mode refuses honestly without a provider
-# (503 provider_unavailable) — it can never fabricate a verdict.
+# B4 seam under ADR-0025: with no remote provider configured, a Standard
+# request is answered by the LOCAL council floor — it can never fabricate
+# a remote verdict: provenance names the council outcome and every vote
+# discloses its origin and carries its own metering.
 status,body=post('/v1/inference/assess',{'request_id':'req-demo','signals':['URGENT_ACTION'],'privacy':'standard'},t5)
-assert status==503 and body['error']['code']=='provider_unavailable', (status,body)
-# Private mode is served by the LOCAL heuristic gateway (zero egress):
-# real typed hypotheses with honest provenance, not a fabricated provider.
+assert status==200 and body['model_id']=='sovir-council-v1', (status,body)
+assert 'council:' in body['provenance'], body
+assert body['votes'] and all(v.get('usage') is not None and v.get('provenance') for v in body['votes']), body['votes']
+# Private mode: same local council, guaranteed zero egress — and the
+# heuristic floor must disclose it is weighted rules, not a remote model.
 status,body=post('/v1/inference/assess',{'request_id':'req-demo-2','signals':['URGENT_ACTION','PAYMENT_REQUEST'],'privacy':'private'},t5)
 assert status==200, (status,body)
-assert 'payment_fraud_attempt' in body['hypotheses'] and 'heuristic' in body['model_id'], body
-assert 'local_heuristic' in body['provenance'], body
+assert 'payment_fraud_attempt' in body['hypotheses'], body
+assert body['votes'] and any('local_heuristic' in v['provenance'] for v in body['votes']), body['votes']
 
 # B5 seam: no feed configured => pull keeps 0, list is empty.
 status,rep=post('/v1/intel/pull',{},t5)
