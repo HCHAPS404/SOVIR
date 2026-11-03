@@ -95,3 +95,28 @@ concilio, notificación local incluida, desde cualquier red.
 `apps/console` → `vercel deploy`. Env vars: `NEXT_PUBLIC_API_BASE=https://api.<tudominio>`,
 `OIDC_ISSUER=https://auth.<tudominio>/realms/sovir`, redirect URI del
 client `sovir-console` en Keycloak apuntando al dominio Vercel.
+
+## Quick tunnels: alineacion OIDC (verificado 2026-11-03)
+
+Con `start-dev --hostname-strict false`, Keycloak estampa en `iss` el
+HOST del token endpoint que emitio el token. Toda la cadena debe usar el
+mismo issuer o el API rechaza el JWT (`validation.set_issuer`):
+
+- `.env.local` (repo): `SOVIR_OIDC_ISSUER=<auth-tunnel>/realms/sovir`.
+  `SOVIR_OIDC_JWKS_URL` queda loopback — las claves no dependen del host.
+- `apps/console/.env.local`: mismo issuer de tunel +
+  `SOVIR_OIDC_REDIRECT_URI=<console-tunnel>/api/auth/oidc/callback`.
+- Keycloak client `sovir-console`: registrar el callback del tunel en
+  `redirectUris` y el origen en `webOrigins` (admin API,
+  `admin/admin_local_only` en master).
+- Android: token endpoint del tunel (horneado o via Cuenta > Cambiar
+  servidor) — mismo `iss`.
+
+Si la URL del tunel de auth rota: actualizar issuer en ambos `.env.local`
++ reiniciar API y consola + repoint en la app. Si rota la de consola:
+re-registrar el callback en Keycloak y actualizar `REDIRECT_URI`.
+
+Health real del tunel = `curl https://<url>/health/ready` publico, no
+`tasklist`: cloudflared puede seguir vivo con el origen roto (HTTP 530).
+`start-tunnels.ps1` lanza los tres (api/auth/console) y escribe
+`~/sovir-local/tunnels.json` con las URLs activas.

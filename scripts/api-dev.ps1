@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $envFile = Join-Path $repo '.env.local'
 if (-not (Test-Path $envFile)) {
-    Write-Error ".env.local not found — copy .env.example to .env.local and fill real values."
+    Write-Error ".env.local not found - copy .env.example to .env.local and fill real values."
 }
 Get-Content $envFile | ForEach-Object {
     $line = $_.Trim()
