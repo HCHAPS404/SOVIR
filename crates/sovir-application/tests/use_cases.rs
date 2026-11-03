@@ -499,6 +499,7 @@ use sovir_ports::{InferenceGateway, PortError};
 
 struct StubGateway {
     serve_standard: bool,
+    usage: Option<sovir_domain::ReportedUsage>,
 }
 #[async_trait::async_trait]
 impl InferenceGateway for StubGateway {
@@ -509,7 +510,7 @@ impl InferenceGateway for StubGateway {
             hypotheses: vec!["possible-urgency".into()],
             confidence_bp: 6_000,
             provenance: "synthetic-test".into(),
-            usage: None,
+            usage: self.usage,
             votes: None,
         })
     }
@@ -550,6 +551,7 @@ async fn inference_budget_cap_blocks_spend() {
     let mut p = ports();
     p.inference = Some(Arc::new(StubGateway {
         serve_standard: true,
+        usage: None,
     }));
     p.reservations = Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(100));
     let s = SovirService::new(Arc::new(FixedClock), p);
@@ -571,6 +573,7 @@ async fn inference_zero_cap_refuses_anything() {
     let mut p = ports();
     p.inference = Some(Arc::new(StubGateway {
         serve_standard: true,
+        usage: None,
     }));
     let s = SovirService::new(Arc::new(FixedClock), p); // default cap 0
     let err = s
@@ -585,6 +588,7 @@ async fn inference_unserved_privacy_mode_refused() {
     let mut p = ports();
     p.inference = Some(Arc::new(StubGateway {
         serve_standard: false,
+        usage: None,
     })); // private only
     p.reservations = Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(1_000));
     let s = SovirService::new(Arc::new(FixedClock), p);
@@ -602,6 +606,7 @@ async fn inference_spend_scoped_per_tenant() {
     let mut p = ports();
     p.inference = Some(Arc::new(StubGateway {
         serve_standard: true,
+        usage: None,
     }));
     p.reservations = Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(100));
     let s = SovirService::new(Arc::new(FixedClock), p);
@@ -616,6 +621,32 @@ async fn inference_spend_scoped_per_tenant() {
         .unwrap();
 }
 
+/// B21 metering regression: a verdict reporting measured-zero provider
+/// cost settles at $0 — local council votes must not consume the
+/// tenant's budget. With estimate-fallback billing, the second request
+/// of 60 under cap 100 would have failed BudgetExceeded (60+60 > 100).
+#[tokio::test]
+async fn inference_zero_cost_verdict_does_not_spend() {
+    let mut p = ports();
+    p.inference = Some(Arc::new(StubGateway {
+        serve_standard: true,
+        usage: Some(sovir_domain::ReportedUsage {
+            tokens_input: 0,
+            tokens_output: 0,
+            cost_micro_usd: Some(0),
+        }),
+    }));
+    let reservations: Arc<dyn sovir_ports::BudgetReservations> =
+        Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(100));
+    p.reservations = reservations.clone();
+    let s = SovirService::new(Arc::new(FixedClock), p);
+    let pr = principal("p");
+    for _ in 0..3 {
+        s.assess_with_inference(&pr, infer_req(60)).await.unwrap();
+    }
+    assert_eq!(reservations.spent_since("dev", 0).await.unwrap(), 0);
+}
+
 /// B21 race test: two simultaneous assess calls, distinct request_ids,
 /// cap only fits one — the atomic reserve must admit exactly one. The
 /// in-memory adapter takes the whole check+insert under one write-lock,
@@ -625,6 +656,7 @@ async fn inference_concurrent_reserves_do_not_exceed_cap() {
     let mut p = ports();
     p.inference = Some(Arc::new(StubGateway {
         serve_standard: true,
+        usage: None,
     }));
     p.reservations = Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(100));
     let s = std::sync::Arc::new(SovirService::new(Arc::new(FixedClock), p));
@@ -660,6 +692,7 @@ async fn reservation_sweep_refunds_orphans_releases_cap() {
     let mut p = ports();
     p.inference = Some(Arc::new(StubGateway {
         serve_standard: true,
+        usage: None,
     }));
     let reservations: Arc<dyn sovir_ports::BudgetReservations> =
         Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(100));
@@ -716,6 +749,7 @@ async fn inference_same_request_id_does_not_double_charge() {
     let mut p = ports();
     p.inference = Some(Arc::new(StubGateway {
         serve_standard: true,
+        usage: None,
     }));
     p.reservations = Arc::new(sovir_adapters::InMemoryBudgetReservations::with_cap(100));
     let s = SovirService::new(Arc::new(FixedClock), p);

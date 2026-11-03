@@ -274,8 +274,10 @@ pub struct InferenceRequest {
 }
 
 /// Provider-reported metering for one verdict (B21 honest accounting).
-/// Optional — heuristic/local verdicts and providers without usage fields
-/// carry None and the reservation settles at the configured estimate.
+/// Optional — providers without usage fields carry None and the
+/// reservation settles at the configured estimate. Local voters report
+/// an explicit measured zero (no egress ⇒ no billable spend), so None
+/// reliably means "a billable call of unknown price happened".
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ReportedUsage {
     pub tokens_input: u32,

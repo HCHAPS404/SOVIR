@@ -1298,7 +1298,14 @@ impl InferenceGateway for HeuristicLocalInferenceGateway {
             hypotheses: hypotheses.into_iter().map(str::to_string).collect(),
             confidence_bp,
             provenance: "local_heuristic_weighted_rules; no model, no egress; deterministic".into(),
-            usage: None,
+            // Measured-zero, not None: a local vote provably cost $0 of
+            // provider spend — None would settle at the estimate as if a
+            // billable call had happened.
+            usage: Some(sovir_domain::ReportedUsage {
+                tokens_input: 0,
+                tokens_output: 0,
+                cost_micro_usd: Some(0),
+            }),
             votes: None,
         })
     }
@@ -1459,22 +1466,28 @@ impl InferenceGateway for CouncilGateway {
             sovir_domain::CouncilOutcome::Disputed => "disputed:no_shared_hypothesis",
             sovir_domain::CouncilOutcome::LocalSettled => "local_settled",
         };
-        // Aggregate usage across voters — the reservation settles real
-        // cost when every voter reported a priced cost.
+        // Aggregate usage only when EVERY vote carried metering. A vote
+        // without usage means an unpriced call happened (e.g. a remote
+        // provider that returned no usage fields) — then usage stays
+        // None and the reservation settles at the estimate rather than
+        // under-billing real egress. All-local councils report an
+        // explicit measured zero, so they aggregate to Some(0).
         let mut usage: Option<sovir_domain::ReportedUsage> = None;
-        for v in &votes {
-            if let Some(u) = v.usage {
-                let agg = usage.get_or_insert(sovir_domain::ReportedUsage {
-                    tokens_input: 0,
-                    tokens_output: 0,
-                    cost_micro_usd: Some(0),
-                });
-                agg.tokens_input += u.tokens_input;
-                agg.tokens_output += u.tokens_output;
-                agg.cost_micro_usd = match (agg.cost_micro_usd, u.cost_micro_usd) {
-                    (Some(a), Some(b)) => Some(a + b),
-                    _ => None,
-                };
+        if votes.iter().all(|v| v.usage.is_some()) {
+            for v in &votes {
+                if let Some(u) = v.usage {
+                    let agg = usage.get_or_insert(sovir_domain::ReportedUsage {
+                        tokens_input: 0,
+                        tokens_output: 0,
+                        cost_micro_usd: Some(0),
+                    });
+                    agg.tokens_input += u.tokens_input;
+                    agg.tokens_output += u.tokens_output;
+                    agg.cost_micro_usd = match (agg.cost_micro_usd, u.cost_micro_usd) {
+                        (Some(a), Some(b)) => Some(a + b),
+                        _ => None,
+                    };
+                }
             }
         }
         Ok(sovir_domain::InferenceVerdict {
@@ -1687,7 +1700,13 @@ impl InferenceGateway for OnnxTextVoter {
                 hypotheses: vec![hypothesis.to_string()],
                 confidence_bp: bp,
                 provenance: format!("onnx-text local; label:{label}; no egress"),
-                usage: None,
+                // Local artifact, zero provider metering — measured $0,
+                // never an unpriced None that would bill the estimate.
+                usage: Some(sovir_domain::ReportedUsage {
+                    tokens_input: 0,
+                    tokens_output: 0,
+                    cost_micro_usd: Some(0),
+                }),
                 votes: None,
             });
         }
@@ -3164,6 +3183,77 @@ mod tests {
         assert!(votes.iter().any(|x| x.voter == "remote"));
         assert!(!v.provenance.contains("local_settled"));
         assert_eq!(v.usage.unwrap().cost_micro_usd, Some(100));
+    }
+    /// B21 metering regression: when only local voters decide, the
+    /// verdict carries a measured ZERO cost — never an unpriced None that
+    /// would settle at the configured estimate. (Private calls were being
+    /// billed $0.01 each while a remote provider was merely configured.)
+    #[tokio::test]
+    async fn council_local_only_verdict_reports_measured_zero_cost() {
+        use sovir_domain::RiskSignal::*;
+        let egress = Arc::new(RecordingHttpEgress::default());
+        let remote: Arc<dyn InferenceGateway> = Arc::new(RemoteInferenceGateway::new(
+            egress.clone(),
+            "https://provider.example/assess".to_string(),
+            "key".to_string(),
+            "model-x".to_string(),
+        ));
+        let council = CouncilGateway::deferred(
+            vec![(
+                "heuristic".into(),
+                Arc::new(HeuristicLocalInferenceGateway) as _,
+            )],
+            vec![("remote".into(), remote)],
+            8_000,
+        );
+        // Private: the remote voter is filtered before any call.
+        // Standard + confident local: settled before the deferred voter.
+        // Both produce local-only votes and must meter exactly $0.
+        for privacy in [
+            sovir_domain::PrivacyMode::Private,
+            sovir_domain::PrivacyMode::Standard,
+        ] {
+            let v = council
+                .assess(&inf_req(&[CredentialRequest, IdentityUnverified], privacy))
+                .await
+                .unwrap();
+            let u = v.usage.expect("local council reports measured usage");
+            assert_eq!(u.cost_micro_usd, Some(0));
+            assert_eq!(u.tokens_input + u.tokens_output, 0);
+        }
+        assert!(egress.0.lock().unwrap().is_empty());
+    }
+    /// Conservative billing: a remote voter that answered but reported
+    /// no metering keeps verdict usage None, so the reservation settles
+    /// at the estimate instead of recording $0 for real egress.
+    #[tokio::test]
+    async fn council_unpriced_remote_vote_keeps_usage_unknown() {
+        use sovir_domain::RiskSignal::*;
+        let remote = stub_voter(&["payment_fraud_attempt"], 7_500); // usage: None
+        let council = CouncilGateway::deferred(
+            vec![(
+                "heuristic".into(),
+                Arc::new(HeuristicLocalInferenceGateway) as _,
+            )],
+            vec![("remote".into(), Arc::new(remote) as _)],
+            8_000,
+        );
+        // UrgentAction alone stays under the local settle threshold →
+        // the unpriced remote vote is collected.
+        let v = council
+            .assess(&inf_req(
+                &[UrgentAction],
+                sovir_domain::PrivacyMode::Standard,
+            ))
+            .await
+            .unwrap();
+        assert!(v
+            .votes
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|x| x.voter == "remote"));
+        assert!(v.usage.is_none());
     }
     /// Privacy invariant (ADR-0025): a request carrying `text_hint` must
     /// never put raw text on the wire — the remote envelope is built
