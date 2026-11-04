@@ -12,7 +12,7 @@
 (function attach(global) {
   const TERMS = {
     URGENT_ACTION: {
-      es: ["urgente", "suspendida", "suspendido", "bloqueada", "bloqueado", "verifica", "verificar", "expira", "caduca", "actúa ahora", "último aviso", "de inmediato", "última oportunidad", "cuenta limitada"],
+      es: ["urgente", "suspendida", "suspendido", "bloqueada", "bloqueado", "verifica", "verificar", "expira", "vence", "vencimiento", "caduca", "actúa ahora", "último aviso", "de inmediato", "última oportunidad", "cuenta limitada", "acción requerida", "solo hoy", "sólo hoy", "tiempo limitado"],
       en: ["urgent", "suspended", "locked", "verify now", "expires", "expired", "act now", "immediately", "last warning", "final notice", "verify your account", "account limited"],
       pt: ["urgente", "suspensa", "suspenso", "bloqueada", "bloqueado", "verifique", "expira", "expirado", "aja agora", "último aviso", "imediatamente", "conta limitada"],
       fr: ["urgent", "urgente", "suspendu", "suspendue", "bloqué", "bloquée", "vérifiez", "vérifie", "expire", "expiré", "agissez", "dernier avertissement", "dernier avis", "immédiatement", "compte limité"],

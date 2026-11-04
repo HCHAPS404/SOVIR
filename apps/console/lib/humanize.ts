@@ -40,6 +40,10 @@ export function describeSource(sourceId: string): { name: string; does: string }
       return { name: "Laboratorio de la consola", does: "emite señales de prueba de riesgo" };
     case "screen-observer:sim":
       return { name: "Observador de pantalla (simulado)", does: "observa señales en tu pantalla" };
+    case "screen-observer:android":
+      return { name: "Tu teléfono Android", does: "observa señales en las pantallas que abres" };
+    case "screen-observer:ext":
+      return { name: "Extensión del navegador", does: "observa señales en las páginas que visitas" };
     case "browser.synthetic":
       return { name: "Navegador (simulado)", does: "emite señales de navegación de prueba" };
     default:
@@ -70,7 +74,11 @@ export function describeIntervention(i: {
         ? "Un sitio te presionó con urgencia — primer paso típico de una estafa."
         : prefix === "uit"
           ? "El observador de pantalla detectó un patrón de diseño engañoso."
-          : "SOVIR detectó una señal de riesgo en tu actividad.";
+          : prefix === "and"
+            ? "El observador de tu teléfono detectó una señal de riesgo en una app."
+            : prefix === "ext"
+              ? "La extensión detectó una señal de riesgo en una página que visitaste."
+              : "SOVIR detectó una señal de riesgo en tu actividad.";
   const state =
     i.state === "pending"
       ? "pendiente de mostrarse"
@@ -126,9 +134,20 @@ export function describeAudit(a: { action: string; detail: string }): {
         ? "registrada sin alerta"
         : (decision ?? "");
   const device = /dev:([^\s]+)/.exec(a.detail)?.[1];
-  const deviceLabel = device === "console-web" ? "desde la consola web" : device ? `desde ${device}` : "";
+  const deviceLabel =
+    device === "console-web"
+      ? "desde la consola web"
+      : device?.startsWith("and-")
+        ? "desde tu teléfono"
+        : device?.startsWith("ext-")
+          ? "desde la extensión"
+          : device
+            ? `desde ${device}`
+            : "";
   const grant = /grant:([^\s]+)/.exec(a.detail)?.[1];
-  const grantLabel = grant ? (GRANT_NAMES[grant] ?? grant) : "";
+  const grantLabel = grant
+    ? (GRANT_NAMES[grant] ?? (grant.startsWith("and-") ? "permiso del teléfono" : grant))
+    : "";
   const sub = [grantLabel, decisionLabel, deviceLabel].filter(Boolean).join(" · ");
   return { title, sub };
 }

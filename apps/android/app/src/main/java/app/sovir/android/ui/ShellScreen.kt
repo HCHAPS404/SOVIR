@@ -179,6 +179,7 @@ private fun SyncChip(model: AppModel) {
 private fun AlertBar(model: AppModel, coverage: Coverage, pending: Int, onTab: (Tab) -> Unit) {
     val now = System.currentTimeMillis()
     val item: Triple<String, String, () -> Unit>? = when {
+        model.sync == Sync.SignedOut -> Triple("Tu sesión terminó", "Entrar", model::refresh)
         model.sync == Sync.Offline -> Triple(
             model.updatedAt?.let { "Sin conexión · datos de ${timeAgo(it, now)}" } ?: "Sin conexión con tu servidor",
             "Reintentar",

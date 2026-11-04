@@ -21,10 +21,15 @@ object SignalExtractor {
         RegexOption.IGNORE_CASE,
     )
 
+    // Spanish urgency vocabulary grown from the real Gmail corpus:
+    // "vence hoy"/"vencimiento" expired-notice language, "acción requerida"
+    // and retail pressure frames the first pass missed (REAL_CORPUS.md).
     private val URGENCY = rx(
-        "urgente", "verifica", "suspendida", "bloqueada", "expira",
+        "urgente", "verifica", "suspendida", "suspendido", "bloqueada", "bloqueado",
+        "expira", "vence", "vencimiento", "caduca",
         "último aviso", "última oportunidad", "actúa ahora", "actua ahora",
-        "plazo", "48 horas",
+        "plazo", "48 horas", "acción requerida", "cuenta limitada",
+        "solo hoy", "sólo hoy", "tiempo limitado", "de inmediato",
         "verify", "suspended", "locked", "immediately", "last chance",
     )
     private val PAYMENT = rx(
@@ -71,7 +76,9 @@ object SignalExtractor {
         "threat detected", "infection found",
     )
     private val PRIZE_LOTTERY = rx(
-        "has ganado", "felicidades ganaste", "premio", "lotería",
+        "has ganado", "felicidades ganaste", "premio", "lotería", "sorteo",
+        "ganador", "has sido seleccionado", "eres el ganador",
+        "reclama tu premio", "premio mayor", "usuario afortunado",
         "you won", "congratulations you", "prize", "lottery", "jackpot",
     )
 
