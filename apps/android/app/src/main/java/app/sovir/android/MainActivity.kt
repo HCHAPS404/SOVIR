@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
         Auth.init(this)
         PhoneLink.init(this)
         app.sovir.android.data.AppExclusions.init(this)
+        app.sovir.android.ui.SetupPrefs.init(this)
         Notifier.ensureChannels(this)
         enableEdgeToEdge()
         readIntent(intent)
@@ -89,6 +90,7 @@ class MainActivity : ComponentActivity() {
         const val Register = "register"
         const val Completing = "completing"
         const val App = "app"
+        const val Setup = "setup"
         const val Alert = "alert/{id}"
         const val Event = "event/{id}"
         fun alert(id: String) = "alert/$id"
@@ -160,6 +162,16 @@ class MainActivity : ComponentActivity() {
             composable(Routes.App) {
                 val tick = resumeTick()
                 LaunchedEffect(tick) { model.refresh() }
+                // First sign-in on this phone: walk the permissions once, then never again.
+                LaunchedEffect(Unit) {
+                    if (!app.sovir.android.ui.SetupPrefs.done()) {
+                        if (app.sovir.android.ui.SetupPrefs.needed(applicationContext)) {
+                            nav.navigate(Routes.Setup) { launchSingleTop = true }
+                        } else {
+                            app.sovir.android.ui.SetupPrefs.markDone()
+                        }
+                    }
+                }
                 RouteFromNotification(nav)
                 ShellScreen(
                     model = model,
@@ -171,6 +183,15 @@ class MainActivity : ComponentActivity() {
                     onSignedOut = {
                         PhoneLink.forgetDevice()
                         nav.navigate(Routes.Welcome) { popUpTo(0) { inclusive = true } }
+                    },
+                )
+            }
+            composable(Routes.Setup) {
+                app.sovir.android.ui.SetupScreen(
+                    model,
+                    onDone = {
+                        app.sovir.android.ui.SetupPrefs.markDone()
+                        nav.popBackStack()
                     },
                 )
             }
