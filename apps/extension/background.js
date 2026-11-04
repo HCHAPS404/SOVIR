@@ -294,6 +294,15 @@ const SIGNAL_PRIORITY = [
   "IDENTITY_UNVERIFIED",
   "TRACKING_OBSERVED",
   "USER_DEFINED_EXPOSURE_LIMIT",
+  // ADR-0027 wellbeing signals rank last — exposure-level hints,
+  // never escalation evidence on their own (mirrors
+  // sovir_domain::risk_signal_priority).
+  "POLARIZATION_BAIT",
+  "RAGE_BAIT_CONTENT",
+  "EMOTIONAL_COERCION",
+  "IMPULSE_FUNNEL",
+  "DOOM_REINFORCEMENT",
+  "INSECURITY_EXPLOITATION",
 ];
 const PRIORITY_INDEX = new Map(SIGNAL_PRIORITY.map((s, i) => [s, i]));
 
@@ -381,13 +390,26 @@ async function emitEvent(tabId, { signals, digest, observed_at_ms, modality = "T
   return { ok: true, event_id: eventId };
 }
 
-// Local council assess with the ephemeral text_hint (ADR-0025): feeds the
-// ONNX text voter so real observations get a classifier vote, not just the
-// heuristic. Private mode: automatic page observations must never spend
-// remote budget; the remote envelope also never carries the hint. Wire
-// value is snake_case (sovir-domain PrivacyMode) — "STANDARD" was a 422.
+// Local council assess with the ephemeral text_hint (ADR-0025) and
+// visual_hint (ADR-0028): feeds the ONNX text + visual voters so real
+// observations get classifier votes, not just the heuristic. Private
+// mode: automatic page observations must never spend remote budget; the
+// remote envelope is built field-by-field and carries neither hint —
+// the base64 PNG crop is LOCAL-only, exactly like the text.
+// Wire value is snake_case (sovir-domain PrivacyMode) — "STANDARD" was a 422.
 // The verdict is kept in worker state for the popup; nothing text-like persists.
+//
+// Content bounds the crop to ~340KB base64 (~256KB decoded); this is a
+// defensive ceiling — an oversized or non-string hint is dropped before
+// the local request, never forwarded anywhere else.
+const VISUAL_HINT_MAX_CHARS = 360_000;
 async function assessWithHint(st, message) {
+  const visualHint =
+    typeof message.visual_hint === "string" &&
+    message.visual_hint.length > 0 &&
+    message.visual_hint.length <= VISUAL_HINT_MAX_CHARS
+      ? message.visual_hint
+      : undefined;
   const verdict = await api("/v1/inference/assess", {
     token: st.token,
     method: "POST",
@@ -395,7 +417,12 @@ async function assessWithHint(st, message) {
       request_id: `ext-assess-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`,
       signals: message.signals,
       privacy: "private",
-      text_hint: message.text_hint,
+      // JSON.stringify drops undefined — absent means honest abstention.
+      text_hint:
+        typeof message.text_hint === "string" && message.text_hint.length > 0
+          ? message.text_hint
+          : undefined,
+      visual_hint: visualHint,
     },
   });
   await setState({ lastVerdict: verdict });
@@ -692,9 +719,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     getState()
       .then(async (st) => {
         if (st.paused || !(await observingOn())) return { ok: true, paused: true };
-        // Ephemeral text_hint → local council only. The event itself
-        // stays signal-only; the hint is never persisted or egressed.
-        if (typeof message.text_hint === "string" && message.text_hint.length > 0) {
+        // Ephemeral text_hint + visual_hint → local council only. The
+        // event itself stays signal-only; neither hint is persisted or
+        // egressed (ADR-0025 text, ADR-0028 pixel crop — same channel).
+        const hasHint =
+          (typeof message.text_hint === "string" && message.text_hint.length > 0) ||
+          (typeof message.visual_hint === "string" && message.visual_hint.length > 0);
+        if (hasHint) {
           assessWithHint(st, message).catch(() => {});
         }
         return emitEvent(sender.tab?.id ?? 0, message);

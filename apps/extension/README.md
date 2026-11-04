@@ -6,10 +6,16 @@ extractor level, not production hardened.
 Architecture (ADR-0014):
 
 - `extractor.js` — PURE function `sovirExtractSignals(doc, loc)`: DOM →
-  typed signal enum set. No chrome APIs, jsdom-testable.
+  typed signal enum set, incl. the six ADR-0027 content-side wellbeing
+  signals (es+en, same vocabulary as Android). Also exposes
+  `sovirExtractLogoRegions`/`sovirLogoCandidateImages` for DOM-guided
+  logo crops. No chrome APIs, jsdom-testable.
 - `content.js` — thin bridge: calls the extractor, digests metadata
-  (`sha256(host|signals)`), reports to the worker. Throttled MutationObserver
-  for SPA/DOM churn.
+  (`sha256(host|signals)`), reports to the worker, and rasterizes the
+  best logo-candidate `<img>` into a bounded PNG `visual_hint`
+  (≤1024px, ~256KB decoded; tainted canvas → silent abstain) for the
+  LOCAL assess endpoint only — ADR-0028, same channel rules as
+  `text_hint`. Throttled MutationObserver for SPA/DOM churn.
 - `background.js` — the only API client: dev-session mint, `BROWSER_EXTENSION`
   device register, `ext-observer-grant` consent, per-tab dedupe (60s),
   401→one reconnect, `paused` kill-switch, `lastError`/`lastObservation`

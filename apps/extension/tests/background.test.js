@@ -130,6 +130,57 @@ test("text_hint goes to a private, snake_case council assess — never STANDARD"
   assert.equal(JSON.parse(event.init.body).text_hint, undefined, "stored event stays signal-only");
 });
 
+test("visual_hint rides the same private assess envelope — never the event", async () => {
+  await send({
+    type: "observation",
+    signals: ["DOM_BRAND_MISMATCH"],
+    digest: "sha256:vhint",
+    observed_at_ms: 1,
+    text_hint: "Inicia sesión para verificar tu cuenta",
+    visual_hint: "aGVsbG8tcG5n",
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  const assess = fetchCalls.find((c) => c.url.endsWith("/v1/inference/assess"));
+  assert.ok(assess, "assess called when a hint exists");
+  const body = JSON.parse(assess.init.body);
+  assert.equal(body.privacy, "private");
+  assert.equal(body.visual_hint, "aGVsbG8tcG5n");
+  const event = fetchCalls.find((c) => c.url.endsWith("/v1/events"));
+  const eventBody = JSON.parse(event.init.body);
+  assert.equal(eventBody.visual_hint, undefined, "stored event never carries pixels");
+  assert.equal(eventBody.text_hint, undefined);
+});
+
+test("visual_hint alone still triggers the local assess call", async () => {
+  await send({
+    type: "observation",
+    signals: ["DOM_BRAND_MISMATCH"],
+    digest: "sha256:vonly",
+    observed_at_ms: 1,
+    visual_hint: "aGVsbG8tcG5n",
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  const assess = fetchCalls.find((c) => c.url.endsWith("/v1/inference/assess"));
+  assert.ok(assess, "a visual-only hint still earns a council vote");
+  const body = JSON.parse(assess.init.body);
+  assert.equal(body.visual_hint, "aGVsbG8tcG5n");
+  assert.equal(body.text_hint, undefined, "absent text_hint is dropped, not fabricated");
+});
+
+test("oversized visual_hint is dropped before the local request", async () => {
+  await send({
+    type: "observation",
+    signals: ["DOM_BRAND_MISMATCH"],
+    digest: "sha256:vbig",
+    observed_at_ms: 1,
+    visual_hint: "x".repeat(400_000),
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  const assess = fetchCalls.find((c) => c.url.endsWith("/v1/inference/assess"));
+  const body = JSON.parse(assess.init.body);
+  assert.equal(body.visual_hint, undefined, "over-bound payload abstains silently");
+});
+
 test("dedupe suppresses the same digest within the TTL window", async () => {
   const obs = {
     type: "observation",

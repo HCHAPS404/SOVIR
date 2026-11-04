@@ -17,8 +17,10 @@ const stWarns = document.querySelector("#st-warns");
 let currentTab = null;
 let siteReason = "unobservable";
 
-// Friendly words for the council's typed hypotheses — consumers should
-// never see enum names.
+// Friendly words for the council's typed hypotheses and emitted signal
+// enums — consumers should never see enum names. Lookup is
+// case-insensitive: events carry UPPER_SNAKE enums while hypotheses
+// arrive lower_snake.
 const SIGNAL_WORDS = {
   credential_request: "pide tus credenciales",
   payment_request: "pide datos de pago",
@@ -29,6 +31,14 @@ const SIGNAL_WORDS = {
   prize_lottery: "promete un premio",
   scareware: "simula un virus para asustarte",
   customs_fee: "cobra una aduana falsa",
+  // ADR-0027 wellbeing signals — exposure-level hints, same vocabulary
+  // as Android Humanize.kt. Content-side tactics, never user state.
+  polarization_bait: "enfrenta bandos para provocar",
+  rage_bait_content: "está hecho para indignarte",
+  emotional_coercion: "usa presión emocional para que actúes",
+  impulse_funnel: "arma un embudo de compra impulsiva",
+  doom_reinforcement: "encadena contenido fatalista",
+  insecurity_exploitation: "explota inseguridades para vender",
 };
 
 function fmtTime(ms) {
@@ -36,7 +46,9 @@ function fmtTime(ms) {
 }
 
 function friendlySignals(signals) {
-  return (signals ?? []).map((s) => SIGNAL_WORDS[s] ?? s.replaceAll("_", " ")).join(", ");
+  return (signals ?? [])
+    .map((s) => SIGNAL_WORDS[s] ?? SIGNAL_WORDS[String(s).toLowerCase()] ?? s.replaceAll("_", " "))
+    .join(", ");
 }
 
 async function paint() {

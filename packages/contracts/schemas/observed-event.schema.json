@@ -92,7 +92,13 @@
           "OFF_PLATFORM_MOVE",
           "BULK_BUYER_LURE",
           "QR_PRESENT",
-          "DOM_BRAND_MISMATCH"
+          "DOM_BRAND_MISMATCH",
+          "POLARIZATION_BAIT",
+          "RAGE_BAIT_CONTENT",
+          "EMOTIONAL_COERCION",
+          "IMPULSE_FUNNEL",
+          "DOOM_REINFORCEMENT",
+          "INSECURITY_EXPLOITATION"
         ]
       },
       "uniqueItems": true,

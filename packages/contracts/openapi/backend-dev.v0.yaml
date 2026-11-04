@@ -224,7 +224,9 @@ components:
                    DELIVERY_CUSTOMS_FEE, AUTHORITY_IMPERSONATION,
                    SCARCITY_PRESSURE, JOB_SCAM_OFFER, ROMANCE_BAIT,
                    MIRACLE_CURE_CLAIM, DATA_HARVESTING, OFF_PLATFORM_MOVE,
-                   BULK_BUYER_LURE, QR_PRESENT, DOM_BRAND_MISMATCH]
+                   BULK_BUYER_LURE, QR_PRESENT, DOM_BRAND_MISMATCH,
+                   POLARIZATION_BAIT, RAGE_BAIT_CONTENT, EMOTIONAL_COERCION,
+                   IMPULSE_FUNNEL, DOOM_REINFORCEMENT, INSECURITY_EXPLOITATION]
         privacy: {type: string, enum: [standard, private]}
         est_cost_micro_usd: {type: integer}
         text_hint:

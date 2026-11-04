@@ -13,6 +13,13 @@ import android.view.accessibility.AccessibilityNodeInfo
  * moves, gift-card demands, scareware and prize hooks. Precision rule
  * (case 14): OFF_PLATFORM_MOVE requires contact intent, never a bare
  * channel name.
+ *
+ * ADR-0027 adds six content-side wellbeing signals: they name tactics
+ * IN THE OBSERVED CONTENT (us-vs-them framing, manufactured outrage,
+ * guilt pressure, zero-friction funnels, doom chains, insecurity
+ * hooks) — never the state of the person looking at the screen.
+ * Phrases are kept tight so legitimate journalism, verified offers
+ * and emotional-support content stay clear.
  */
 object SignalExtractor {
 
@@ -81,6 +88,58 @@ object SignalExtractor {
         "reclama tu premio", "premio mayor", "usuario afortunado",
         "you won", "congratulations you", "prize", "lottery", "jackpot",
     )
+    // --- ADR-0027: content-side manipulation signals (exposure level).
+    // Only explicit framings/imperatives — a partisan op-ed, a real sale
+    // or a supportive post must not trip these.
+    private val POLARIZATION = rx(
+        "ellos contra nosotros", "nosotros contra ellos",
+        "nos quieren divididos", "nos quieren divididas",
+        "nos quieren enfrentados", "nos enfrentan unos a otros",
+        "despierta borregos", "despierten borregos",
+        "they want us divided", "us vs them", "us versus them",
+        "wake up sheeple",
+    )
+    private val RAGE_BAIT = rx(
+        "te va a enfurecer", "te hará hervir la sangre",
+        "esto te indignará", "te va a indignar",
+        "comparte tu rabia", "comparte tu indignación",
+        "comparte si estás harto", "comparte si estas harto",
+        "nadie habla de esto",
+        "will make your blood boil", "makes your blood boil",
+        "share your anger", "share your outrage",
+        "nobody talks about this", "nobody is talking about this",
+    )
+    private val EMOTIONAL_PRESSURE = rx(
+        "si te importara", "si de verdad te importara",
+        "si realmente te importara", "si de verdad quisieras",
+        "una buena madre", "un buen padre", "un buen hijo",
+        "if you cared about", "if you really cared",
+        "a real friend would", "any decent person",
+    )
+    private val IMPULSE_FUNNEL = rx(
+        "compra sin pensar", "compra ahora piensa después",
+        "compra ahora y piensa después",
+        "un clic y es tuyo", "un click y es tuyo",
+        "a un clic de ser tuyo", "no lo consultes con nadie",
+        "buy without thinking", "buy now think later",
+        "one click and it's yours", "one click and it is yours",
+        "1 click and it's yours", "your deal dies in",
+    )
+    private val DOOM_SPIRAL = rx(
+        "todo se está cayendo", "todo se esta cayendo",
+        "todo se cae a pedazos", "no hay salida",
+        "ya nada tiene arreglo", "todo empeora", "todo va a peor",
+        "everything is collapsing", "it's all falling apart",
+        "there is no way out", "there's no way out",
+        "might as well keep scrolling",
+    )
+    private val INSECURITY_HOOK = rx(
+        "con esa cara nadie", "con ese cuerpo nadie", "con esa piel nadie",
+        "a tu edad y sin", "nadie te contratará con ese",
+        "nadie te contratara con ese", "nadie te tomará en serio con esa",
+        "nobody takes you seriously with",
+        "with that face nobody", "with that body nobody",
+    )
 
     private val TABLE: List<Pair<Regex, String>> = listOf(
         URGENCY to "URGENT_ACTION",
@@ -91,7 +150,64 @@ object SignalExtractor {
         GIFT_CARD to "GIFT_CARD_PAYMENT",
         SCAREWARE to "SCAREWARE_CLAIM",
         PRIZE_LOTTERY to "PRIZE_LOTTERY_CLAIM",
+        POLARIZATION to "POLARIZATION_BAIT",
+        RAGE_BAIT to "RAGE_BAIT_CONTENT",
+        EMOTIONAL_PRESSURE to "EMOTIONAL_COERCION",
+        IMPULSE_FUNNEL to "IMPULSE_FUNNEL",
+        DOOM_SPIRAL to "DOOM_REINFORCEMENT",
+        INSECURITY_HOOK to "INSECURITY_EXPLOITATION",
     )
+
+    // Contract bound (observed-event.schema.json maxItems /
+    // sovir_domain::MAX_EVENT_SIGNALS): an event carries at most eight
+    // signals. The ordering below mirrors sovir_domain::risk_signal_priority
+    // verbatim (also apps/extension/background.js SIGNAL_PRIORITY):
+    // corroborants that can escalate a policy decision rank first; the
+    // six ADR-0027 wellbeing signals rank last — exposure-level hints,
+    // never escalation evidence on their own. Unknown labels sort after
+    // the list, alphabetically.
+    private const val MAX_EVENT_SIGNALS = 8
+    private val SIGNAL_PRIORITY = listOf(
+        "SEED_PHRASE_REQUEST",
+        "EXTORTION_LANGUAGE",
+        "PAYMENT_REQUEST",
+        "CREDENTIAL_REQUEST",
+        "GIFT_CARD_PAYMENT",
+        "AUTHORITY_IMPERSONATION",
+        "DOM_BRAND_MISMATCH",
+        "OFF_PLATFORM_MOVE",
+        "LINK_DESTINATION_MISMATCH",
+        "DATA_HARVESTING",
+        "SUSPICIOUS_DOMAIN",
+        "SCAREWARE_CLAIM",
+        "PRIZE_LOTTERY_CLAIM",
+        "DELIVERY_CUSTOMS_FEE",
+        "INVESTMENT_PROMISE",
+        "HIDDEN_FEE_PATTERN",
+        "JOB_SCAM_OFFER",
+        "ROMANCE_BAIT",
+        "MIRACLE_CURE_CLAIM",
+        "BULK_BUYER_LURE",
+        "SCARCITY_PRESSURE",
+        "CONSENT_DARK_PATTERN",
+        "QR_PRESENT",
+        "URGENT_ACTION",
+        "IDENTITY_UNVERIFIED",
+        "TRACKING_OBSERVED",
+        "USER_DEFINED_EXPOSURE_LIMIT",
+        "POLARIZATION_BAIT",
+        "RAGE_BAIT_CONTENT",
+        "EMOTIONAL_COERCION",
+        "IMPULSE_FUNNEL",
+        "DOOM_REINFORCEMENT",
+        "INSECURITY_EXPLOITATION",
+    )
+    private val PRIORITY_INDEX = SIGNAL_PRIORITY.withIndex().associate { it.value to it.index }
+
+    private fun bounded(signals: Set<String>): Set<String> = signals
+        .sortedWith(compareBy<String> { PRIORITY_INDEX[it] ?: SIGNAL_PRIORITY.size }.thenBy { it })
+        .take(MAX_EVENT_SIGNALS)
+        .toSet()
 
     fun extract(root: AccessibilityNodeInfo?): Set<String> = extractWithHint(root).first
 
@@ -107,7 +223,7 @@ object SignalExtractor {
         val signals = mutableSetOf<String>()
         val hint = StringBuilder()
         walk(root, signals, hint)
-        return signals to hint.toString().take(1500)
+        return bounded(signals) to hint.toString().take(1500)
     }
 
     private fun walk(

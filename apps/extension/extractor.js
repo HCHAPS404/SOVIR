@@ -164,6 +164,58 @@
       ja: ["奇跡の治療", "万能薬", "がんを治す", "毒素を排出", "デトックス", "楽して痩せる", "医師が隠す秘密", "革命的な方法", "何でも治す"],
       zh: ["神奇疗法", "万能药", "治愈癌症", "排毒", "轻松减肥", "医生不愿透露的秘密", "革命性方法", "包治百病"],
     },
+    // --- ADR-0027: content-side wellbeing signals (es+en, same
+    // vocabulary as Android's SignalExtractor.kt). They name tactics IN
+    // the observed copy — never the state of the person reading it
+    // (invariant 7: no user-state inference). Phrases stay tight so
+    // labeled op-eds, verified offers and emotional-support content do
+    // not trip them; they are exposure-level hints, not escalation
+    // evidence — a lone match must never justify an alarm on its own.
+    POLARIZATION_BAIT: {
+      // Us-vs-them enemy framing + manufactured division. Benign hard
+      // case: partisan journalism or a labeled op-ed reporting the
+      // divide — "the parties are divided" is a fact claim, not a
+      // "they want us divided" provocation.
+      es: ["ellos contra nosotros", "nosotros contra ellos", "nos quieren divididos", "nos quieren divididas", "nos quieren enfrentados", "nos enfrentan unos a otros", "despierta borregos", "despierten borregos"],
+      en: ["us vs them", "us versus them", "they want us divided", "they want to divide us", "they hate you", "they hate us", "wake up sheeple"],
+    },
+    RAGE_BAIT_CONTENT: {
+      // Outrage-maximizing engagement bait. Benign hard case: documented
+      // injustice reporting with sources — it states the facts, it does
+      // not tell the reader "this will make your blood boil".
+      es: ["te va a enfurecer", "te va a indignar", "esto te indignará", "esto te indignara", "te hará hervir la sangre", "te hara hervir la sangre", "comparte tu rabia", "comparte tu indignación", "comparte tu indignacion", "comparte si estás harto", "comparte si estás harta", "comparte si estas harto", "comparte si estas harta", "nadie habla de esto"],
+      en: ["will make your blood boil", "makes your blood boil", "this will infuriate you", "share your anger", "share your outrage", "nobody talks about this", "nobody is talking about this"],
+    },
+    EMOTIONAL_COERCION: {
+      // Guilt/shame-to-action conditionals. Benign hard case: public-
+      // health campaigns cite evidence — "if you cared about your kids"
+      // is pressure, "vaccination protects kids" is not.
+      es: ["si te importara", "si de verdad te importara", "si realmente te importara", "si de verdad quisieras", "una buena madre", "un buen padre", "un buen hijo", "una mala madre", "un mal padre"],
+      en: ["if you cared about", "if you really cared", "a real friend would", "a real parent would", "any decent person", "a good mother would", "a good father would", "only a bad parent"],
+    },
+    IMPULSE_FUNNEL: {
+      // Zero-friction impulse phrasing + secrecy, beyond plain scarcity
+      // (SCARCITY_PRESSURE keeps countdowns/limited stock). Benign hard
+      // case: a real store's timed offer names dates and terms — it does
+      // not say "buy without thinking" or "don't consult anyone".
+      es: ["compra sin pensar", "compra sin pensarlo", "compra ahora piensa después", "compra ahora piensa despues", "compra ahora y piensa después", "compra ahora y piensa despues", "un clic y es tuyo", "un click y es tuyo", "a un clic de ser tuyo", "no lo consultes con nadie", "no se lo cuentes a nadie"],
+      en: ["buy without thinking", "buy now think later", "one click and it's yours", "one click and it is yours", "1 click and it's yours", "your deal dies in", "no need to ask anyone"],
+    },
+    DOOM_REINFORCEMENT: {
+      // Sweeping fatalist absolutes built to keep the scroll going.
+      // Benign hard case: legitimate bad news and grief/support content
+      // name the event — the serialized "everything is collapsing, no
+      // way out" stream shape is what the temporal aggregator weighs.
+      es: ["todo se está cayendo", "todo se esta cayendo", "todo se cae a pedazos", "no hay salida", "ya nada tiene arreglo", "todo empeora", "todo va a peor"],
+      en: ["everything is collapsing", "it's all falling apart", "there is no way out", "there's no way out", "might as well keep scrolling"],
+    },
+    INSECURITY_EXPLOITATION: {
+      // Belittle-then-sell hook. Benign hard case: product ads and
+      // fitness claims that pitch without "with that face nobody takes
+      // you seriously" denigration.
+      es: ["con esa cara nadie", "con ese cuerpo nadie", "con esa piel nadie", "a tu edad y sin", "nadie te contratará con ese", "nadie te contratara con ese", "nadie te va a contratar con ese", "nadie te tomará en serio con esa", "nadie te tomara en serio con esa"],
+      en: ["nobody takes you seriously with", "with that face nobody", "with that body nobody", "nobody will hire you with that", "no one will hire you with that", "at your age and still no"],
+    },
   };
 
   // Romance-scam bait needs love AND a money/emergency ask in the SAME
@@ -511,6 +563,19 @@
     'svg[id*="logo" i]',
     "header a img",
   ].join(",");
+  // The <img>-only subset of LOGO_REGION_SEL — the elements a canvas
+  // can actually rasterize for the visual_hint crop (ADR-0028). Same
+  // candidate notion as sovirExtractLogoRegions minus the SVGs, plus
+  // the same top-zone fallback for unmarked imgs.
+  const LOGO_IMAGE_SEL = [
+    "header img",
+    "nav img",
+    '[class*="logo" i] img',
+    '[id*="logo" i] img',
+    'img[class*="logo" i]',
+    'img[id*="logo" i]',
+    "header a img",
+  ].join(",");
   const LOGO_TOP_ZONE_PX = 220;
   const MAX_LOGO_REGIONS = 16;
   const MIN_LOGO_PX = 12;
@@ -548,6 +613,35 @@
     return { regions, vw, vh };
   }
 
+  // Logo-candidate <img> elements for the visual_hint crop (ADR-0028):
+  // the same DOM candidates extractLogoRegions knows, filtered to what a
+  // canvas can rasterize. Returns live elements — the caller draws them;
+  // selection stays pure DOM so jsdom can pin the candidate set.
+  function sovirLogoCandidateImages(doc) {
+    if (!doc?.querySelectorAll) return [];
+    const seen = new Set();
+    const out = [];
+    const add = (img) => {
+      if (!img || seen.has(img) || out.length >= MAX_LOGO_REGIONS) return;
+      seen.add(img);
+      out.push(img);
+    };
+    for (const img of doc.querySelectorAll(LOGO_IMAGE_SEL)) add(img);
+    // Unmarked imgs touching the top zone are candidates too — same
+    // rule as the regions pass. In jsdom every rect reports y=0, which
+    // is fine: real pages give real geometry and the caller bounds by
+    // natural size anyway.
+    for (const img of doc.querySelectorAll("img")) {
+      if (out.length >= MAX_LOGO_REGIONS) break;
+      if (seen.has(img)) continue;
+      const r = img.getBoundingClientRect?.();
+      if (!r || r.y > LOGO_TOP_ZONE_PX) continue;
+      add(img);
+    }
+    return out;
+  }
+
   global.sovirExtractSignals = sovirExtractSignals;
   global.sovirExtractLogoRegions = sovirExtractLogoRegions;
+  global.sovirLogoCandidateImages = sovirLogoCandidateImages;
 })(globalThis);

@@ -32,6 +32,12 @@ const SIGNAL_LABELS: Record<string, string> = {
   OFF_PLATFORM_MOVE: "Conversación movida fuera de la plataforma",
   BULK_BUYER_LURE: "Cebo de compra inmediata al contado",
   QR_PRESENT: "Código QR detectado en la página",
+  POLARIZATION_BAIT: "Contenido que enfrenta bandos",
+  RAGE_BAIT_CONTENT: "Contenido hecho para indignarte",
+  EMOTIONAL_COERCION: "Presión emocional para que actúes",
+  IMPULSE_FUNNEL: "Te empuja a comprar sin pensar",
+  DOOM_REINFORCEMENT: "Contenido fatalista en cadena",
+  INSECURITY_EXPLOITATION: "Usa inseguridades para venderte",
 };
 
 export interface WeeklyDigest {

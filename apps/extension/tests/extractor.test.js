@@ -579,3 +579,143 @@ test("missing document fails closed", () => {
   const r = extractLogoRegions(null);
   assert.deepEqual(r.regions, []);
 });
+
+// ---------------------------------------------------------------------------
+// ADR-0027 — content-side wellbeing signals: tactics IN the copy, never
+// user state. Benign counterexamples pin the hard cases (legit
+// journalism, verified offers, support content stay clear).
+// ---------------------------------------------------------------------------
+
+test("us-vs-them enemy framing → POLARIZATION_BAIT", () => {
+  const { doc: d, loc } = doc(
+    "<p>Nos quieren divididos. Ellos contra nosotros — despierta borregos.</p>",
+  );
+  assert.ok(extract(d, loc).includes("POLARIZATION_BAIT"));
+});
+
+test("EN they-hate-you framing → POLARIZATION_BAIT", () => {
+  const { doc: d, loc } = doc("<p>They hate you and want you silent.</p>");
+  assert.ok(extract(d, loc).includes("POLARIZATION_BAIT"));
+});
+
+test("legit political reporting → no POLARIZATION_BAIT", () => {
+  const { doc: d, loc } = doc(
+    "<p>Los partidos llegaron divididos a la votación del presupuesto, según el registro.</p>",
+  );
+  assert.ok(!extract(d, loc).includes("POLARIZATION_BAIT"));
+});
+
+test("blood-boil engagement bait → RAGE_BAIT_CONTENT", () => {
+  const { doc: d, loc } = doc(
+    "<p>This will make your blood boil — nobody talks about this.</p>",
+  );
+  assert.ok(extract(d, loc).includes("RAGE_BAIT_CONTENT"));
+});
+
+test("share-your-rage bait ES → RAGE_BAIT_CONTENT", () => {
+  const { doc: d, loc } = doc("<p>Esto te va a indignar — comparte tu rabia.</p>");
+  assert.ok(extract(d, loc).includes("RAGE_BAIT_CONTENT"));
+});
+
+test("documented injustice reporting → no RAGE_BAIT_CONTENT", () => {
+  const { doc: d, loc } = doc(
+    "<p>The investigation documents years of wage theft, with payroll records and court filings.</p>",
+  );
+  assert.ok(!extract(d, loc).includes("RAGE_BAIT_CONTENT"));
+});
+
+test("guilt conditional ES → EMOTIONAL_COERCION", () => {
+  const { doc: d, loc } = doc(
+    "<p>Si de verdad te importara tu familia, comprarías esto hoy.</p>",
+  );
+  assert.ok(extract(d, loc).includes("EMOTIONAL_COERCION"));
+});
+
+test("if-you-cared EN → EMOTIONAL_COERCION", () => {
+  const { doc: d, loc } = doc(
+    "<p>If you cared about your kids you would act right now.</p>",
+  );
+  assert.ok(extract(d, loc).includes("EMOTIONAL_COERCION"));
+});
+
+test("evidence-based health copy → no EMOTIONAL_COERCION", () => {
+  const { doc: d, loc } = doc(
+    "<p>Health authorities recommend vaccination to protect your family this winter.</p>",
+  );
+  assert.ok(!extract(d, loc).includes("EMOTIONAL_COERCION"));
+});
+
+test("buy-without-thinking funnel → IMPULSE_FUNNEL", () => {
+  const { doc: d, loc } = doc(
+    "<p>¡Compra sin pensarlo! Un clic y es tuyo, no lo consultes con nadie.</p>",
+  );
+  assert.ok(extract(d, loc).includes("IMPULSE_FUNNEL"));
+});
+
+test("ordinary store offer → no IMPULSE_FUNNEL", () => {
+  const { doc: d, loc } = doc(
+    "<p>Oferta del 20% hasta el viernes en nuestra tienda online.</p>",
+  );
+  assert.ok(!extract(d, loc).includes("IMPULSE_FUNNEL"));
+});
+
+test("sweeping fatalism → DOOM_REINFORCEMENT", () => {
+  const { doc: d, loc } = doc(
+    "<p>Todo se está cayendo a pedazos, no hay salida y ya nada tiene arreglo.</p>",
+  );
+  assert.ok(extract(d, loc).includes("DOOM_REINFORCEMENT"));
+});
+
+test("single negative headline → no DOOM_REINFORCEMENT", () => {
+  const { doc: d, loc } = doc(
+    "<p>The factory announced 200 layoffs after a difficult quarter.</p>",
+  );
+  assert.ok(!extract(d, loc).includes("DOOM_REINFORCEMENT"));
+});
+
+test("belittle-then-sell hook → INSECURITY_EXPLOITATION", () => {
+  const { doc: d, loc } = doc(
+    "<p>Con esa cara nadie te toma en serio — por eso necesitas esto.</p>",
+  );
+  assert.ok(extract(d, loc).includes("INSECURITY_EXPLOITATION"));
+});
+
+test("nobody-will-hire-you EN → INSECURITY_EXPLOITATION", () => {
+  const { doc: d, loc } = doc(
+    "<p>Nobody will hire you with that English — fix it in 30 days.</p>",
+  );
+  assert.ok(extract(d, loc).includes("INSECURITY_EXPLOITATION"));
+});
+
+test("product ad without denigration → no INSECURITY_EXPLOITATION", () => {
+  const { doc: d, loc } = doc(
+    "<p>Improve your English pronunciation with ten minutes of daily practice.</p>",
+  );
+  assert.ok(!extract(d, loc).includes("INSECURITY_EXPLOITATION"));
+});
+
+// ---------------------------------------------------------------------------
+// Logo-candidate <img> selection for the visual_hint crop (ADR-0028).
+// ---------------------------------------------------------------------------
+const logoCandidates = globalThis.sovirLogoCandidateImages;
+
+test("logo candidate images: marked imgs plus top-zone, deduped", () => {
+  const { doc: d } = doc(
+    '<header><img id="h"></header><img class="brand-logo" id="l"><img id="plain"><img id="deep">',
+  );
+  rectStub(d.getElementById("deep"), 0, 900, 200, 100);
+  const imgs = logoCandidates(d);
+  const ids = imgs.map((i) => i.id);
+  assert.ok(ids.includes("h") && ids.includes("l"), "marked candidates");
+  assert.ok(ids.includes("plain"), "unstubbed rect = top zone");
+  assert.ok(!ids.includes("deep"), "buried img excluded");
+  assert.equal(new Set(imgs).size, imgs.length, "no duplicates");
+});
+
+test("logo candidates bounded; missing document fails closed", () => {
+  assert.deepEqual(logoCandidates(null), []);
+  const { doc: d } = doc(
+    `<header>${Array.from({ length: 30 }, (_, i) => `<img id="c${i}">`).join("")}</header>`,
+  );
+  assert.ok(logoCandidates(d).length <= 16);
+});

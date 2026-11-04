@@ -1,10 +1,11 @@
-# Model card — `onnx-text` (`sovir-text-v1`, entrenado propio)
+# Model card — `onnx-text` (`sovir-text-v3`, entrenado propio)
 
-**Tipo:** clasificador ONNX multi-label (sigmoide, 21 señales). Encoder
+**Tipo:** clasificador ONNX multi-label (sigmoide, 27 señales — incluye
+las 6 de bienestar ADR-0027). Encoder
 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (118M) +
 cabeza lineal entrenada sobre el corpus sintético SOVIR. Votante
 `onnx-text` del concilio (ADR-0025). Adapter `OnnxTextVoter` —
-`feature="onnx"` + `SOVIR_ONNX_TEXT_DIR=ml/artifacts/text-v2`.
+`feature="onnx"` + `SOVIR_ONNX_TEXT_DIR=ml/artifacts/text-v3`.
 
 **Entrenamiento:** `infra/modal/text_train_app.py` en Modal T4
 (offline batch, ADR-0017). Corpus `ml/datasets/text-corpus/`
@@ -26,6 +27,26 @@ EXTORTION_LANGUAGE; "ganador del sorteo, reclama tu premio" →
 PRIZE_LOTTERY_CLAIM — los tres con heurístico en `no_pattern`).
 
 ## Eval
+
+### v3 (2026-11-04, corpus deduplicado + ADR-0027: 1405 train / 568 val / 225 benign, 27 señales)
+
+- micro precision **0.998** / micro recall **0.932** / benign FP **9.3%**
+  en eval — el set benigno quedó en 225 textos únicos tras dedup e
+  incluye negativos duros al límite (noticias políticas, ofertas reales,
+  apoyo emocional); el texto benigno real verificado en vivo no dispara
+- Las 6 señales ADR-0027 aprenden: POLARIZATION_BAIT F1 0.88,
+  RAGE_BAIT_CONTENT 0.778, EMOTIONAL_COERCION 0.917, IMPULSE_FUNNEL
+  0.842, DOOM_REINFORCEMENT 1.0, INSECURITY_EXPLOITATION 1.0
+- `URGENT_ACTION` F1 0.921 sostiene la recuperación de v2;
+  `PAYMENT_REQUEST` thr 0.92 sigue conservador (F1 0.722)
+- Verificado en vivo (solo `text_hint`, modo Private): rage-bait →
+  RAGE_BAIT_CONTENT, "con esa cara…" → INSECURITY_EXPLOITATION,
+  "últimas unidades un clic" → IMPULSE_FUNNEL, "si te importara tu
+  familia" → EMOTIONAL_COERCION, sextorsión → EXTORTION_LANGUAGE;
+  noticia del senado y factura "vence hoy" benignas →
+  `no_pattern_detected`
+- Nota honesta: la dedup expuso que el corpus v2 tenía ~55% de textos
+  duplicados — sus métricas comparan sobre un set inflado
 
 ### v2 (2026-11-04, corpus expandido: 2438 train / 476 val / 823 benign)
 

@@ -1538,6 +1538,20 @@ impl InferenceGateway for CouncilGateway {
         if hypotheses.is_empty() {
             hypotheses.push("no_pattern_detected".into());
         }
+        // Cross-modal fusion (ADR-0028): a pixel match AND the DOM
+        // brand/domain mismatch in the same request are two independent
+        // modalities observing the same impersonation — the fused
+        // hypothesis outranks either single-modality one, so downstream
+        // surfaces can distinguish near-certain phishing from a lone
+        // logo resemblance.
+        if hypotheses.iter().any(|h| h == "brand_logo_impersonation")
+            && req
+                .signals
+                .contains(&sovir_domain::RiskSignal::DomBrandMismatch)
+        {
+            hypotheses.retain(|h| h != "brand_logo_impersonation");
+            hypotheses.insert(0, "cross_modal_brand_impersonation".into());
+        }
         let confidence_bp = votes.iter().map(|v| v.confidence_bp).max().unwrap_or(0);
         let outcome_str = match outcome {
             sovir_domain::CouncilOutcome::Single => "single",
@@ -4202,6 +4216,44 @@ mod tests {
         assert!(v.hypotheses.contains(&"romance_bait".to_string()));
         // Aggregate usage = remote voter's priced cost.
         assert_eq!(v.usage.unwrap().cost_micro_usd, Some(2000));
+    }
+    /// ADR-0028 fusion: a pixel `brand_logo_impersonation` vote plus a
+    /// DOM `DomBrandMismatch` signal in the same request synthesize the
+    /// cross-modal hypothesis — two independent modalities agreeing
+    /// ranks above either single-modality claim. Without the DOM
+    /// signal the lone pixel hypothesis stays unfused.
+    #[tokio::test]
+    async fn council_fuses_pixel_and_dom_brand_modalities() {
+        use sovir_domain::RiskSignal::*;
+        let visual = stub_voter(&["brand_logo_impersonation"], 8900);
+        let council = CouncilGateway::new(vec![
+            (
+                "heuristic".into(),
+                Arc::new(HeuristicLocalInferenceGateway) as _,
+            ),
+            ("visual".into(), Arc::new(visual) as _),
+        ]);
+        let v = council
+            .assess(&inf_req(
+                &[DomBrandMismatch],
+                sovir_domain::PrivacyMode::Private,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(v.hypotheses[0], "cross_modal_brand_impersonation");
+        assert!(!v.hypotheses.contains(&"brand_logo_impersonation".to_string()));
+
+        let visual2 = stub_voter(&["brand_logo_impersonation"], 8900);
+        let council2 = CouncilGateway::new(vec![("visual".into(), Arc::new(visual2) as _)]);
+        let v2 = council2
+            .assess(&inf_req(
+                &[CredentialRequest],
+                sovir_domain::PrivacyMode::Private,
+            ))
+            .await
+            .unwrap();
+        assert!(v2.hypotheses.contains(&"brand_logo_impersonation".to_string()));
+        assert!(!v2.hypotheses.contains(&"cross_modal_brand_impersonation".to_string()));
     }
     /// No shared hypothesis across voters -> disputed, not majority.
     #[tokio::test]
