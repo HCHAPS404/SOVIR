@@ -179,6 +179,46 @@ T = {
         "Te pago {a} de más si me envías el artículo ya mismo",
         "I'll pay {a} over asking — ship to my courier today",
     ],
+    # ADR-0027 — manipulation/wellbeing signals (content-side tactics only;
+    # never user emotional state). These fire at exposure level, not scam level.
+    "POLARIZATION_BAIT": [
+        "Estos políticos te odian y se ríen de ti — comparte si estás harto",
+        "El otro bando quiere destruir todo lo que amas — despierta ya",
+        "Nadie habla de lo que ELLOS te están haciendo — pásalo antes de que lo borren",
+        "They laugh at people like you — share if you're tired of being mocked",
+        "Este país se divide entre patriotas y traidores — tú eliges",
+    ],
+    "RAGE_BAIT_CONTENT": [
+        "Mira lo que hace esta gente — indignante, nadie dice nada",
+        "No vas a creer la injusticia de este video — comparte tu rabia",
+        "Esto te va a enfurecer: lo hicieron otra vez y se salen con la suya",
+        "This will make your blood boil — watch what they got away with",
+    ],
+    "EMOTIONAL_COERCION": [
+        "Si de verdad te importara tu familia ya habrías actuado",
+        "Solo una mala madre ignoraría esto para sus hijos",
+        "Demuestra que vales algo — los demás ya lo hicieron",
+        "Real friends share this — if you ignore it, you don't care",
+        "Si no haces esto hoy, mañana te arrepentirás toda la vida",
+    ],
+    "IMPULSE_FUNNEL": [
+        "¡ÚLTIMA OPORTUNIDAD! El método que las tiendas no quieren que sepas — 1 clic",
+        "Solo hoy: el secreto de los ricos en oferta relámpago — compra sin pensar",
+        "Timer countdown: 00:03 left — your discount disappears forever, buy NOW",
+        "Agotándose: esto se agota y nunca vuelve — cómpralo antes de que suba",
+    ],
+    "DOOM_REINFORCEMENT": [
+        "Todo se está cayendo a pedazos y solo va a empeorar — no hay salida",
+        "Otro día, otra desgracia — el mundo ya no tiene remedio",
+        "Ya nada tiene arreglo — cada día es peor que el anterior",
+        "Everything is collapsing and there's nothing you can do about it",
+    ],
+    "INSECURITY_EXPLOITATION": [
+        "Con esa cara nadie te va a tomar en serio — por eso necesitas esto",
+        "Tu cuerpo no es suficiente — este producto lo arregla",
+        "Todos notan tu problema menos tú — soluciónalo ya",
+        "People can tell you're failing — fix it with this before it's too late",
+    ],
 }
 
 # --- hard benign negatives: look scammy, are legitimate --------------------
@@ -213,6 +253,18 @@ B = [
     "Quedan pocos lugares para el webinar del jueves",
     "Tu reservación expira si no confirmas hoy",
     "Oferta exclusiva para ti: envío gratis este fin de semana",
+    # ADR-0027 hard negatives — legitimate content that resembles
+    # manipulation tactics but isn't (news, editorial, real urgency).
+    "Elecciones 2026: el debate entre candidatos sube el tono",
+    "Editorial: la polarización crece y los expertos piden diálogo",
+    "Marcha convocada para el sábado — organizadores esperan miles",
+    "Estudio: las redes amplifican el contenido que provoca emociones",
+    "Opinion: why this policy deserves your anger — a columnist's view",
+    "Sale ends Sunday — countdown in store windows",
+    "Médicos alertan sobre el estrés por consumo de noticias negativas",
+    "Documental: la crisis que nadie quiso ver — estreno este mes",
+    "Tu entrenador te manda: hoy sí o sí toca sesión, no excuses",
+    "Publicidad honesta: este producto no es para todos, y está bien",
 ]
 
 def expand(templates: dict, per_signal: int, lang_mix=0.5) -> list[dict]:

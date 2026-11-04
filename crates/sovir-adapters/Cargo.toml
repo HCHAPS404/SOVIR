@@ -24,6 +24,9 @@ ort = { version = "2.0.0-rc.10", optional = true }
 # `cpp` feature compiles C++ with the same CRT clash). Pure-Rust
 # fancy-regex + standard unigram path — same tokenizer.json contract.
 tokenizers = { version = "0.20", optional = true, default-features = false, features = ["unstable_wasm"] }
+# PNG decode + resize for the visual voter's visual_hint crops
+# (ADR-0028). Optional under `onnx` — off, the tree compiles identical.
+image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
 # Council voter hard-bound: `tokio::time::timeout` around assess calls.
 tokio = { workspace = true, features = ["time"] }
 
@@ -35,4 +38,4 @@ default = []
 # ADR-0024/0025: the ONNX runtime for OnnxVisualVoter/OnnxTextVoter.
 # Off by default — voters fail closed without it. `ort` downloads the
 # ONNX Runtime binaries at build; `tokenizers` loads HF tokenizer.json.
-onnx = ["dep:ort", "dep:tokenizers"]
+onnx = ["dep:ort", "dep:tokenizers", "dep:image"]

@@ -85,6 +85,26 @@ pub enum RiskSignal {
     /// curated domain list — brand impersonation seen in the DOM, the
     /// textual sibling of the visual voter's pixel match.
     DomBrandMismatch,
+    /// ADR-0027 — content-side manipulation tactics (exposure level,
+    /// never user-state inference). Us-vs-them enemy framing,
+    /// manufactured outrage, "share if you're angry" mechanics.
+    PolarizationBait,
+    /// Content engineered to maximize anger/engagement — staged outrage,
+    /// cropped scandal, "nobody talks about this" bait.
+    RageBaitContent,
+    /// Guilt/fear/shame/social threat used to push an action — "if you
+    /// cared about your family you'd act", "a bad mother ignores this".
+    EmotionalCoercion,
+    /// Manufactured impulse-buy sequence: false urgency + scarcity +
+    /// fake authority + one-click friction removal ("buy without
+    /// thinking") — beyond plain SCARCITY_PRESSURE.
+    ImpulseFunnel,
+    /// Serialized fatalist content designed to keep the user scrolling
+    /// in negativity — "everything is collapsing, no way out".
+    DoomReinforcement,
+    /// Exploiting body/social/economic insecurity to sell or hook —
+    /// "with that face nobody takes you seriously, you need this".
+    InsecurityExploitation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -349,6 +369,16 @@ pub struct InferenceRequest {
     /// Absent ⇒ text-classifier voters simply abstain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_hint: Option<String>,
+    /// LOCAL-ONLY logo-crop payload for the local visual voter (ADR-0028):
+    /// base64-encoded PNG bytes of a candidate brand-logo region,
+    /// bounded to ~256KB decoded — the visual voter refuses larger
+    /// payloads rather than decode unbounded client input. NEVER
+    /// egresses — the remote envelope is built field-by-field and does
+    /// not include it, and `skip_serializing_if` keeps it out of any
+    /// incidental serialization; a remote voter must never receive
+    /// pixels. Absent ⇒ the visual voter abstains.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visual_hint: Option<String>,
 }
 
 /// Typed explanation request (A1): asks an explainer to turn typed
@@ -716,6 +746,12 @@ pub fn risk_signal_label(s: RiskSignal) -> &'static str {
         RiskSignal::BulkBuyerLure => "BULK_BUYER_LURE",
         RiskSignal::QrPresent => "QR_PRESENT",
         RiskSignal::DomBrandMismatch => "DOM_BRAND_MISMATCH",
+        RiskSignal::PolarizationBait => "POLARIZATION_BAIT",
+        RiskSignal::RageBaitContent => "RAGE_BAIT_CONTENT",
+        RiskSignal::EmotionalCoercion => "EMOTIONAL_COERCION",
+        RiskSignal::ImpulseFunnel => "IMPULSE_FUNNEL",
+        RiskSignal::DoomReinforcement => "DOOM_REINFORCEMENT",
+        RiskSignal::InsecurityExploitation => "INSECURITY_EXPLOITATION",
     }
 }
 
@@ -760,6 +796,14 @@ pub fn risk_signal_priority(s: RiskSignal) -> u8 {
         RiskSignal::IdentityUnverified => 24,
         RiskSignal::TrackingObserved => 25,
         RiskSignal::UserDefinedExposureLimit => 26,
+        // ADR-0027 wellbeing signals rank last — exposure-level hints,
+        // never escalation evidence on their own.
+        RiskSignal::PolarizationBait => 27,
+        RiskSignal::RageBaitContent => 28,
+        RiskSignal::EmotionalCoercion => 29,
+        RiskSignal::ImpulseFunnel => 30,
+        RiskSignal::DoomReinforcement => 31,
+        RiskSignal::InsecurityExploitation => 32,
     }
 }
 /// Stable metadata label for a sensitive-data class (matches serde name).
@@ -1337,6 +1381,12 @@ impl PolicyPack {
                     RiskSignal::DomBrandMismatch => {
                         "Signal: brand identity served from foreign domain"
                     }
+                    RiskSignal::PolarizationBait => "Signal: us-vs-them polarization bait",
+                    RiskSignal::RageBaitContent => "Signal: outrage-optimized content",
+                    RiskSignal::EmotionalCoercion => "Signal: guilt/fear pressure to act",
+                    RiskSignal::ImpulseFunnel => "Signal: manufactured impulse-buy sequence",
+                    RiskSignal::DoomReinforcement => "Signal: serialized fatalist framing",
+                    RiskSignal::InsecurityExploitation => "Signal: insecurity exploited to sell",
                 }
                 .to_string()
             })

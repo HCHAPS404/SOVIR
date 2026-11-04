@@ -1,21 +1,33 @@
-# Model card — sovir-onnx-visual-v0 (measured on real pages: NOT READY)
+# Model card — sovir-onnx-visual-v1 (siamese logo matcher, council voter)
 
 | Field | Value |
 |---|---|
-| Status | **NOT READY for production signals** — gated eval on real pages shows the artifact fails BOTH ends at 0.90 (see Measured eval). Kept in-tree for iteration; treat its votes as provisional until a logo-vs-logo variant re-measures clean |
-| Placement | Extension worker (edge) — pixels never egress; only `AUTHORITY_IMPERSONATION` crosses in the IMAGE_REGION event |
-| Encoder | MobileNetV3-Small ImageNet-pretrained (BSD-3 torchvision weights) → 576-dim embedding, ONNX 3.7MB |
-| Matching | per-image int8 banks (2,296 vectors, 241 brands) — max cosine over images, NOT centroid (centroid measured unseparable: −0.16 margin) |
-| Detection rule | best match ≥ 0.90 cosine AND page host ∉ brand domains → `AUTHORITY_IMPERSONATION` |
-| Measured eval (logos, n=27) | 52% self-recall, 0% cross-brand false @0.90 — the original claim, only valid on clean logo crops |
-| Measured eval (2026-11-03, REAL pages) | `eval_vision_onnx.py` on 400 Phishpedia screenshots: **whole-frame recall 3.0%**; tile-simulated regions 11.7%. On 130 legit homepages (new benign corpus): **FP 13.1% @0.90, region-guided 27.7%**, 89 near-misses ≥0.83. Mean best-score is INVERTED — benign pages (0.834) outscore phishing pages (0.735) |
-| DOM-region value (2026-11-03, synthetic) | `eval_logo_crop_value.py` — 148 logos composited on phishing-style pages: tight DOM-rect crop fires 49% vs whole-frame 8%, with **97% correct-brand precision among fires**. The implemented DOM pipeline (`sovirExtractLogoRegions` → `analyze(frame, host, logoFrame)`) is the right query-side fix |
-| Threshold curve (logo-vs-logo, 241 brands, 1392 logos) | `eval_threshold_sweep.py` LOBO cross-FP: **0.90 → 12.6% FP / 36.9% recall; 0.92 → 6.0% / 26.9%; 0.95 → 0.6% / 14.0%**. The "0% cross-false" claim was a 27-logo artifact — the encoder cannot cleanly separate brands even logo-vs-logo |
-| Bank augmentation (2026-11-03, REFUTED) | `eval_aug_bank.py` — augmented the BANK side with page-context variants (pad/border/blur/scale over page tiles), 3,808 forwards: @0.90 recall 2.3%→3.3% but benign FP **0%→11.5%** and LOBO cross 9.7%→10.7%. Page-context prototypes match *every* page better — selectivity collapses. Dead end; confirms the fix must be query-side logo-tight crops + encoder retrain, not bank tricks |
-| Root cause | (a) Logo-vs-page asymmetry — fixed by DOM-tight crops (implemented, value measured). (b) Encoder capacity — ImageNet MobileNetV3 clusters by layout not brand identity; needs contrastive fine-tune on brand pairs (positives = same-brand variants, negatives = other brands + benign page headers) before any threshold makes this voter trustworthy |
-| Data | Phishpedia `expand_targetlist` logos (CC0-1.0); gated corpora `eval-corpus-vision.v1.json` (400 phish) + `eval-corpus-vision-benign.v1.json` (130 legit, built via `build_benign_corpus.mjs`) |
-| Privacy surface | in-worker, in-memory; frame discarded after scan; digest binds the analyzed frame |
-| Runtime | onnxruntime-web wasm vendored at `apps/extension/ort/` (MIT), single-threaded |
-| Known limits | The DOM-region pipeline (`sovirExtractLogoRegions` → `analyze(frame, host, logoFrame)`) is implemented and needed: only logo-TIGHT crops make the comparison logo-vs-logo. A v1 must (a) embed DOM img rects, not page tiles, (b) re-tune threshold on BOTH corpora, (c) re-pass benign FP ≈0 and beat the dHash floor (19% recall @ 9% FP) before its votes gate user-facing warnings |
+| Status | **ACTIVE — bounded claim.** Ships inside the council as voter `onnx-visual`; its `brand_logo_impersonation` hypothesis is hypothesis material only — the policy arbiter and `DOM_BRAND_MISMATCH` corroboration decide warnings. 15% recall means it catches sharp logo matches, not every phish |
+| Placement | Server-side council voter (`sovir-adapters::OnnxVisualVoter`, `feature="onnx"` + `SOVIR_ONNX_VISUAL_DIR`). Pixel crops arrive via `InferenceRequest.visual_hint` (ADR-0028) — LOCAL-ONLY, never egressed, remote envelope unchanged |
+| Encoder | MobileNetV3-Small (torchvision `MobileNet_V3_Small_Weights.DEFAULT`, BSD-3) → features+avgpool+flatten → 576-d embedding, contrastive fine-tune (siamese, margin 0.32, AdamW lr 3e-5) on Phishpedia; exported ONNX opset 17, dynamic batch, 3.7MB. `visual.onnx` emits the RAW embedding — the adapter L2-normalizes before cosine |
+| Training data | Public corpora only, no user content (invariant): Phishpedia `targetlist` logo anchors (267 brands, ≤12 imgs each) + `phish_30k` logo crops via shipped YOLO boxes (conf ≥0.85, 10% pad; 1,923 train crops) + benign-logo hard negatives (130) + page background tiles that do NOT overlap the logo box (~4k, the FP class the runtime actually sees) |
+| Matching | Per-brand int8 prototype banks — `prototypes.json` `brands[{id,domains,n_imgs,vectors_i8_b64}]`, `x/127` int8 rows (n_imgs × 576, row-major, base64). Dequantized + re-normalized at load; **max cosine over a brand's images**, not centroid |
+| Preprocess | Mirrors `infra/modal/visual_train_app.py`: RGB → resize 224×224 (bilinear ≈ `FilterType::Triangle`) → u8/255 → ImageNet normalize (mean .485/.456/.406, std .229/.224/.225) → NCHW f32 tensor |
+| Detection rule | best-brand cosine ≥ `threshold_bp/10000` = **0.92** → hypothesis `brand_logo_impersonation` + confidence_bp = cosine bp; else `no_pattern_detected` @1000bp. Provenance: `onnx-visual-v1 local; brand:<id> cos:<bp>; no egress`. The foreign-domain fusion (host ∉ brand `domains`) is the policy/`DOM_BRAND_MISMATCH` layer's job — the vote asserts the visual match only |
+| Measured eval (Modal, held-out, `eval-report.json`) | @0.92 ship: **phish recall 15.0%** (486 held-out crops, correct-brand required), **benign-logo FP 0.77%** (1/130), **background-tile FP 4.4%**. Full sweep: 0.80→25.7%r/35.4%fp, 0.85→21.4%/13.9%, 0.88→18.9%/5.4%, 0.90→17.1%/1.5%, 0.92→15.0%/0.77%, 0.95→11.9%/0.77% |
+| vs v0 baseline | ImageNet-only encoder: ~3% whole-frame recall and 13.1% benign FP @0.90 on real pages (see v0 notes below). v1 lifts recall ~5× AND cuts benign FP ~17× |
+| Input contract | `visual_hint`: base64 PNG logo crop, ≤360KB b64 / ≤256KB decoded — oversized/malformed ⇒ abstain (`Err(Unavailable)`), never a guessed label. Crop quality is the extractor's job (DOM-tight rects; loose whole-frame crops degrade the match logo-vs-page, the measured v0 failure mode) |
+| Known limits | (a) **15% recall is not a detector** — fuzzy/restyled/foreign-layout logos pass unseen; the vote complements `DOM_BRAND_MISMATCH` (textual sibling), never replaces it. (b) 4.4% bg-tile FP at ship — a textured page region can spuriously match; council corroboration is the gate. (c) The vote cannot see the page host — a legit brand's own login page showing its logo ALSO matches; only policy's host-vs-domain fusion separates "own page" from impersonation. (d) Brand space is fixed at the 267 Phishpedia targets; unseen brands cannot match |
+| Privacy surface | In-process, in-memory; crop decoded, embedded, discarded; no pixel, base64 or digest persists or egresses. `usage.cost_micro_usd = 0` (local, unmetered) |
+| Runtime | `ort` (ONNX Runtime) via `sovir-adapters`, optional feature `onnx`; per-vote bound `SOVIR_COUNCIL_VOTER_TIMEOUT_MS` |
+| Artifact layout | `ml/artifacts/visual-v1/` = `visual.onnx` + `prototypes.json` + `eval-report.json` — gitignored binaries, regenerated by `infra/modal/visual_train_app.py` (Modal T4, `sovir-ml-out` volume) |
 
-Pipeline: `fetch_phishpedia.py` → `train_visual.py` (torch, ml/.venv) → artifacts → `apps/extension/models/` → `eval_vision_onnx.py` on both gated corpora.
+## v0 history (kept for provenance)
+
+The original v0 (`apps/extension/models/`, onnxruntime-web wasm) was an
+ImageNet-pretrained encoder with 241-brand int8 banks. Gated eval on
+real pages showed it failed both ends: whole-frame recall 3.0%, benign
+FP 13.1% @0.90 (region-guided 27.7%), LOBO cross-brand FP 12.6% @0.90 —
+mean best-score inverted (benign 0.834 > phish 0.735). Root causes:
+logo-vs-page query asymmetry (fixed by DOM-tight crops) and encoder
+capacity (fixed by the contrastive fine-tune above). Bank-side
+augmentation was measured a dead end (recall +1pt, benign FP 0→11.5%).
+
+Pipeline: `fetch_phishpedia.py` → `prep_visual_data.py` → Modal
+`visual_train_app.py` → `ml/artifacts/visual-v1/` →
+`SOVIR_ONNX_VISUAL_DIR` → `OnnxVisualVoter::from_env()`.

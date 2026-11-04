@@ -32,11 +32,12 @@ tar -cf ml/text-corpus.tar -C ml/datasets text-corpus
 .venv-modal/Scripts/python -m modal volume get sovir-ml-out /visual-v1 ml/artifacts/visual-v1 --force
 ```
 
-API loads text artifacts via `SOVIR_ONNX_TEXT_DIR` (build the api with
-`--features onnx`). Windows notes: use `//path` for remote volume paths in
-MSYS bash; set `PYTHONIOENCODING=utf-8` if the modal CLI crashes on unicode
-output.
+API loads text artifacts via `SOVIR_ONNX_TEXT_DIR` and visual artifacts
+via `SOVIR_ONNX_VISUAL_DIR` (build the api with `--features onnx`).
+Windows notes: use `//path` for remote volume paths in MSYS bash; set
+`PYTHONIOENCODING=utf-8` if the modal CLI crashes on unicode output.
 
 Verified: text-v1 trained 2026-11-04 (micro-P 0.968 / micro-R 0.86 /
 benign-FP 5.4% — see `ml/model-cards/sovir-onnx-text.md` for eval caveats).
-Visual pipeline: code complete, first run pending.
+visual-v1 trained 2026-11-05 (15.0% phish recall @0.92 ship, 0.77%
+benign FP, 4.4% bg-tile FP — see `ml/model-cards/sovir-onnx-visual.md`).

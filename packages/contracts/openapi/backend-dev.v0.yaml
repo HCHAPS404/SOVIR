@@ -231,6 +231,10 @@ components:
           type: string
           maxLength: 4096
           description: LOCAL-ONLY raw text for local classifier voters (ADR-0025). Never egressed — the remote envelope is built field-by-field without it. Absent => text voters abstain.
+        visual_hint:
+          type: string
+          maxLength: 360000
+          description: LOCAL-ONLY base64 PNG logo-crop for the visual voter (ADR-0028, ~256KB decoded bound). Never egressed — the remote envelope is built field-by-field without it. Absent => the visual voter abstains.
     InferenceVerdict:
       type: object
       description: Typed hypotheses only — never an authorized action.

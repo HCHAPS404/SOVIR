@@ -1640,8 +1640,11 @@ impl CachingInferenceGateway {
             sovir_domain::PrivacyMode::Private => 0u8.hash(&mut h),
             sovir_domain::PrivacyMode::Standard => 1u8.hash(&mut h),
         }
-        // The hint lands in the key only as a hash — never stored raw.
+        // The hints land in the key only as a hash — never stored raw.
+        // Both LOCAL-ONLY payloads distinguish entries: two requests
+        // identical but for the logo crop must not share a verdict.
         req.text_hint.as_deref().unwrap_or("").hash(&mut h);
+        req.visual_hint.as_deref().unwrap_or("").hash(&mut h);
         h.finish()
     }
 }
@@ -1705,41 +1708,314 @@ impl InferenceGateway for CachingInferenceGateway {
         self.inner.serves(mode)
     }
 }
-/// Visual ONNX voter seam (ADR-0024 + ADR-0025). Fails CLOSED by
-/// construction: `serves()` is false until BOTH an approved, licensed
-/// artifact path is configured (`SOVIR_ONNX_VISION_MODEL`) AND the
-/// crate is built with the `onnx` feature that carries the `ort`
-/// runtime — a missing feature or missing artifact means the voter is
-/// registered but never votes. It also cannot vote until the request
-/// type carries a modality-typed visual payload (signals alone have no
-/// pixels); that contract change needs its own ADR-level review.
-/// Honest "not yet" — never a guessed `image_lure` label.
+/// Visual ONNX voter (ADR-0024 + ADR-0025 + ADR-0028): a licensed local
+/// siamese-embedding matcher scoring the request's `visual_hint`
+/// (base64 PNG logo crop) against int8 brand-prototype banks. Fails
+/// closed like the text voter — without the `onnx` feature, a
+/// configured artifact dir or a hint it never votes; honest abstain,
+/// never a guessed label. LOCAL ONLY: it reads pixels and never
+/// egresses; the remote envelope is built field-by-field and cannot
+/// carry `visual_hint` (asserted next to
+/// `remote_envelope_never_carries_text_hint`).
+///
+/// Artifact dir (`SOVIR_ONNX_VISUAL_DIR`; back-compat
+/// `SOVIR_ONNX_VISION_MODEL` naming the .onnx FILE itself) layout —
+/// written by infra/modal/visual_train_app.py:
+///   visual.onnx      MobileNetV3-Small siamese encoder, [n,3,224,224]
+///                    -> 576-d embedding (NOT L2-normalized — the export
+///                    is features+avgpool+flatten; normalize here)
+///   prototypes.json  {model_id, embedding_dim, input{dim,mean,std},
+///                    threshold_bp, brands[{id,domains,n_imgs,
+///                    vectors_i8_b64}]} — int8 x/127 rows (n_imgs × dim),
+///                    matched by max cosine, threshold 0.92 at ship
 pub struct OnnxVisualVoter {
-    artifact_present: bool,
+    artifact_dir: Option<std::path::PathBuf>,
+    #[cfg(feature = "onnx")]
+    inner: std::sync::Mutex<Option<OnnxVisualInner>>,
+}
+#[cfg(feature = "onnx")]
+struct OnnxVisualInner {
+    _env: ort::environment::Environment,
+    session: ort::session::Session,
+    /// Per-brand dequantized, L2-normalized prototype rows — dot
+    /// against a normalized crop embedding IS the cosine score.
+    protos: Vec<(String, Vec<Vec<f32>>)>,
+    /// Ship threshold as cosine (prototypes.json threshold_bp/10000).
+    threshold: f32,
+    model_id: String,
+    input_dim: usize,
+    mean: [f32; 3],
+    std: [f32; 3],
+    emb_dim: usize,
 }
 impl OnnxVisualVoter {
-    /// Reads `SOVIR_ONNX_VISION_MODEL`; absent or non-file → no artifact.
+    /// Reads `SOVIR_ONNX_VISUAL_DIR`; falls back to
+    /// `SOVIR_ONNX_VISION_MODEL` pointing at the .onnx file (its parent
+    /// becomes the dir). Both files required — else no artifact.
     pub fn from_env() -> Self {
-        let artifact_present = std::env::var("SOVIR_ONNX_VISION_MODEL")
+        let artifact_dir = std::env::var("SOVIR_ONNX_VISUAL_DIR")
             .ok()
             .map(std::path::PathBuf::from)
-            .is_some_and(|p| p.is_file());
-        Self { artifact_present }
+            .or_else(|| {
+                let f = std::env::var("SOVIR_ONNX_VISION_MODEL")
+                    .ok()
+                    .map(std::path::PathBuf::from)?;
+                if f.is_file() {
+                    f.parent().map(|p| p.to_path_buf())
+                } else {
+                    None
+                }
+            })
+            .filter(|p| {
+                p.join("visual.onnx").is_file() && p.join("prototypes.json").is_file()
+            });
+        Self {
+            artifact_dir,
+            #[cfg(feature = "onnx")]
+            inner: std::sync::Mutex::new(None),
+        }
+    }
+}
+#[cfg(feature = "onnx")]
+impl OnnxVisualVoter {
+    /// Base64 char ceiling for `visual_hint` — ~256KB decoded PNG plus
+    /// encoding overhead; anything larger abstains, never decodes.
+    const MAX_HINT_B64_LEN: usize = 360_000;
+    /// Decoded PNG bound (ADR-0028: ~256KB) enforced after base64.
+    const MAX_HINT_BYTES: usize = 262_144;
+    fn load(dir: &std::path::Path) -> Result<OnnxVisualInner, PortError> {
+        use base64::Engine;
+        let env = ort::init().build().map_err(|_| PortError::Unavailable)?;
+        let session = ort::session::Session::builder(&env)
+            .map_err(|_| PortError::Unavailable)?
+            .commit_from_file(dir.join("visual.onnx"))
+            .map_err(|_| PortError::Unavailable)?;
+        let proto: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("prototypes.json"))
+                .map_err(|_| PortError::Unavailable)?,
+        )
+        .map_err(|_| PortError::Unavailable)?;
+        // The decision boundary and the label space are learned
+        // parameters — absent means a corrupt artifact: refuse, never
+        // guess a threshold.
+        let threshold_bp = proto["threshold_bp"]
+            .as_u64()
+            .ok_or(PortError::Unavailable)?;
+        let emb_dim = proto["embedding_dim"]
+            .as_u64()
+            .filter(|&d| d > 0)
+            .ok_or(PortError::Unavailable)? as usize;
+        let model_id = proto["model_id"]
+            .as_str()
+            .unwrap_or("sovir-onnx-visual")
+            .to_string();
+        // Preprocessing conventions ship in the artifact; the ImageNet
+        // MobileNetV3 defaults are the fallback, not a guess at data.
+        let input_dim = proto["input"]["dim"].as_u64().unwrap_or(224) as usize;
+        let vec3 = |key: &str, default: [f32; 3]| -> [f32; 3] {
+            let mut out = default;
+            if let Some(a) = proto["input"][key].as_array() {
+                for (i, v) in a.iter().take(3).enumerate() {
+                    out[i] = v.as_f64().unwrap_or(f64::from(default[i])) as f32;
+                }
+            }
+            out
+        };
+        let mean = vec3("mean", [0.485, 0.456, 0.406]);
+        let std_ = vec3("std", [0.229, 0.224, 0.225]);
+        let mut protos: Vec<(String, Vec<Vec<f32>>)> = Vec::new();
+        for b in proto["brands"].as_array().ok_or(PortError::Unavailable)? {
+            let id = b["id"].as_str().ok_or(PortError::Unavailable)?.to_string();
+            let raw = base64::engine::general_purpose::STANDARD
+                .decode(b["vectors_i8_b64"].as_str().ok_or(PortError::Unavailable)?)
+                .map_err(|_| PortError::Unavailable)?;
+            if raw.is_empty() || raw.len() % emb_dim != 0 {
+                return Err(PortError::Unavailable); // bank/dim mismatch = corrupt
+            }
+            let rows: Vec<Vec<f32>> = raw
+                .chunks(emb_dim)
+                .map(|c| {
+                    let mut v: Vec<f32> =
+                        c.iter().map(|&x| (x as i8) as f32 / 127.0).collect();
+                    // Quantization breaks the unit norm — restore it so
+                    // a dot product is a true cosine again.
+                    let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+                    if n > 0.0 {
+                        for x in &mut v {
+                            *x /= n;
+                        }
+                    }
+                    v
+                })
+                .collect();
+            protos.push((id, rows));
+        }
+        if protos.is_empty() {
+            return Err(PortError::Unavailable); // empty bank = refuse
+        }
+        Ok(OnnxVisualInner {
+            _env: env,
+            session,
+            protos,
+            threshold: threshold_bp as f32 / 10_000.0,
+            model_id,
+            input_dim,
+            mean,
+            std: std_,
+            emb_dim,
+        })
+    }
+    /// Embed the crop and return the best (brand, cosine, threshold).
+    /// Mirrors `visual_train_app.py::match` — max over the brand's
+    /// per-image rows, NOT a centroid (measured unseparable).
+    #[cfg(feature = "onnx")]
+    fn score(&self, png: &[u8]) -> Result<(String, f32, f32, String), PortError> {
+        let dir = self.artifact_dir.as_ref().ok_or(PortError::Unavailable)?;
+        let mut guard = self.inner.lock().map_err(|_| PortError::Storage)?;
+        if guard.is_none() {
+            *guard = Some(Self::load(dir)?);
+        }
+        let inner = guard.as_mut().ok_or(PortError::Unavailable)?;
+        let img = image::load_from_memory(png)
+            .map_err(|_| PortError::Unavailable)?
+            .to_rgb8();
+        let d = inner.input_dim as u32;
+        // torch T.Resize((224,224)) bilinear ≈ Triangle filter; then
+        // ToTensor (u8/255) + ImageNet normalize, CHW layout.
+        let resized = image::imageops::resize(&img, d, d, image::imageops::FilterType::Triangle);
+        let px = inner.input_dim;
+        let plane = px * px;
+        let mut data = vec![0f32; 3 * plane];
+        for (x, y, p) in resized.enumerate_pixels() {
+            let i = y as usize * px + x as usize;
+            data[i] = (p[0] as f32 / 255.0 - inner.mean[0]) / inner.std[0];
+            data[plane + i] = (p[1] as f32 / 255.0 - inner.mean[1]) / inner.std[1];
+            data[2 * plane + i] = (p[2] as f32 / 255.0 - inner.mean[2]) / inner.std[2];
+        }
+        let tensor = ort::value::Tensor::from_array(([1usize, 3, px, px], data))
+            .map_err(|_| PortError::Unavailable)?;
+        // Feed exactly the input the graph declares — never guess names.
+        let input_name = inner
+            .session
+            .inputs()
+            .first()
+            .map(|i| i.name().to_string())
+            .ok_or(PortError::Unavailable)?;
+        let feed: Vec<(String, ort::session::SessionInputValue)> =
+            vec![(input_name, tensor.into())];
+        let outputs = inner
+            .session
+            .run(feed)
+            .map_err(|_| PortError::Unavailable)?;
+        let mut emb = outputs[0]
+            .try_extract_tensor::<f32>()
+            .map_err(|_| PortError::Unavailable)?
+            .1
+            .to_vec();
+        if emb.len() != inner.emb_dim {
+            return Err(PortError::Unavailable); // model/artifact dim drift
+        }
+        // The exported graph omits F.normalize — apply it here so dot = cosine.
+        let n = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if n <= 0.0 {
+            return Err(PortError::Unavailable);
+        }
+        for x in &mut emb {
+            *x /= n;
+        }
+        let mut best_brand = String::new();
+        let mut best_cos = f32::NEG_INFINITY;
+        for (id, rows) in &inner.protos {
+            for v in rows {
+                let s: f32 = v.iter().zip(emb.iter()).map(|(a, b)| a * b).sum();
+                if s > best_cos {
+                    best_cos = s;
+                    best_brand = id.clone();
+                }
+            }
+        }
+        Ok((
+            best_brand,
+            best_cos,
+            inner.threshold,
+            inner.model_id.clone(),
+        ))
     }
 }
 #[async_trait]
 impl InferenceGateway for OnnxVisualVoter {
     async fn assess(
         &self,
-        _req: &sovir_domain::InferenceRequest,
+        req: &sovir_domain::InferenceRequest,
     ) -> Result<sovir_domain::InferenceVerdict, PortError> {
-        // No runtime + no visual payload contract yet — refuse honestly.
-        Err(PortError::Unavailable)
+        #[cfg(feature = "onnx")]
+        {
+            use base64::Engine;
+            let hint = req
+                .visual_hint
+                .as_deref()
+                .filter(|h| !h.trim().is_empty())
+                .ok_or(PortError::Unavailable)?; // no crop = abstain
+            if hint.len() > Self::MAX_HINT_B64_LEN {
+                return Err(PortError::Unavailable); // unbounded input = abstain
+            }
+            let png = base64::engine::general_purpose::STANDARD
+                .decode(hint)
+                .map_err(|_| PortError::Unavailable)?;
+            if png.is_empty() || png.len() > Self::MAX_HINT_BYTES {
+                return Err(PortError::Unavailable);
+            }
+            let (brand, cos, threshold, model_id) = self.score(&png)?;
+            let cos_bp = (cos * 10_000.0).clamp(0.0, 10_000.0) as u16;
+            let thr_bp = (threshold * 10_000.0) as u16;
+            let (hypotheses, confidence_bp, prov) = if cos >= threshold {
+                // Pixel-space sibling of DOM_BRAND_MISMATCH — a distinct
+                // hypothesis string so the two modalities can never
+                // fake-agree with themselves; policy does the host-vs-
+                // brand-domain fusion, the vote only asserts the match.
+                (
+                    vec!["brand_logo_impersonation".to_string()],
+                    cos_bp, // confidence = measured match strength
+                    format!("onnx-visual-v1 local; brand:{brand} cos:{cos_bp}; no egress"),
+                )
+            } else {
+                // Honest negative: measured cos stays in provenance for
+                // audit; the vote confidence stays low so it can never
+                // inflate the council verdict.
+                (
+                    vec!["no_pattern_detected".to_string()],
+                    1_000,
+                    format!(
+                        "onnx-visual-v1 local; best:{brand} cos:{cos_bp}<{thr_bp}; no egress"
+                    ),
+                )
+            };
+            return Ok(sovir_domain::InferenceVerdict {
+                request_id: req.request_id.clone(),
+                model_id,
+                hypotheses,
+                confidence_bp,
+                provenance: prov,
+                // Local artifact, zero provider metering — measured $0.
+                usage: Some(sovir_domain::ReportedUsage {
+                    tokens_input: 0,
+                    tokens_output: 0,
+                    cost_micro_usd: Some(0),
+                }),
+                votes: None,
+            });
+        }
+        #[cfg(not(feature = "onnx"))]
+        {
+            let _ = req;
+            Err(PortError::Unavailable)
+        }
     }
-    fn serves(&self, _mode: sovir_domain::PrivacyMode) -> bool {
-        // The whole gate in one line: runtime feature AND artifact AND
-        // (future) request payload — false until every condition lands.
-        cfg!(feature = "onnx") && self.artifact_present
+    fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+        // Local-only voter: serves both modes like the text voter —
+        // pixels never leave the process.
+        let _ = mode;
+        cfg!(feature = "onnx") && self.artifact_dir.is_some()
     }
 }
 /// Text ONNX voter (ADR-0025): a licensed local classifier scoring the
@@ -2691,6 +2967,12 @@ fn signal_phrase_es(s: sovir_domain::RiskSignal) -> &'static str {
         R::BulkBuyerLure => "ofrece compra inmediata con sobrepago, patrón de estafa",
         R::QrPresent => "contiene un código QR que puede llevar a un destino malicioso",
         R::DomBrandMismatch => "presenta una marca conocida desde un dominio que no es suyo",
+        R::PolarizationBait => "enfrenta bandos para provocarte",
+        R::RageBaitContent => "está diseñado para indignarte y que lo compartas",
+        R::EmotionalCoercion => "presiona con culpa o miedo para que actúes",
+        R::ImpulseFunnel => "combina urgencia y escasez para que compres sin pensar",
+        R::DoomReinforcement => "encadena contenido fatalista sin salida",
+        R::InsecurityExploitation => "explotaría tus inseguridades para venderte",
     }
 }
 /// Deterministic local explainer: always available, zero egress, used
@@ -3007,6 +3289,7 @@ mod tests {
             privacy: PrivacyMode::Standard,
             est_cost_micro_usd: 10_000,
             text_hint: None,
+            visual_hint: None,
         }
     }
 
@@ -3690,6 +3973,7 @@ mod tests {
             privacy,
             est_cost_micro_usd: 0,
             text_hint: None,
+            visual_hint: None,
         }
     }
     #[tokio::test]
@@ -4114,9 +4398,10 @@ mod tests {
             .any(|x| x.voter == "remote"));
         assert!(v.usage.is_none());
     }
-    /// Privacy invariant (ADR-0025): a request carrying `text_hint` must
-    /// never put raw text on the wire — the remote envelope is built
-    /// field-by-field. Asserted at the egress recording.
+    /// Privacy invariant (ADR-0025 + ADR-0028): a request carrying
+    /// `text_hint` or `visual_hint` must never put raw content on the
+    /// wire — the remote envelope is built field-by-field. Asserted at
+    /// the egress recording.
     #[tokio::test]
     async fn remote_envelope_never_carries_text_hint() {
         use sovir_domain::RiskSignal::*;
@@ -4132,11 +4417,16 @@ mod tests {
         );
         let mut req = inf_req(&[PaymentRequest], sovir_domain::PrivacyMode::Standard);
         req.text_hint = Some("si no pagas publicamos tus fotos".to_string());
+        req.visual_hint = Some("aGVsbG8td29ybGQtcGl4ZWxz".to_string()); // base64 marker
         let _ = remote.assess(&req).await;
         let body = egress.sent.lock().unwrap()[0].1.clone();
         assert!(
             !body.contains("text_hint") && !body.contains("si no pagas"),
             "raw text leaked into the remote envelope: {body}"
+        );
+        assert!(
+            !body.contains("visual_hint") && !body.contains("aGVsbG8td29ybGQtcGl4ZWxz"),
+            "pixels leaked into the remote envelope: {body}"
         );
     }
     /// Registry coverage (ADR-0025): every voter NAME wired into the
@@ -4289,6 +4579,7 @@ mod tests {
             privacy: PrivacyMode::Standard,
             est_cost_micro_usd: 10,
             text_hint: None,
+            visual_hint: None,
         }
     }
 
@@ -4433,6 +4724,7 @@ mod tests {
                     privacy: PrivacyMode::Private,
                     est_cost_micro_usd: 0,
                     text_hint: None,
+                    visual_hint: None,
                 })
                 .await
                 .unwrap();
@@ -4726,6 +5018,97 @@ mod tests {
         );
     }
 
+    // ---- ADR-0028: OnnxVisualVoter — fail-closed seams -----------------------
+    fn visual_voter_no_artifact() -> OnnxVisualVoter {
+        OnnxVisualVoter {
+            artifact_dir: None,
+            #[cfg(feature = "onnx")]
+            inner: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// No crop in the request ⇒ abstain — holds with or without the
+    /// feature and with or without artifacts installed, so it needs no
+    /// env gating.
+    #[tokio::test]
+    async fn onnx_visual_abstains_without_visual_hint() {
+        let voter = OnnxVisualVoter::from_env();
+        let req = inf_req(
+            &[sovir_domain::RiskSignal::DomBrandMismatch],
+            sovir_domain::PrivacyMode::Private,
+        );
+        assert!(matches!(voter.assess(&req).await, Err(PortError::Unavailable)));
+    }
+
+    /// No artifact dir ⇒ serves() is false in BOTH privacy modes and
+    /// assess still refuses even when a hint arrives (fail closed).
+    #[tokio::test]
+    async fn onnx_visual_fails_closed_without_artifact() {
+        let voter = visual_voter_no_artifact();
+        assert!(!voter.serves(sovir_domain::PrivacyMode::Private));
+        assert!(!voter.serves(sovir_domain::PrivacyMode::Standard));
+        let mut req = inf_req(
+            &[sovir_domain::RiskSignal::DomBrandMismatch],
+            sovir_domain::PrivacyMode::Standard,
+        );
+        req.visual_hint = Some("aGVsbG8=".to_string()); // valid b64, no artifact
+        assert!(matches!(voter.assess(&req).await, Err(PortError::Unavailable)));
+    }
+
+    /// Malformed payloads abstain, never panic or guess a label:
+    /// invalid base64 and an oversized hint both refuse.
+    #[tokio::test]
+    async fn onnx_visual_rejects_malformed_hint() {
+        let voter = OnnxVisualVoter::from_env();
+        let mut req = inf_req(
+            &[sovir_domain::RiskSignal::DomBrandMismatch],
+            sovir_domain::PrivacyMode::Standard,
+        );
+        req.visual_hint = Some("%%%not-base64%%%".to_string());
+        assert!(matches!(voter.assess(&req).await, Err(PortError::Unavailable)));
+        // Over the ~360KB base64 ceiling (MAX_HINT_B64_LEN under `onnx`).
+        req.visual_hint = Some("A".repeat(360_001));
+        assert!(matches!(voter.assess(&req).await, Err(PortError::Unavailable)));
+    }
+
+    /// Smoke gate for the real artifact (mirrors onnx_text_voter_eval_corpus):
+    /// runs ONLY when SOVIR_ONNX_VISUAL_DIR is installed — a flat-color
+    /// crop must not impersonate any brand and the verdict must be
+    /// well-formed with measured-zero usage. Skips clean in CI.
+    #[cfg(feature = "onnx")]
+    #[tokio::test]
+    async fn onnx_visual_voter_synthetic_png_smoke() {
+        if std::env::var("SOVIR_ONNX_VISUAL_DIR").is_err() {
+            eprintln!(
+                "SKIP onnx-visual smoke: SOVIR_ONNX_VISUAL_DIR unset (artifact not installed)"
+            );
+            return;
+        }
+        use base64::Engine;
+        let voter = OnnxVisualVoter::from_env();
+        assert!(
+            voter.serves(PrivacyMode::Private) && voter.serves(PrivacyMode::Standard),
+            "artifact present but serves()=false"
+        );
+        // Flat 224x224 gray tile — no logo structure; a fire here would
+        // be an artifact defect worth failing the gate for.
+        let img = image::RgbImage::from_pixel(224, 224, image::Rgb([128, 128, 128]));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, image::ImageFormat::Png)
+            .unwrap();
+        let mut req = inf_req_id("visual-smoke");
+        req.visual_hint = Some(
+            base64::engine::general_purpose::STANDARD.encode(buf.into_inner()),
+        );
+        let v = voter.assess(&req).await.unwrap();
+        assert_eq!(v.hypotheses, vec!["no_pattern_detected".to_string()]);
+        assert!(v.confidence_bp <= 10_000);
+        assert!(v.provenance.starts_with("onnx-visual-v1 local;"));
+        assert_eq!(v.usage.and_then(|u| u.cost_micro_usd), Some(0));
+        eprintln!("onnx-visual smoke (flat tile): {}", v.provenance);
+    }
+
     // --- verdict cache (B4 token-saver) --------------------------------------
     struct CountingVoter(Arc<std::sync::atomic::AtomicUsize>);
     #[async_trait]
@@ -4766,6 +5149,7 @@ mod tests {
             privacy: sovir_domain::PrivacyMode::Standard,
             est_cost_micro_usd: 0,
             text_hint: hint.map(str::to_string),
+            visual_hint: None,
         }
     }
     #[tokio::test]

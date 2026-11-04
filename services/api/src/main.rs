@@ -388,7 +388,9 @@ fn inference_gateway(
     // the remote out before any call. `votes` records who actually voted.
     let voters: Vec<(String, Arc<dyn sovir_ports::InferenceGateway>)> = vec![
         ("heuristic".into(), local),
-        // ADR-0024 seam: registered, fails closed until artifact+feature.
+        // Visual logo-matcher (ADR-0024/0028): serves with the `onnx`
+        // feature AND SOVIR_ONNX_VISUAL_DIR artifacts — else fails
+        // closed. Scores the LOCAL-only visual_hint crop; no egress.
         (
             "onnx-visual".into(),
             Arc::new(sovir_adapters::OnnxVisualVoter::from_env()),

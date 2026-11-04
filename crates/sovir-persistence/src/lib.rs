@@ -361,6 +361,14 @@ fn signal_str(s: RiskSignal) -> &'static str {
         RiskSignal::BulkBuyerLure => "BULK_BUYER_LURE",
         RiskSignal::QrPresent => "QR_PRESENT",
         RiskSignal::DomBrandMismatch => "DOM_BRAND_MISMATCH",
+        // ADR-0027 wellbeing signals — same SCREAMING labels as
+        // domain::risk_signal_label so stored rows stay parseable.
+        RiskSignal::PolarizationBait => "POLARIZATION_BAIT",
+        RiskSignal::RageBaitContent => "RAGE_BAIT_CONTENT",
+        RiskSignal::EmotionalCoercion => "EMOTIONAL_COERCION",
+        RiskSignal::ImpulseFunnel => "IMPULSE_FUNNEL",
+        RiskSignal::DoomReinforcement => "DOOM_REINFORCEMENT",
+        RiskSignal::InsecurityExploitation => "INSECURITY_EXPLOITATION",
     }
 }
 fn feedback_verdict_str(v: FeedbackVerdict) -> &'static str {

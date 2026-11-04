@@ -161,6 +161,8 @@ export interface InferenceRequestBody {
   privacy: "standard" | "private";
   est_cost_micro_usd?: number;
   text_hint?: string;
+  /** LOCAL-ONLY base64 PNG logo crop (ADR-0028); never egressed. */
+  visual_hint?: string;
 }
 
 export interface InferenceVerdict {

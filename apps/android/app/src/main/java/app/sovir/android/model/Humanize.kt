@@ -34,6 +34,12 @@ object Humanize {
         "OFF_PLATFORM_MOVE" to "Conversación movida fuera de la plataforma",
         "BULK_BUYER_LURE" to "Compra inmediata al contado",
         "QR_PRESENT" to "Código QR en pantalla",
+        "POLARIZATION_BAIT" to "Contenido que enfrenta bandos para provocar",
+        "RAGE_BAIT_CONTENT" to "Contenido diseñado para indignar",
+        "EMOTIONAL_COERCION" to "Presión emocional para que actúes",
+        "IMPULSE_FUNNEL" to "Embudo de compra impulsiva manufacturado",
+        "DOOM_REINFORCEMENT" to "Cadena de contenido fatalista",
+        "INSECURITY_EXPLOITATION" to "Explotación de inseguridades para vender",
     )
 
     private val HYPOTHESES = mapOf(
@@ -82,6 +88,11 @@ object Humanize {
         "QR_PRESENT" to 40, "DATA_HARVESTING" to 36,
         "CONSENT_DARK_PATTERN" to 34, "TRACKING_OBSERVED" to 32,
         "USER_DEFINED_EXPOSURE_LIMIT" to 30,
+        // Manipulation/wellbeing signals (ADR-0027) — exposure-level, below
+        // every scam signal on purpose: they inform, they don't alarm.
+        "EMOTIONAL_COERCION" to 28, "INSECURITY_EXPLOITATION" to 26,
+        "IMPULSE_FUNNEL" to 24, "RAGE_BAIT_CONTENT" to 22,
+        "POLARIZATION_BAIT" to 20, "DOOM_REINFORCEMENT" to 18,
     )
 
     /** The signal that should name an observation — most alarming first. */
