@@ -2,6 +2,11 @@ const KEY = "sovir-api-url";
 const PRINCIPAL_KEY = "sovir-principal";
 const OIDC_ISSUER_KEY = "sovir-oidc-issuer";
 const OIDC_CLIENT_KEY = "sovir-oidc-client";
+// Same deployment defaults as background.js: shown when the keys were never
+// configured (undefined). An explicit null means the user cleared them.
+const DEFAULT_API = "https://hell.taile32c7d.ts.net/api";
+const DEFAULT_OIDC_ISSUER = "https://hell.taile32c7d.ts.net/sso/realms/sovir";
+const DEFAULT_OIDC_CLIENT = "sovir-extension";
 const input = document.querySelector("#api-url");
 const saved = document.querySelector("#saved");
 const principalInput = document.querySelector("#principal");
@@ -19,11 +24,11 @@ const blocklistInput = document.querySelector("#observe-blocklist");
 const savedObserve = document.querySelector("#saved-observe");
 
 chrome.storage.local.get([KEY, PRINCIPAL_KEY, OIDC_ISSUER_KEY, OIDC_CLIENT_KEY, VISION_KEY, BLOCKLIST_KEY], (s) => {
-  input.value = s[KEY] ?? "http://127.0.0.1:8787";
+  input.value = s[KEY] ?? DEFAULT_API;
   principalInput.value = s[PRINCIPAL_KEY] ?? "";
   principalInput.placeholder = "ext-demo";
-  oidcIssuer.value = s[OIDC_ISSUER_KEY] ?? "";
-  oidcClient.value = s[OIDC_CLIENT_KEY] ?? "";
+  oidcIssuer.value = s[OIDC_ISSUER_KEY] === undefined ? DEFAULT_OIDC_ISSUER : (s[OIDC_ISSUER_KEY] ?? "");
+  oidcClient.value = s[OIDC_CLIENT_KEY] === undefined ? DEFAULT_OIDC_CLIENT : (s[OIDC_CLIENT_KEY] ?? "");
   visionToggle.checked = s[VISION_KEY] === true;
   blocklistInput.value = (s[BLOCKLIST_KEY] ?? []).join("\n");
   chrome.permissions.contains({ origins: ["<all_urls>"] }, (has) => {

@@ -18,7 +18,9 @@ if (typeof importScripts === "function") {
   } catch {}
 }
 
-const DEFAULT_API = "http://127.0.0.1:8787";
+// Deployment default: the maintainer's Tailscale Funnel instance. Options can
+// still override per-install; localhost remains reachable via options only.
+const DEFAULT_API = "https://hell.taile32c7d.ts.net/api";
 const API_URL_KEY = "sovir-api-url"; // storage.local — user setting
 const PRINCIPAL_KEY = "sovir-principal"; // storage.local — console identity
 const SOURCE = "screen-observer:ext";
@@ -59,10 +61,18 @@ const OIDC_CLIENT_KEY = "sovir-oidc-client";
 const b64url = (bytes) =>
   btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
+// Baked OIDC defaults for the deployment realm. Semantics: `undefined` (key
+// never set) -> use defaults; `null` (user explicitly cleared the field in
+// options) -> OIDC off, dev-session; a value -> user's own IdP.
+const DEFAULT_OIDC_ISSUER = "https://hell.taile32c7d.ts.net/sso/realms/sovir";
+const DEFAULT_OIDC_CLIENT = "sovir-extension";
+
 async function oidcConfig() {
   const s = await chrome.storage.local.get([OIDC_ISSUER_KEY, OIDC_CLIENT_KEY]);
-  const issuer = (s[OIDC_ISSUER_KEY] || "").replace(/\/+$/, "");
-  const clientId = s[OIDC_CLIENT_KEY] || "";
+  const rawIssuer = s[OIDC_ISSUER_KEY] === undefined ? DEFAULT_OIDC_ISSUER : s[OIDC_ISSUER_KEY];
+  const rawClient = s[OIDC_CLIENT_KEY] === undefined ? DEFAULT_OIDC_CLIENT : s[OIDC_CLIENT_KEY];
+  const issuer = (rawIssuer || "").replace(/\/+$/, "");
+  const clientId = rawClient || "";
   return issuer && clientId ? { issuer, clientId } : null;
 }
 
@@ -449,8 +459,10 @@ async function visionScan(tab, logoFrame) {
 // observation survives reloads/navigation until the origin is revoked.
 async function syncScripts() {
   const { origins } = await chrome.permissions.getAll();
-  const base = await apiBase();
-  const sites = (origins ?? []).filter((o) => !o.startsWith(base));
+  // Compare by origin, not base-with-path: the deployment base carries "/api"
+  // while host_permissions patterns never do.
+  const baseOrigin = new URL(await apiBase()).origin;
+  const sites = (origins ?? []).filter((o) => !o.startsWith(baseOrigin));
   const { "sovir-observe-blocklist": blocklist } = await chrome.storage.local.get(
     "sovir-observe-blocklist",
   );

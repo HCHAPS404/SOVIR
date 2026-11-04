@@ -88,7 +88,7 @@
         <div class="field-row">
           <label for="api-url">
             URL base de la API
-            <input id="api-url" type="url" value="http://127.0.0.1:8787" />
+            <input id="api-url" type="url" value="https://hell.taile32c7d.ts.net/api" />
           </label>
           <button id="save" type="button">Guardar</button>
         </div>
@@ -116,14 +116,14 @@
         <p class="kicker">Identidad real</p>
         <h2>Cuenta real (OIDC)</h2>
         <p>
-          Si tienes un proveedor de identidad (p. ej. Keycloak local), configúralo aquí y la
-          extensión iniciará sesión contigo en vez de usar la cuenta de demostración. Vacío = modo
-          demo local.
+          Viene preconfigurado con el realm de SOVIR; la extensión inicia sesión contigo
+          automáticamente. Vacía ambos campos y guarda para volver a la cuenta de demostración
+          local.
         </p>
         <div class="field-row">
           <label for="oidc-issuer">
             Issuer OIDC (realm URL)
-            <input id="oidc-issuer" type="url" placeholder="http://127.0.0.1:8081/realms/sovir" />
+            <input id="oidc-issuer" type="url" placeholder="https://hell.taile32c7d.ts.net/sso/realms/sovir" />
           </label>
         </div>
         <div class="field-row">

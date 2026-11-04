@@ -16,7 +16,7 @@
     "open_in_tab": true
   },
   "permissions": ["storage", "scripting", "activeTab", "identity"],
-  "host_permissions": ["http://127.0.0.1:8787/*"],
+  "host_permissions": ["http://127.0.0.1:8787/*", "https://hell.taile32c7d.ts.net/*"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js"

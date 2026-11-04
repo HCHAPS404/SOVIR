@@ -98,10 +98,8 @@ test("observation mints session, registers device+grant, posts event", async () 
   });
   assert.equal(res.ok, true);
   const paths = fetchCalls.map((c) => new URL(c.url).pathname);
-  assert.ok(paths.includes("/v1/auth/dev-session"));
-  assert.ok(paths.includes("/v1/devices"));
-  assert.ok(paths.includes("/v1/consents"));
-  assert.ok(paths.includes("/v1/events"));
+  for (const p of ["/v1/auth/dev-session", "/v1/devices", "/v1/consents", "/v1/events"])
+    assert.ok(paths.some((x) => x.endsWith(p)), `missing ${p}`);
   const event = fetchCalls.find((c) => c.url.endsWith("/v1/events"));
   assert.equal(event.init.headers["idempotency-key"].startsWith("extidem-"), true);
 });
@@ -230,7 +228,7 @@ test("API failure is stored as lastError, not swallowed", async () => {
 });
 
 test("syncScripts registers content scripts for granted origins only", async () => {
-  permissionOrigins = ["https://example.com/*", "http://127.0.0.1:8787/*"];
+  permissionOrigins = ["https://example.com/*", "https://hell.taile32c7d.ts.net/*"];
   for (const fn of permAddedListeners) await fn();
   assert.equal(registeredScripts.length, 1);
   const def = registeredScripts[0];
