@@ -669,10 +669,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((e) => sendResponse({ ready: false, error: e.code ?? e.message }));
     return true;
   }
+  // Master switch: the Options "observación" flag gates emission
+  // alongside the session pause. Default true — install consented.
+  const observingOn = async () =>
+    (await chrome.storage.local.get("sovir-observe-all"))["sovir-observe-all"] !== false;
   if (message?.type === "vision-check") {
     getState()
       .then(async (st) => {
-        if (st.paused) return { ok: true, paused: true };
+        if (st.paused || !(await observingOn())) return { ok: true, paused: true };
         if (!(await visionEnabled())) return { ok: true, disabled: true };
         return visionScan(sender.tab, message.logo_frame);
       })
@@ -686,8 +690,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message?.type === "observation") {
     getState()
-      .then((st) => {
-        if (st.paused) return { ok: true, paused: true };
+      .then(async (st) => {
+        if (st.paused || !(await observingOn())) return { ok: true, paused: true };
         // Ephemeral text_hint → local council only. The event itself
         // stays signal-only; the hint is never persisted or egressed.
         if (typeof message.text_hint === "string" && message.text_hint.length > 0) {

@@ -50,8 +50,8 @@
         <p>
           Análisis visual limitado: una captura de la pestaña otorgada se reduce en el worker, se
           escanean patrones QR y se descarta — el evento lleva solo <code>QR_PRESENT</code> + digest
-          del frame, nunca píxeles ni OCR de página completa. Chrome solo permite la captura
-          con el permiso amplio: también necesitas "Observación amplia" activada.
+          del frame, nunca píxeles ni OCR de página completa. Solo corre mientras la
+          observación esté activa.
         </p>
         <label class="check" for="vision-enabled">
           <input id="vision-enabled" type="checkbox" />
@@ -61,17 +61,16 @@
       </section>
 
       <section class="card">
-        <p class="kicker">Opt-in amplio</p>
-        <h2>Observar todos los sitios (experimental)</h2>
+        <p class="kicker">Observación</p>
+        <h2>Qué páginas se observan</h2>
         <p>
-          Por defecto la observación se concede sitio a sitio. Si activas esto, Chrome te pedirá
-          permiso para <em>todos</em> los sitios una sola vez — ese prompt es tu consentimiento
-          explícito. Puedes excluir orígenes abajo y apagar el toggle cuando quieras (revoca el
-          permiso al instante).
+          Al instalar, Chrome te pidió permiso para todos los sitios una sola vez — ese fue tu
+          consentimiento. Desde entonces SOVIR analiza cada página que abres, en la pestaña que
+          estés viendo. Este interruptor pausa todo; las excepciones de abajo recortan el alcance.
         </p>
         <label class="check" for="observe-all">
           <input id="observe-all" type="checkbox" />
-          <span>Observar todos los sitios que abra</span>
+          <span>Observación activa — analiza cada página que visito</span>
         </label>
         <label class="check" for="sensitive-enabled">
           <input id="sensitive-enabled" type="checkbox" />

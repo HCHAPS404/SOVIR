@@ -34,9 +34,7 @@ chrome.storage.local.get([KEY, PRINCIPAL_KEY, OIDC_ISSUER_KEY, OIDC_CLIENT_KEY, 
   visionToggle.checked = s[VISION_KEY] === true;
   sensitiveToggle.checked = s[SENSITIVE_KEY] === true;
   blocklistInput.value = (s[BLOCKLIST_KEY] ?? []).join("\n");
-  chrome.permissions.contains({ origins: ["<all_urls>"] }, (has) => {
-    observeAllToggle.checked = has;
-  });
+  observeAllToggle.checked = s[OBSERVE_ALL_KEY] !== false;
 });
 
 visionToggle.addEventListener("change", () => {
@@ -45,35 +43,19 @@ visionToggle.addEventListener("change", () => {
       savedVision.textContent = "Desactivado.";
       return;
     }
-    chrome.permissions.contains({ origins: ["<all_urls>"] }, (has) => {
-      savedVision.textContent = has
-        ? "Activo — escanea QR solo en sitios otorgados."
-        : "Activo pero sin efecto: la captura visual requiere \"Observación amplia\" (arriba).";
-    });
+    savedVision.textContent = "Activo — escanea QR solo en sitios observados.";
   });
 });
 
-// ADR-0022: the toggle's own click is the user gesture that fires the
-// native Chrome <all_urls> prompt — that prompt IS the consent moment.
+// Master switch. The <all_urls> host permission is install-time now (one
+// Chrome consent moment); this toggle only pauses/resumes observation —
+// it cannot revoke what installation granted.
 observeAllToggle.addEventListener("change", () => {
-  if (observeAllToggle.checked) {
-    chrome.permissions.request({ origins: ["<all_urls>"] }, (granted) => {
-      if (!granted) {
-        observeAllToggle.checked = false;
-        savedObserve.textContent = "Permiso no concedido — sigue el modo por sitio.";
-        return;
-      }
-      chrome.storage.local.set({ [OBSERVE_ALL_KEY]: true }, () => {
-        savedObserve.textContent = "Observación amplia activa — excepciones abajo.";
-      });
-    });
-  } else {
-    chrome.permissions.remove({ origins: ["<all_urls>"] }, () => {
-      chrome.storage.local.set({ [OBSERVE_ALL_KEY]: false }, () => {
-        savedObserve.textContent = "Revocado — vuelve el consentimiento por sitio.";
-      });
-    });
-  }
+  chrome.storage.local.set({ [OBSERVE_ALL_KEY]: observeAllToggle.checked }, () => {
+    savedObserve.textContent = observeAllToggle.checked
+      ? "Observación activa — las excepciones de abajo siguen aplicando."
+      : "Observación apagada — nada se analiza hasta reactivarla.";
+  });
 });
 
 sensitiveToggle.addEventListener("change", () => {

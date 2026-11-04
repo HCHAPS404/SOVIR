@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "SOVIR",
   "version": "0.2.0",
-  "description": "Observador local por sitio. Extrae señales tipadas (nunca contenido) solo donde el usuario lo activa.",
+  "description": "Observador local continuo. Extrae señales tipadas (nunca contenido) en las páginas que visitas — consentimiento único al instalar, excepciones editables.",
   "icons": {
     "128": "icons/icon-128.png"
   },
@@ -16,8 +16,11 @@
     "open_in_tab": true
   },
   "permissions": ["storage", "scripting", "activeTab", "identity"],
-  "host_permissions": ["http://127.0.0.1:8787/*", "https://hell.taile32c7d.ts.net/*"],
-  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "host_permissions": [
+    "<all_urls>",
+    "http://127.0.0.1:8787/*",
+    "https://hell.taile32c7d.ts.net/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
