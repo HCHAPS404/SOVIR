@@ -60,6 +60,10 @@ const VISION_KEY = "sovir-vision-enabled";
 // observed — under the broad <all_urls> grant or a per-site grant alike —
 // unless the person explicitly enables them in options.
 const SENSITIVE_KEY = "sovir-sensitive-enabled";
+// Per-site opt-in that punches through the sensitive shield for ONE
+// origin the person explicitly included from the popup — the shield
+// stays on for every other sensitive host.
+const SENSITIVE_ALLOW_KEY = "sovir-sensitive-allowed";
 const SENSITIVE_HOST_PATTERNS = [
   "*://*.bbva.com/*", "*://*.bbva.es/*", "*://*.santander.com/*", "*://*.santander.es/*",
   "*://*.caixabank.es/*", "*://*.bancsabadell.com/*", "*://*.ing.es/*",
@@ -508,30 +512,59 @@ async function syncScripts() {
   // while host_permissions patterns never do.
   const baseOrigin = new URL(await apiBase()).origin;
   const sites = (origins ?? []).filter((o) => !o.startsWith(baseOrigin));
-  const { "sovir-observe-blocklist": blocklist, [SENSITIVE_KEY]: sensitiveOn } =
-    await chrome.storage.local.get(["sovir-observe-blocklist", SENSITIVE_KEY]);
+  const {
+    "sovir-observe-blocklist": blocklist,
+    [SENSITIVE_KEY]: sensitiveOn,
+    [SENSITIVE_ALLOW_KEY]: sensitiveAllow,
+  } = await chrome.storage.local.get([
+    "sovir-observe-blocklist",
+    SENSITIVE_KEY,
+    SENSITIVE_ALLOW_KEY,
+  ]);
   // Exclusions: the user's own blocklist plus the sensitive shield while
   // they haven't opted sensitive categories in. The shield applies to every
-  // registration — the only way sensitive hosts get observed is the toggle.
+  // registration — the only way sensitive hosts get observed is the toggle
+  // or a per-site include (registered separately below).
   const exclude = (Array.isArray(blocklist) ? blocklist : []).concat(
     sensitiveOn === true ? [] : SENSITIVE_HOST_PATTERNS,
   );
   try {
-    await chrome.scripting.unregisterContentScripts({ ids: ["sovir-observer"] });
+    await chrome.scripting.unregisterContentScripts({
+      ids: ["sovir-observer", "sovir-observer-allow"],
+    });
   } catch {}
-  if (!sites.length) return;
-  await chrome.scripting.registerContentScripts([
-    {
-      id: "sovir-observer",
-      matches: sites,
-      // ADR-0022: user-listed origins are never observed, even under a
-      // broad <all_urls> grant; sensitive categories join them by default.
-      excludeMatches: exclude,
-      js: ["brand-domains.js", "extractor.js", "content.js"],
-      persistAcrossSessions: true,
-      runAt: "document_idle",
-    },
-  ]);
+  if (sites.length) {
+    await chrome.scripting.registerContentScripts([
+      {
+        id: "sovir-observer",
+        matches: sites,
+        // ADR-0022: user-listed origins are never observed, even under a
+        // broad <all_urls> grant; sensitive categories join them by default.
+        excludeMatches: exclude,
+        js: ["brand-domains.js", "extractor.js", "content.js"],
+        persistAcrossSessions: true,
+        runAt: "document_idle",
+      },
+    ]);
+  }
+  // Per-site sensitive includes: a second registration scoped to the
+  // origins the person punched through the shield — the user blocklist
+  // still wins over this include.
+  const allow = (Array.isArray(sensitiveAllow) ? sensitiveAllow : []).filter(
+    (a) => sites.includes("*://*/*") || sites.includes(a),
+  );
+  if (!sensitiveOn && allow.length) {
+    await chrome.scripting.registerContentScripts([
+      {
+        id: "sovir-observer-allow",
+        matches: allow,
+        excludeMatches: Array.isArray(blocklist) ? blocklist : [],
+        js: ["brand-domains.js", "extractor.js", "content.js"],
+        persistAcrossSessions: true,
+        runAt: "document_idle",
+      },
+    ]);
+  }
 }
 chrome.runtime.onStartup.addListener(syncScripts);
 chrome.runtime.onInstalled.addListener(syncScripts);
@@ -540,7 +573,9 @@ chrome.permissions.onRemoved.addListener(syncScripts);
 chrome.storage.onChanged?.addListener((changes, area) => {
   if (
     area === "local" &&
-    ("sovir-observe-blocklist" in changes || SENSITIVE_KEY in changes)
+    ("sovir-observe-blocklist" in changes ||
+      SENSITIVE_KEY in changes ||
+      SENSITIVE_ALLOW_KEY in changes)
   )
     syncScripts();
 });
@@ -586,16 +621,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     Promise.all([
       chrome.permissions.contains({ origins: ["*://*/*"] }),
       chrome.permissions.contains({ origins: [`${u.origin}/*`] }),
-      chrome.storage.local.get(["sovir-observe-blocklist", SENSITIVE_KEY]),
+      chrome.storage.local.get([
+        "sovir-observe-blocklist",
+        SENSITIVE_KEY,
+        SENSITIVE_ALLOW_KEY,
+      ]),
     ])
       .then(([broad, siteGranted, s]) => {
         const blocked = (s["sovir-observe-blocklist"] ?? []).some(hostMatch);
+        const included =
+          s[SENSITIVE_KEY] !== true &&
+          (s[SENSITIVE_ALLOW_KEY] ?? []).some(hostMatch);
         const sensitive =
-          s[SENSITIVE_KEY] !== true && SENSITIVE_HOST_PATTERNS.some(hostMatch);
+          s[SENSITIVE_KEY] !== true &&
+          SENSITIVE_HOST_PATTERNS.some(hostMatch) &&
+          !included;
+        const granted = broad || siteGranted;
         sendResponse({
           observable: true,
-          observed: (broad || siteGranted) && !blocked && !sensitive,
-          reason: blocked ? "excluded" : sensitive ? "sensitive" : broad || siteGranted ? "observed" : "not_granted",
+          observed: granted && !blocked && !sensitive,
+          reason: blocked
+            ? "excluded"
+            : included
+              ? granted
+                ? "sensitive_included"
+                : "not_granted"
+              : sensitive
+                ? "sensitive"
+                : granted
+                  ? "observed"
+                  : "not_granted",
         });
       })
       .catch(() => sendResponse({ observable: false, reason: "unobservable" }));

@@ -34,8 +34,14 @@ function installMocks() {
     new Response(JSON.stringify({ token: "tok-1", principal_id: "ext-demo" }), { status: 200 });
 
   const store = (backing) => ({
-    get: async (key) => ({ [key]: backing[key] }),
-    set: async (obj) => Object.assign(backing, obj),
+    get: async (key) =>
+      Array.isArray(key)
+        ? Object.fromEntries(key.map((k) => [k, backing[k]]))
+        : { [key]: backing[key] },
+    set: async (obj, cb) => {
+      Object.assign(backing, obj);
+      cb?.();
+    },
   });
 
   globalThis.chrome = {
@@ -237,7 +243,19 @@ test("syncScripts registers content scripts for granted origins only", async () 
   assert.deepEqual(def.matches, ["https://example.com/*"]); // API origin excluded
   assert.deepEqual(def.js, ["brand-domains.js", "extractor.js", "content.js"]);
   assert.equal(def.persistAcrossSessions, true);
-  assert.deepEqual(unregisteredIds, ["sovir-observer"]); // replaced cleanly
+  assert.deepEqual(unregisteredIds, ["sovir-observer", "sovir-observer-allow"]); // both replaced cleanly
+});
+
+test("sensitive include registers the scoped allow script", async () => {
+  permissionOrigins = ["*://*/*"];
+  storageLocal["sovir-sensitive-allowed"] = ["https://www.facebook.com/*"];
+  for (const fn of permAddedListeners) await fn();
+  const allow = registeredScripts.find((d) => d.id === "sovir-observer-allow");
+  assert.ok(allow, "scoped allow registration exists");
+  assert.deepEqual(allow.matches, ["https://www.facebook.com/*"]);
+  // The main registration still excludes sensitive hosts under the shield.
+  const main = registeredScripts.find((d) => d.id === "sovir-observer");
+  assert.ok(main.excludeMatches.some((p) => p.includes("facebook.com")));
 });
 
 test("syncScripts with no granted origins registers nothing", async () => {

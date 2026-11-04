@@ -235,13 +235,14 @@ button.small { padding: 4px 12px; font-size: 12px; }
 /* current site: observed / protected / excluded */
 .site-line {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   font-size: 13px;
   color: var(--text-muted);
   margin: 0 0 8px;
+  overflow-wrap: anywhere;
 }
-.site-line .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--border); }
+.site-line .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--border); margin-top: 6px; }
 .site-line[data-state="observed"] .dot { background: var(--brand); }
 .site-line[data-state="sensitive"] .dot, .site-line[data-state="excluded"] .dot { background: var(--text-muted); }
 
@@ -263,8 +264,13 @@ button.small { padding: 4px 12px; font-size: 12px; }
   background: var(--border);
 }
 .status.is-on .dot { background: var(--brand); }
-.popup-actions { display: flex; gap: 8px; margin: 12px 0; }
-.popup-actions #observe { flex: 1; }
+.popup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.popup-actions button { width: 100%; padding: 9px 14px; }
 .popup-foot { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
 
 /* --- options page: dashboard-aligned --- */

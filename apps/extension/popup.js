@@ -5,6 +5,7 @@ const siteEl = document.querySelector("#site");
 const siteText = document.querySelector("#site-text");
 const alertEl = document.querySelector("#alert");
 const observeBtn = document.querySelector("#observe");
+const includeBtn = document.querySelector("#include");
 const excludeBtn = document.querySelector("#exclude");
 const pauseBtn = document.querySelector("#pause");
 const errorEl = document.querySelector("#error");
@@ -86,6 +87,7 @@ async function paint() {
     : {
         observed: `Observando ${host}`,
         sensitive: `${host} está protegido por defecto — no se observa`,
+        sensitive_included: `Observando ${host} — la incluiste aunque es sensible`,
         excluded: `Excluiste ${host} — no se observa`,
         not_granted: `${host} aún no está observado`,
         unobservable: "Esta pestaña no se puede observar",
@@ -101,10 +103,23 @@ async function paint() {
     host &&
     state?.ready &&
     siteReason !== "sensitive" &&
+    siteReason !== "sensitive_included" &&
     siteReason !== "unobservable"
   );
   excludeBtn.textContent =
     siteReason === "excluded" ? "Volver a observarla" : "No observar esta página";
+
+  // Per-site opt-in through the sensitive shield: "include this one" on a
+  // protected host, or the undo path once included.
+  includeBtn.hidden = !(
+    host &&
+    state?.ready &&
+    (siteReason === "sensitive" || siteReason === "sensitive_included")
+  );
+  includeBtn.textContent =
+    siteReason === "sensitive_included"
+      ? "Volver a protegerla"
+      : "Observarla de todos modos";
 
   // --- latest warning -----------------------------------------------------
   const d = state?.lastDecision;
@@ -147,6 +162,21 @@ excludeBtn.addEventListener("click", async () => {
     ? list.filter((p) => p !== pattern)
     : [...list, pattern];
   await chrome.storage.local.set({ [BLOCKLIST_KEY]: next });
+  await paint();
+});
+
+// Punch a single origin through the sensitive shield (or undo it). Same
+// mechanism as the blocklist — a storage write that syncScripts picks up.
+const SENSITIVE_ALLOW_KEY = "sovir-sensitive-allowed";
+includeBtn.addEventListener("click", async () => {
+  if (!currentTab?.url) return;
+  const pattern = `${new URL(currentTab.url).origin}/*`;
+  const s = await chrome.storage.local.get(SENSITIVE_ALLOW_KEY);
+  const list = s[SENSITIVE_ALLOW_KEY] ?? [];
+  const next = list.includes(pattern)
+    ? list.filter((p) => p !== pattern)
+    : [...list, pattern];
+  await chrome.storage.local.set({ [SENSITIVE_ALLOW_KEY]: next });
   await paint();
 });
 
