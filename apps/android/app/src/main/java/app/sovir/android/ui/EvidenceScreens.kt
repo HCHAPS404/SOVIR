@@ -47,6 +47,7 @@ private enum class AlertFilter(val label: String) { All("Todas"), Pending("Nueva
 @Composable
 fun AlertsScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) { data ->
     var filter by rememberSaveable { mutableStateOf(AlertFilter.All) }
+    var showAll by rememberSaveable { mutableStateOf(false) }
     val now = System.currentTimeMillis()
     val list = data.interventions.filter {
         when (filter) {
@@ -55,6 +56,7 @@ fun AlertsScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) { 
             AlertFilter.Shown -> it.state == "delivered"
         }
     }
+    val shown = if (showAll) list else list.take(5)
     DayGroupedList(
         header = {
             PageHeader(
@@ -79,9 +81,16 @@ fun AlertsScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) { 
                 )
             }
         },
-        items = list,
+        items = shown,
         at = { it.createdAtMs },
         now = now,
+        footer = if (list.size > 5) ({
+            Gap(10.dp)
+            SecondaryButton(
+                if (showAll) "Ver menos" else "Ver más · ${list.size - shown.size} restantes",
+                { showAll = !showAll },
+            )
+        }) else null,
     ) { i, last ->
         val event = data.eventFor(i)
         val state = Humanize.interventionState(i.state)
@@ -101,6 +110,7 @@ private enum class SourceFilter(val label: String) { All("Todas"), Phone("Este t
 @Composable
 fun ActivityScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) { data ->
     var filter by rememberSaveable { mutableStateOf(SourceFilter.All) }
+    var showAll by rememberSaveable { mutableStateOf(false) }
     val now = System.currentTimeMillis()
     val list = data.events.filter {
         when (filter) {
@@ -110,6 +120,7 @@ fun ActivityScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) 
             SourceFilter.Other -> it.sourceId != "screen-observer:android" && it.sourceId != "screen-observer:ext"
         }
     }
+    val shown = if (showAll) list else list.take(8)
     val alerted = data.interventions.map { it.eventId }.toSet()
     DayGroupedList(
         header = {
@@ -128,9 +139,16 @@ fun ActivityScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) 
                 )
             }
         },
-        items = list,
+        items = shown,
         at = { it.observedAtMs },
         now = now,
+        footer = if (list.size > 8) ({
+            Gap(10.dp)
+            SecondaryButton(
+                if (showAll) "Ver menos" else "Ver más · ${list.size - shown.size} restantes",
+                { showAll = !showAll },
+            )
+        }) else null,
     ) { e, last ->
         // The row is named by the most alarming signal — not whichever was
         // stored first — and the rest collapse into a "+N señales" suffix.
@@ -162,13 +180,14 @@ private fun sourceIcon(sourceId: String) = when {
     else -> Glyphs.key
 }
 
-/** Lazy list grouped by calendar day with a shared header. */
+/** Lazy list grouped by calendar day with a shared header and optional footer. */
 @Composable
 private fun <T> DayGroupedList(
     header: @Composable () -> Unit,
     items: List<T>,
     at: (T) -> Long,
     now: Long,
+    footer: (@Composable () -> Unit)? = null,
     row: @Composable (T, Boolean) -> Unit,
 ) {
     val groups = items.groupBy { dayHeading(at(it), now) }
@@ -182,6 +201,7 @@ private fun <T> DayGroupedList(
             }
             items(rows) { r -> row(r, r === rows.last()) }
         }
+        if (footer != null) item { footer() }
     }
 }
 
