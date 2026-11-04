@@ -26,6 +26,9 @@ export class SovirClient {
   constructor(
     private baseUrl: string,
     private token?: string,
+    /** Stable registered device id — sent as x-sovir-device so the API can
+     *  attribute this principal's calls to a device (bookkeeping only). */
+    private deviceId?: string,
   ) {}
 
   private async request(
@@ -39,6 +42,7 @@ export class SovirClient {
       headers: {
         ...(body !== undefined ? { "content-type": "application/json" } : {}),
         ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
+        ...(this.deviceId ? { "x-sovir-device": this.deviceId } : {}),
         ...(options?.headers ?? {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -114,6 +118,11 @@ export class SovirClient {
   /** Tenant inference budget — cap, settled spend and remaining (USD and micro-USD) */
   async getMeBudget(options?: RequestOptions): Promise<T.BudgetView> {
     return (await (await this.request("GET", `/v1/me/budget`, undefined, options)).json()) as T.BudgetView;
+  }
+
+  /** Per-signal precision joined with the caller's own labels (H7 read-model; never feeds policy) */
+  async getMePrecision(options?: RequestOptions): Promise<T.SignalPrecisionRow[]> {
+    return (await (await this.request("GET", `/v1/me/precision`, undefined, options)).json()) as T.SignalPrecisionRow[];
   }
 
   /** Export the calling principal's stored metadata (B16 governance) */

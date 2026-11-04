@@ -147,6 +147,14 @@ export interface BudgetView {
   remaining_usd: number;
 }
 
+export interface SignalPrecisionRow {
+  signal: string;
+  events_observed: number;
+  labeled_correct: number;
+  labeled_false_positive: number;
+  labeled_unsure: number;
+}
+
 export interface InferenceRequestBody {
   request_id: string;
   signals: ("CREDENTIAL_REQUEST" | "PAYMENT_REQUEST" | "URGENT_ACTION" | "IDENTITY_UNVERIFIED" | "TRACKING_OBSERVED" | "HIDDEN_FEE_PATTERN" | "CONSENT_DARK_PATTERN" | "USER_DEFINED_EXPOSURE_LIMIT" | "LINK_DESTINATION_MISMATCH" | "SUSPICIOUS_DOMAIN" | "EXTORTION_LANGUAGE" | "SCAREWARE_CLAIM" | "PRIZE_LOTTERY_CLAIM" | "INVESTMENT_PROMISE" | "GIFT_CARD_PAYMENT" | "SEED_PHRASE_REQUEST" | "DELIVERY_CUSTOMS_FEE" | "AUTHORITY_IMPERSONATION" | "SCARCITY_PRESSURE" | "JOB_SCAM_OFFER" | "ROMANCE_BAIT" | "MIRACLE_CURE_CLAIM" | "DATA_HARVESTING" | "OFF_PLATFORM_MOVE" | "BULK_BUYER_LURE" | "QR_PRESENT" | "DOM_BRAND_MISMATCH")[];

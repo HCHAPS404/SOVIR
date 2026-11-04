@@ -245,6 +245,9 @@ export class SovirClient {
   constructor(
     private baseUrl: string,
     private token?: string,
+    /** Stable registered device id — sent as x-sovir-device so the API can
+     *  attribute this principal's calls to a device (bookkeeping only). */
+    private deviceId?: string,
   ) {}
 
   private async request(
@@ -258,6 +261,7 @@ export class SovirClient {
       headers: {
         ...(body !== undefined ? { "content-type": "application/json" } : {}),
         ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
+        ...(this.deviceId ? { "x-sovir-device": this.deviceId } : {}),
         ...(options?.headers ?? {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
