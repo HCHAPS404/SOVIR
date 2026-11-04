@@ -21,6 +21,7 @@ import {
   revokeWebhook,
   runInvestigation,
   sendEventFeedback,
+  explainEvent,
 } from "./api";
 
 const LAB_SOURCE = "console-lab";
@@ -333,6 +334,35 @@ export async function assessEventSignalsAction(formData: FormData): Promise<void
     jar.set(
       "sovir_last_inference",
       JSON.stringify({ ok: false, privacy, signals, event_id: eventId, at_ms: Date.now(), error: code }),
+      { httpOnly: true, sameSite: "lax", secure: false, path: "/" },
+    );
+  }
+  revalidatePath("/incidents");
+  revalidatePath("/", "layout");
+}
+
+// A1 — per-event "why" explanation (GET /v1/events/{id}/explanation).
+// The server turns the event's typed signals into human language via the
+// explainer chain (remote primary → fallback → local template); only
+// typed signals ever leave the server. Result lands keyed by event id.
+export async function explainEventAction(formData: FormData): Promise<void> {
+  const { token, jar } = await sessionOrRedirect();
+  const eventId = String(formData.get("event_id") ?? "").slice(0, 64);
+  if (!eventId) return;
+  try {
+    const explanation = await explainEvent(token, eventId);
+    jar.set(
+      "sovir_last_explanation",
+      JSON.stringify({ ok: true, event_id: eventId, at_ms: Date.now(), explanation }),
+      { httpOnly: true, sameSite: "lax", secure: false, path: "/" },
+    );
+  } catch (e) {
+    if (e instanceof ApiUnauthorized) redirect("/sign-in?error=session");
+    if (e instanceof ApiDown) redirect("/incidents?error=backend");
+    const code = e instanceof Error ? e.message : "provider_unavailable";
+    jar.set(
+      "sovir_last_explanation",
+      JSON.stringify({ ok: false, event_id: eventId, at_ms: Date.now(), error: code }),
       { httpOnly: true, sameSite: "lax", secure: false, path: "/" },
     );
   }

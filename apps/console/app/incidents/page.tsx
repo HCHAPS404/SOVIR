@@ -6,9 +6,10 @@ import {
   dispatchInterventionsAction,
   emitSequencePair,
   emitUiTreeObservation,
+  explainEventAction,
   sendEventFeedbackAction,
 } from "../../lib/actions";
-import { exportData, type InferenceVerdict } from "../../lib/api";
+import { exportData, type Explanation, type InferenceVerdict } from "../../lib/api";
 import { timeAgo } from "../../lib/digest";
 import { describeHypothesis, describeIntervention } from "../../lib/humanize";
 import { live } from "../../lib/live";
@@ -23,6 +24,14 @@ interface EventInferenceResult {
   signals: string[];
   at_ms: number;
   verdict?: InferenceVerdict;
+  error?: string;
+}
+
+interface EventExplanationResult {
+  ok: boolean;
+  event_id: string;
+  at_ms: number;
+  explanation?: Explanation;
   error?: string;
 }
 
@@ -70,6 +79,16 @@ export default async function IncidentsPage() {
       if (parsed.event_id) lastInference = parsed;
     } catch {
       lastInference = null;
+    }
+  }
+  const rawExp = jar.get("sovir_last_explanation")?.value;
+  let lastExplanation: EventExplanationResult | null = null;
+  if (rawExp) {
+    try {
+      const parsed = JSON.parse(rawExp) as EventExplanationResult;
+      if (parsed.event_id) lastExplanation = parsed;
+    } catch {
+      lastExplanation = null;
     }
   }
 
@@ -423,6 +442,37 @@ export default async function IncidentsPage() {
                         <input type="hidden" name="privacy" value="standard" />
                         <SubmitButton label="Analizar con IA" pendingLabel="Analizando…" />
                       </form>
+                    ) : null}
+                    {e.signals.length > 0 ? (
+                      <form action={explainEventAction} className="form-row">
+                        <input type="hidden" name="event_id" value={e.event_id} />
+                        <SubmitButton label="¿Por qué?" pendingLabel="Explicando…" />
+                      </form>
+                    ) : null}
+                    {lastExplanation?.event_id === e.event_id ? (
+                      <div className="entity-card" style={{ marginTop: "0.35rem" }} role="status">
+                        <div className="entity-card-head">
+                          <div>
+                            <span className="panel-kicker">Explicación</span>
+                            <h3>
+                              {lastExplanation.ok && lastExplanation.explanation
+                                ? lastExplanation.explanation.model_id
+                                : "Explicación no disponible"}
+                            </h3>
+                          </div>
+                          <span className={`chip chip--${lastExplanation.ok ? "success" : "warning"}`}>
+                            <i className={`dot dot--${lastExplanation.ok ? "success" : "warning"}`} />
+                            {lastExplanation.ok
+                              ? lastExplanation.explanation?.provenance ?? ""
+                              : lastExplanation.error ?? "503"}
+                          </span>
+                        </div>
+                        {lastExplanation.ok && lastExplanation.explanation ? (
+                          <p style={{ marginTop: "0.35rem" }}>
+                            {lastExplanation.explanation.text}
+                          </p>
+                        ) : null}
+                      </div>
                     ) : null}
                     {e.signals.length > 0 ? (
                       <form action={sendEventFeedbackAction} className="form-row">

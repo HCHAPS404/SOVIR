@@ -299,6 +299,19 @@ export const sendEventFeedback = (t: string, eventId: string, verdict: FeedbackV
     body: JSON.stringify({ verdict }),
   });
 
+export interface Explanation {
+  text: string;
+  provenance: string;
+  model_id: string;
+  usage?: { tokens_input: number; tokens_output: number; cost_micro_usd: number | null };
+}
+
+// A1 — "why" explanation for one of the caller's own events. Only the
+// event's typed signals leave the server; provenance says which chain
+// entry produced the text (explain/<label>:<host> | local_template).
+export const explainEvent = (t: string, eventId: string) =>
+  call<Explanation>(`/v1/events/${encodeURIComponent(eventId)}/explanation`, t);
+
 export type InterventionKind = "notify" | "warn_banner" | "require_review";
 
 export interface WebhookEndpoint {

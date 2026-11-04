@@ -55,6 +55,13 @@ object Api {
 
     fun revokeDevice(id: String) { call("POST", "/v1/devices/${enc(id)}/revoke") }
 
+    fun explanation(eventId: String): app.sovir.android.model.Explanation =
+        JSONObject(call("GET", "/v1/events/${enc(eventId)}/explanation")).let {
+            app.sovir.android.model.Explanation(
+                it.optString("text"), it.optString("provenance"), it.optString("model_id"),
+            )
+        }
+
     fun grantConsent(grantId: String, sourceId: String, expiresAtMs: Long) {
         call(
             "POST", "/v1/consents",

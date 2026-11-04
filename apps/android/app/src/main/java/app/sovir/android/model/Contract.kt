@@ -82,3 +82,9 @@ data class Verdict(
     val costMicroUsd: Long?,
     val votes: List<Vote>,
 )
+
+data class Explanation(
+    val text: String,
+    val provenance: String,
+    val modelId: String,
+)

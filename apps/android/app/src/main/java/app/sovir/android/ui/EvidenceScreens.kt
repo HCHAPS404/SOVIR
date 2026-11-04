@@ -266,6 +266,10 @@ fun EventDetailScreen(model: AppModel, id: String, onBack: () -> Unit, onOpenAle
                     sub = fmtDateTime(e.observedAtMs),
                 )
                 EvidencePanel(e, data)
+                if (e.signals.isNotEmpty()) {
+                    Gap(14.dp)
+                    ExplainPanel(e.eventId)
+                }
                 Gap(14.dp)
                 Panel {
                     PanelHead("Avisos que generó")
@@ -308,6 +312,56 @@ private fun EvidencePanel(e: ObservedEvent, data: DataExport) {
             grant?.let { if (it.revoked) "Lo revocaste después" else "Vigente cuando se observó" } ?: "Ya no está en tus datos",
             divider = false,
         )
+    }
+}
+
+/**
+ * A1 — "why" in human language. Fetches the server explanation for this
+ * event's typed signals (remote Meta → Baseten → local template chain);
+ * only typed signals ever leave the server. Provenance is shown honestly
+ * so the user knows whether an AI or a template wrote the text.
+ */
+@Composable
+private fun ExplainPanel(eventId: String) {
+    val p = LocalPalette.current
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var exp by remember { mutableStateOf<app.sovir.android.model.Explanation?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    Panel {
+        PanelHead("Por qué te lo decimos", trailing = { EvidenceTag("Explicado") })
+        if (exp == null) {
+            Text(
+                "Las señales detectadas explicadas en palabras sencillas.",
+                style = MaterialTheme.typography.bodyMedium, color = p.muted,
+            )
+            Gap(10.dp)
+        }
+        exp?.let { x ->
+            Text(x.text, style = MaterialTheme.typography.bodyLarge, color = p.ink)
+            Gap(8.dp)
+            val (who, tone) = when {
+                x.provenance.startsWith("explain/primary") -> "Explicado por Meta" to Tone.Brand
+                x.provenance.startsWith("explain/fallback") -> "Explicado por Baseten" to Tone.Brand
+                x.provenance.startsWith("explain/") -> "Explicado por IA remota" to Tone.Brand
+                else -> "Explicado por reglas locales" to Tone.Muted
+            }
+            Chip(who, tone)
+            Gap(10.dp)
+        }
+        PrimaryButton(if (busy) "Explicando…" else if (exp == null) "Explicar" else "Explicar de nuevo", {
+            busy = true
+            error = null
+            scope.launch {
+                runCatching { withContext(Dispatchers.IO) { Api.explanation(eventId) } }
+                    .onSuccess { exp = it }
+                    .onFailure { error = describeError(it) }
+                busy = false
+            }
+        }, loading = busy)
+        Notice(error)
+        Gap(4.dp)
     }
 }
 
