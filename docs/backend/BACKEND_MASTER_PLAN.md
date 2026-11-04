@@ -75,10 +75,11 @@ replay protection and standardized error shapes.
 
 ## 7. Provider strategy
 
-- **Meta Muse Spark:** primary reasoning/multimodal candidate; Standard mode for allowed private data, after separate provider adapter and budgets. Current inference is mock/deterministic, no API calls.
-- **Baseten:** candidate hosting for approved specialized models; do not bind domain objects to SDK.
-- **Modal:** on-demand compute for evaluation and redacted processing; no continuous GPU worker by default.
+- **Meta Muse Spark:** proveedor remoto primario en producción local — votante remoto del concilio y generador de la explicación "por qué" (`explain/primary:api.meta.ai` verificado en vivo); solo señales tipadas, nunca `text_hint`/`visual_hint`/digest/identidad.
+- **Baseten:** fallback verificado tras `FallbackInferenceGateway` (1 intento por proveedor, provenance `remote/fallback:`); también hosting candidato para modelos especializados; no se ligan objetos de dominio a SDK.
+- **Modal:** entrenamiento offline batch real (T4): `text_train_app.py` (text-v3, 27 señales) y `visual_train_app.py` (visual-v1 siamés) producen los artifacts del concilio; nunca en el request path vivo.
 - **Fireworks:** optional benchmark/fallback for model endpoints, opt-in; never silent provider failover for private data.
+- **Modelos locales ONNX:** `onnx-text` v3 (MiniLM + cabeza sigmoide, 27 señales, FP benigno 9.3% en set deduplicado — benignos reales no disparan) y `onnx-visual` v1 (MobileNetV3 siamés, 267 marcas, 15% recall @ 0.77% FP benigno) votan en el concilio vía `ort` in-process; solo leen los hints LOCAL-ONLY.
 - Provider-specific adapters should implement `InferenceGateway` (future port) with explicit residency, privacy, USD hard caps, redaction, timeout, retries, usage accounting and consistent structured error types.
 - Do not send untrusted content as system prompt; bound tool permissions; maintain evidence lineage.
 

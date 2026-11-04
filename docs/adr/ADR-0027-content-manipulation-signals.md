@@ -2,8 +2,11 @@
 
 ## Estado
 
-Propuesto — requiere firma del maintainer (invariante 8: nueva taxonomía +
-matriz de privacidad + revisión humana antes de implementar).
+Aprobado por el maintainer (instrucción "adelante con todo", 2026-11-04) e
+implementado: 6 señales en `RiskSignal`, extractores ES+EN en Android y
+extensión, prioridad última en `risk_signal_priority` y sus espejos,
+`MAX_EVENT_SIGNALS` aplicado en Android, ONNX text-v3 con 27 cabezas
+detectando en vivo, nombres humanos ES en Android/consola/popup.
 
 ## Contexto
 

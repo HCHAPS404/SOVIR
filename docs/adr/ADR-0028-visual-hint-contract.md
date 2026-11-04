@@ -1,6 +1,8 @@
 # ADR-0028 — Contrato `visual_hint`: crop de logo local para el votante visual del concilio
 
-Estado: propuesto (pendiente signoff del maintainer)
+Estado: aprobado por el maintainer ("adelante con todo", 2026-11-04) e
+implementado — `OnnxVisualVoter` real en producción local, emisor de
+crops en la extensión, fusión cross-modal en el concilio
 Fecha: 2026-11-05
 
 ## Contexto
