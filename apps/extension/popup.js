@@ -5,6 +5,7 @@ const siteEl = document.querySelector("#site");
 const siteText = document.querySelector("#site-text");
 const alertEl = document.querySelector("#alert");
 const observeBtn = document.querySelector("#observe");
+const observeAllBtn = document.querySelector("#observe-all");
 const includeBtn = document.querySelector("#include");
 const excludeBtn = document.querySelector("#exclude");
 const pauseBtn = document.querySelector("#pause");
@@ -93,7 +94,10 @@ async function paint() {
         unobservable: "Esta pestaña no se puede observar",
       }[siteReason] ?? `${host} aún no está observado`;
 
-  observeBtn.hidden = !(host && siteReason === "not_granted" && state?.ready && !state?.paused);
+  // A plain page without coverage means the broad grant is off: the
+  // one-prompt fix is <all_urls>, the per-site grant stays as fallback.
+  observeAllBtn.hidden = !(host && siteReason === "not_granted" && state?.ready && !state?.paused);
+  observeBtn.hidden = observeAllBtn.hidden;
 
   // Voluntary per-site exclusion: on any observable page — while observed,
   // preventively when it isn't yet, and as the undo path when it sits on
@@ -136,6 +140,21 @@ async function paint() {
   pauseBtn.dataset.paused = state?.paused ? "true" : "false";
   errorEl.textContent = state?.lastError ? `Último error: ${state.lastError}` : "";
 }
+
+// One prompt, whole-web coverage — the model's default for non-sensitive
+// pages: nothing else ever asks again.
+observeAllBtn.addEventListener("click", async () => {
+  const granted = await chrome.permissions.request({ origins: ["<all_urls>"] });
+  if (granted && currentTab?.id != null) {
+    await chrome.scripting
+      .executeScript({
+        target: { tabId: currentTab.id },
+        files: ["brand-domains.js", "extractor.js", "content.js"],
+      })
+      .catch(() => {});
+  }
+  await paint();
+});
 
 observeBtn.addEventListener("click", async () => {
   if (!currentTab?.url) return;

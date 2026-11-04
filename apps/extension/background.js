@@ -550,8 +550,9 @@ async function syncScripts() {
   // Per-site sensitive includes: a second registration scoped to the
   // origins the person punched through the shield — the user blocklist
   // still wins over this include.
+  const broad = sites.includes("<all_urls>") || sites.includes("*://*/*");
   const allow = (Array.isArray(sensitiveAllow) ? sensitiveAllow : []).filter(
-    (a) => sites.includes("*://*/*") || sites.includes(a),
+    (a) => broad || sites.includes(a),
   );
   if (!sensitiveOn && allow.length) {
     await chrome.scripting.registerContentScripts([
@@ -619,7 +620,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return m[1] ? host === d || host.endsWith(`.${d}`) : host === d;
     };
     Promise.all([
-      chrome.permissions.contains({ origins: ["*://*/*"] }),
+      chrome.permissions.contains({ origins: ["<all_urls>"] }),
       chrome.permissions.contains({ origins: [`${u.origin}/*`] }),
       chrome.storage.local.get([
         "sovir-observe-blocklist",
