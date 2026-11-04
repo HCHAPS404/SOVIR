@@ -48,6 +48,19 @@ PRIZE_LOTTERY_CLAIM — los tres con heurístico en `no_pattern`).
 - Nota honesta: la dedup expuso que el corpus v2 tenía ~55% de textos
   duplicados — sus métricas comparan sobre un set inflado
 
+### v4 — rechazado (no se promovió, 2026-11-04)
+
+- 1481 train / 568 val / 379 benign (+76 positivos pago-scam, +154
+  benignos únicos). Resultado: micro-P 1.0 / micro-R 0.887 (peor),
+  benign FP 9.5% (igual), PAYMENT_REQUEST F1 0.54 (peor), URGENT 0.719
+  (peor). Más volumen no arregla la confusión estructural: pago
+  legítimo vs pago-scam comparten superficie léxica casi idéntica
+  ("paga la renta por transferencia" vs "transfiere $500 a esta
+  CLABE"). La calibración prefiere silencio — conservadurismo aceptable
+  para señales compañeras, pero `PAYMENT_REQUEST` necesita features
+  distintas (contexto del pago, no el verbo pagar) o corpus de pares
+  mínimos. v3 sigue siendo el artifact en producción.
+
 ### v2 (2026-11-04, corpus expandido: 2438 train / 476 val / 823 benign)
 
 - micro precision **1.0** / micro recall **0.928** / benign FP **1.94%**
