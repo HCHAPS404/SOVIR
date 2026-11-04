@@ -2531,9 +2531,10 @@ impl InferenceGateway for ChatCompletionInferenceGateway {
             "response_format": {"type": "json_object"},
             "temperature": 0,
             // Reasoning models (muse-spark) burn tokens thinking before
-            // emitting the JSON verdict — low caps starve them into
-            // finish_reason=length with null content.
-            "max_tokens": 1024,
+            // emitting the JSON verdict — measured ~1k reasoning tokens for
+            // a signal-only prompt; 1024 starved them into
+            // finish_reason=length with null content (live Baseten check).
+            "max_tokens": 4096,
         })
         .to_string();
         let headers = vec![
