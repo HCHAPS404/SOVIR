@@ -47,7 +47,9 @@ jobs:
             const p = m.permissions ?? [];
             if (!p.includes('scripting')) fail('needs scripting for opt-in injection');
             if (!(m.host_permissions ?? []).includes('http://127.0.0.1:8787/*')) fail('loopback host missing');
-            if (!(m.optional_host_permissions ?? []).length) fail('per-site opt-in origins missing');
+            // Broad-consent model: <all_urls> is a required install-time
+            // grant — one prompt covers every tab the user views.
+            if (!(m.host_permissions ?? []).includes('<all_urls>')) fail('broad <all_urls> grant missing');
             console.log('manifest OK');
           "
   # Remaining native jobs (Android, iOS, macOS) still deferred by toolchain.

@@ -185,9 +185,7 @@ async fn require_principal(headers: &HeaderMap, state: &AppState) -> Result<Prin
     // names the caller's own registered device so last_seen/event
     // attribution work. Bookkeeping only — it is verified against the
     // principal's own device registry inside authenticate_bearer.
-    let device_hint = headers
-        .get("x-sovir-device")
-        .and_then(|v| v.to_str().ok());
+    let device_hint = headers.get("x-sovir-device").and_then(|v| v.to_str().ok());
     state
         .service
         .authenticate_bearer(token, device_hint)

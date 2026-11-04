@@ -280,14 +280,12 @@ impl SovirService {
                 return Err(AppError::Unauthorized);
             }
             let device_id = match device_hint {
-                Some(h) if sovir_domain::valid_identifier(h) => match self
-                    .devices
-                    .get(&id.tenant_id, &id.principal_id, h)
-                    .await?
-                {
-                    Some(d) if d.revoked_at_ms.is_none() => h.to_string(),
-                    _ => String::new(),
-                },
+                Some(h) if sovir_domain::valid_identifier(h) => {
+                    match self.devices.get(&id.tenant_id, &id.principal_id, h).await? {
+                        Some(d) if d.revoked_at_ms.is_none() => h.to_string(),
+                        _ => String::new(),
+                    }
+                }
                 _ => String::new(),
             };
             return Ok(Principal {

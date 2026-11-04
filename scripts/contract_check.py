@@ -194,9 +194,11 @@ def console_client_checks(doc: dict) -> None:
         bm = re.search(r"JSON\.stringify\(\{(.*?)\}\)", b, re.S)
         if not (pm and mm and bm):
             continue
-        path = re.sub(r"\$\{[^}]*\}", "", pm.group(1)).split("?")[0]
+        path = re.sub(r"\$\{[^}]*\}", "{id}", pm.group(1)).split("?")[0]
         method = mm.group(1).lower()
-        sent = set(re.findall(r"([a-zA-Z_]+)\s*[:,}]", bm.group(1)))
+        # Trailing "}" re-appended: the non-greedy capture drops the closing
+        # brace, so a shorthand last key (`{url, kinds}`) must still match.
+        sent = set(re.findall(r"([a-zA-Z_]+)\s*[:,}]", bm.group(1) + "}"))
         op = (paths.get(path) or {}).get(method) or {}
         check(bool(op), f"console: {method.upper()} {path} exists as {method.upper()} in OpenAPI")
         body_schema = (

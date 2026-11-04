@@ -1815,7 +1815,11 @@ impl OnnxTextVoter {
             .map_err(|_| PortError::Unavailable)?;
             let signals: Vec<String> = th["signals"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|s| s.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             let tm = th["thresholds"].as_object();
             let thresholds: Vec<f32> = signals
@@ -1829,7 +1833,10 @@ impl OnnxTextVoter {
             if signals.is_empty() {
                 return Err(PortError::Unavailable); // label space unknown = refuse
             }
-            TextDecode::MultiLabel { signals, thresholds }
+            TextDecode::MultiLabel {
+                signals,
+                thresholds,
+            }
         } else {
             let cfg: serde_json::Value = serde_json::from_str(
                 &std::fs::read_to_string(dir.join("config.json"))
@@ -1919,26 +1926,23 @@ impl OnnxTextVoter {
                 let label = id2label.get(top_i).cloned().unwrap_or_default();
                 Ok((vec![label], (prob * 10_000.0).min(10_000.0) as u16))
             }
-            TextDecode::MultiLabel { signals, thresholds } => {
+            TextDecode::MultiLabel {
+                signals,
+                thresholds,
+            } => {
                 // Fused export emits sigmoid probs — no softmax re-normalize.
                 let fired: Vec<(String, f32)> = signals
                     .iter()
                     .zip(thresholds.iter())
                     .enumerate()
                     .filter_map(|(i, (s, t))| {
-                        logits
-                            .get(i)
-                            .filter(|&&p| p >= *t)
-                            .map(|&p| (s.clone(), p))
+                        logits.get(i).filter(|&&p| p >= *t).map(|&p| (s.clone(), p))
                     })
                     .collect();
                 if fired.is_empty() {
                     return Ok((vec!["__none__".into()], 0));
                 }
-                let best = fired
-                    .iter()
-                    .map(|(_, p)| *p)
-                    .fold(0.0_f32, f32::max);
+                let best = fired.iter().map(|(_, p)| *p).fold(0.0_f32, f32::max);
                 Ok((
                     fired.into_iter().map(|(s, _)| s).collect(),
                     (best * 10_000.0).min(10_000.0) as u16,
@@ -1961,39 +1965,38 @@ impl InferenceGateway for OnnxTextVoter {
                 .filter(|t| !t.trim().is_empty())
                 .ok_or(PortError::Unavailable)?; // no text = abstain
             let (labels, bp) = self.score(text)?;
-            let (hypotheses, model_id, prov) = if labels.first().map(String::as_str)
-                == Some("__none__")
-            {
-                (
-                    vec!["no_pattern_detected".to_string()],
-                    "sovir-onnx-text-v1",
-                    "onnx-text-v1 local; 21-signal sigmoid; no fire".to_string(),
-                )
-            } else if matches!(
-                labels.first().map(String::as_str),
-                Some("fraud") | Some("spam") | Some("legitimate")
-            ) {
-                (
-                    vec![match labels[0].as_str() {
-                        "fraud" => "text_classifier_fraud",
-                        "spam" => "text_classifier_spam",
-                        _ => "no_pattern_detected",
-                    }
-                    .to_string()],
-                    "horizon-phishing-scam-detector-base",
-                    format!("onnx-text local; label:{}; no egress", labels[0]),
-                )
-            } else {
-                // Multi-label v1: fired signal names ARE the typed taxonomy.
-                (
-                    labels.clone(),
-                    "sovir-onnx-text-v1",
-                    format!(
-                        "onnx-text-v1 local; signals:{}; no egress",
-                        labels.join(",")
-                    ),
-                )
-            };
+            let (hypotheses, model_id, prov) =
+                if labels.first().map(String::as_str) == Some("__none__") {
+                    (
+                        vec!["no_pattern_detected".to_string()],
+                        "sovir-onnx-text-v1",
+                        "onnx-text-v1 local; 21-signal sigmoid; no fire".to_string(),
+                    )
+                } else if matches!(
+                    labels.first().map(String::as_str),
+                    Some("fraud") | Some("spam") | Some("legitimate")
+                ) {
+                    (
+                        vec![match labels[0].as_str() {
+                            "fraud" => "text_classifier_fraud",
+                            "spam" => "text_classifier_spam",
+                            _ => "no_pattern_detected",
+                        }
+                        .to_string()],
+                        "horizon-phishing-scam-detector-base",
+                        format!("onnx-text local; label:{}; no egress", labels[0]),
+                    )
+                } else {
+                    // Multi-label v1: fired signal names ARE the typed taxonomy.
+                    (
+                        labels.clone(),
+                        "sovir-onnx-text-v1",
+                        format!(
+                            "onnx-text-v1 local; signals:{}; no egress",
+                            labels.join(",")
+                        ),
+                    )
+                };
             return Ok(sovir_domain::InferenceVerdict {
                 request_id: req.request_id.clone(),
                 model_id: model_id.into(),
@@ -4109,7 +4112,9 @@ mod tests {
                     "{}/../../ml/datasets/text-corpus/{split}.jsonl",
                     env!("CARGO_MANIFEST_DIR")
                 );
-                let Ok(text) = std::fs::read_to_string(&path) else { continue };
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
                 for line in text.lines() {
                     let row: serde_json::Value = serde_json::from_str(line).unwrap();
                     let expected: Vec<String> = row["signals"]
