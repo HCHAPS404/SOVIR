@@ -47,8 +47,11 @@ object Api {
         return parseVerdict(JSONObject(call("POST", "/v1/inference/assess", body)))
     }
 
-    fun registerDevice(label: String): Device =
-        parseDevice(JSONObject(call("POST", "/v1/devices", JSONObject().put("platform", "ANDROID").put("label", label))))
+    fun registerDevice(label: String, deviceId: String? = null): Device {
+        val body = JSONObject().put("platform", "ANDROID").put("label", label)
+        if (deviceId != null) body.put("device_id", deviceId)
+        return parseDevice(JSONObject(call("POST", "/v1/devices", body)))
+    }
 
     fun revokeDevice(id: String) { call("POST", "/v1/devices/${enc(id)}/revoke") }
 
@@ -76,6 +79,9 @@ object Api {
                     setRequestProperty("content-type", "application/json")
                     if (method != "GET") setRequestProperty("idempotency-key", "and-${shortId()}")
                     token?.let { setRequestProperty("authorization", "Bearer $it") }
+                    // Binds the OIDC session to this phone's registered device
+                    // row: server uses it for last_seen/event bookkeeping only.
+                    PhoneLink.deviceId?.let { setRequestProperty("x-sovir-device", it) }
                     if (body != null) {
                         doOutput = true
                         outputStream.use { it.write(body.toString().toByteArray()) }

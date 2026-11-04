@@ -3,6 +3,8 @@ package app.sovir.android.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
+import android.provider.Settings
+import java.security.MessageDigest
 
 /**
  * This phone's link to the account: its registered device id and the
@@ -16,10 +18,12 @@ object PhoneLink {
     const val SOURCE_ID = "screen-observer:android"
 
     private lateinit var prefs: SharedPreferences
+    private lateinit var appContext: Context
 
     fun init(context: Context) {
+        appContext = context.applicationContext
         if (!::prefs.isInitialized) {
-            prefs = context.applicationContext.getSharedPreferences("sovir_phone_link", Context.MODE_PRIVATE)
+            prefs = appContext.getSharedPreferences("sovir_phone_link", Context.MODE_PRIVATE)
         }
     }
 
@@ -33,7 +37,10 @@ object PhoneLink {
     /** Registers the phone once, then issues a fresh, time-bound grant. */
     fun grant(spanMs: Long) {
         if (deviceId == null) {
-            val device = Api.registerDevice("Android · ${Build.MODEL}")
+            // Stable id: ANDROID_ID survives reinstalls (per device + signing
+            // key), so a wiped app re-announces the SAME device row instead of
+            // piling up stale registrations. Hashed before it leaves the phone.
+            val device = Api.registerDevice("Android · ${Build.MODEL}", stableDeviceId())
             prefs.edit().putString("device_id", device.deviceId).apply()
         }
         val id = "and-grant-${Api.shortId()}"
@@ -56,6 +63,22 @@ object PhoneLink {
     fun forgetDevice() {
         prefs.edit().clear().apply()
     }
+
+    private fun stableDeviceId(): String {
+        val androidId = Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID)
+        if (!androidId.isNullOrBlank()) return "and-" + sha256(androidId).take(24)
+        // Rare fallback (emulators): a generated install id — stable until
+        // app data is cleared.
+        var id = prefs.getString("install_id", null)
+        if (id == null) {
+            id = "and-" + Api.shortId() + Api.shortId()
+            prefs.edit().putString("install_id", id).apply()
+        }
+        return id
+    }
+
+    private fun sha256(s: String) =
+        MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
 
     // Events already surfaced by a live council notification — background
     // sync skips their alerts so one detection never notifies twice.

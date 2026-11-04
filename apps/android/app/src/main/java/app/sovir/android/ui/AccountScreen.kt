@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -23,6 +25,7 @@ import app.sovir.android.BuildConfig
 import app.sovir.android.data.Api
 import app.sovir.android.data.Auth
 import app.sovir.android.data.PhoneLink
+import app.sovir.android.model.Device
 import app.sovir.android.model.Humanize
 import app.sovir.android.model.ThemeChoice
 import app.sovir.android.model.Tone
@@ -49,6 +52,8 @@ fun AccountScreen(model: AppModel, theme: ThemeChoice, onTheme: (ThemeChoice) ->
     val p = LocalPalette.current
     val now = System.currentTimeMillis()
     var confirm by remember { mutableStateOf<AccountConfirm?>(null) }
+    var revokeTarget by remember { mutableStateOf<Device?>(null) }
+    var revoking by remember { mutableStateOf(false) }
     var purging by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
     var serverEdit by remember { mutableStateOf(false) }
@@ -75,6 +80,16 @@ fun AccountScreen(model: AppModel, theme: ThemeChoice, onTheme: (ThemeChoice) ->
                         (d.lastSeenAtMs?.let { " · visto ${timeAgo(it, now)}" } ?: " · aún no ha observado"),
                     tone = Tone.Success,
                     divider = i < devices.lastIndex,
+                    trailing = if (mine) null else ({
+                        Text(
+                            "Retirar",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = p.danger,
+                            modifier = Modifier
+                                .clickable { revokeTarget = d }
+                                .padding(8.dp),
+                        )
+                    }),
                 )
             }
             Gap(4.dp)
@@ -249,5 +264,24 @@ fun AccountScreen(model: AppModel, theme: ThemeChoice, onTheme: (ThemeChoice) ->
             },
         )
         null -> Unit
+    }
+
+    revokeTarget?.let { d ->
+        ConfirmDialog(
+            "Retirar este dispositivo",
+            "«${d.label.ifBlank { Humanize.deviceKind(d.platform) }}» dejará de estar vinculado a tu cuenta y no podrá volver a observar. Esto no borra lo que ya aportó.",
+            "Retirar", danger = true,
+            onDismiss = { revokeTarget = null },
+            onConfirm = {
+                revokeTarget = null
+                revoking = true
+                msg = null
+                model.act({ Api.revokeDevice(d.deviceId) }) { err ->
+                    revoking = false
+                    msg = err ?: "Dispositivo retirado."
+                    model.refresh()
+                }
+            },
+        )
     }
 }
