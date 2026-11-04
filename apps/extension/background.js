@@ -181,6 +181,7 @@ async function getState() {
       paused: false,
       lastError: null,
       lastObservation: null,
+      stats: { observed: 0, signals: 0, warns: 0 },
     }
   );
 }
@@ -344,6 +345,7 @@ async function emitEvent(tabId, { signals, digest, observed_at_ms, modality = "T
   // warn marks the tab's badge ("!" — no notification permission, no
   // content) and persists in session state for the popup.
   const a = res?.assessment;
+  const prevStats = (await getState()).stats ?? { observed: 0, signals: 0, warns: 0 };
   if (a?.decision) {
     await setState({
       lastDecision: {
@@ -366,6 +368,11 @@ async function emitEvent(tabId, { signals, digest, observed_at_ms, modality = "T
   await setState({
     lastError: null,
     lastObservation: { event_id: eventId, signals: emitted, modality, at_ms: Date.now() },
+    stats: {
+      observed: prevStats.observed + 1,
+      signals: prevStats.signals + emitted.length,
+      warns: prevStats.warns + (a?.decision === "warn" ? 1 : 0),
+    },
   });
   return { ok: true, event_id: eventId };
 }
@@ -549,10 +556,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           lastError: s.lastError,
           lastObservation: s.lastObservation,
           lastDecision: s.lastDecision,
+          lastVerdict: s.lastVerdict,
+          stats: s.stats,
           api: base,
         }),
       )
       .catch(() => sendResponse({ ready: false }));
+    return true;
+  }
+  // Is a given tab URL observed, and if not — why (popup wording). Mirrors
+  // syncScripts' exclusion order: user blocklist first, then the sensitive
+  // shield, then the permission grants.
+  if (message?.type === "site-state") {
+    const url = message.url ?? "";
+    if (!/^https?:/i.test(url)) {
+      sendResponse({ observable: false, reason: "unobservable" });
+      return true;
+    }
+    const u = new URL(url);
+    const host = u.hostname;
+    const hostMatch = (pattern) => {
+      const m = /^\*:\/\/(\*\.)?([^/]+)\/\*$/.exec(pattern);
+      return !!m && (host === m[2] || host.endsWith(`.${m[2]}`));
+    };
+    Promise.all([
+      chrome.permissions.contains({ origins: ["*://*/*"] }),
+      chrome.permissions.contains({ origins: [`${u.origin}/*`] }),
+      chrome.storage.local.get(["sovir-observe-blocklist", SENSITIVE_KEY]),
+    ])
+      .then(([broad, siteGranted, s]) => {
+        const blocked = (s["sovir-observe-blocklist"] ?? []).some(hostMatch);
+        const sensitive =
+          s[SENSITIVE_KEY] !== true && SENSITIVE_HOST_PATTERNS.some(hostMatch);
+        sendResponse({
+          observable: true,
+          observed: (broad || siteGranted) && !blocked && !sensitive,
+          reason: blocked ? "excluded" : sensitive ? "sensitive" : broad || siteGranted ? "observed" : "not_granted",
+        });
+      })
+      .catch(() => sendResponse({ observable: false, reason: "unobservable" }));
     return true;
   }
   if (message?.type === "set-paused") {

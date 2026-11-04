@@ -1,99 +1,107 @@
-const apiEl = document.querySelector("#api");
+const heroEl = document.querySelector("#hero");
+const heroState = document.querySelector("#hero-state");
+const heroSub = document.querySelector("#hero-sub");
 const siteEl = document.querySelector("#site");
+const siteText = document.querySelector("#site-text");
+const alertEl = document.querySelector("#alert");
 const observeBtn = document.querySelector("#observe");
 const pauseBtn = document.querySelector("#pause");
-const listEl = document.querySelector("#granted");
-const lastEl = document.querySelector("#last");
-const verdictEl = document.querySelector("#verdict");
-const decisionEl = document.querySelector("#decision");
 const errorEl = document.querySelector("#error");
+const stPages = document.querySelector("#st-pages");
+const stSignals = document.querySelector("#st-signals");
+const stWarns = document.querySelector("#st-warns");
 
 let currentTab = null;
+let siteReason = "unobservable";
 
-const API_ORIGIN = "http://127.0.0.1:8787";
+// Friendly words for the council's typed hypotheses — consumers should
+// never see enum names.
+const SIGNAL_WORDS = {
+  credential_request: "pide tus credenciales",
+  payment_request: "pide datos de pago",
+  authority_impersonation: "suplanta una marca conocida",
+  gift_card_payment: "pide pagar con tarjetas regalo",
+  seed_phrase_request: "pide tu frase semilla",
+  urgency_pressure: "te presiona con urgencia",
+  prize_lottery: "promete un premio",
+  scareware: "simula un virus para asustarte",
+  customs_fee: "cobra una aduana falsa",
+};
 
 function fmtTime(ms) {
   return new Date(ms).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
 }
 
-async function grantedOrigins() {
-  const { origins } = await chrome.permissions.getAll();
-  return (origins ?? []).filter((o) => !o.startsWith(API_ORIGIN));
+function friendlySignals(signals) {
+  return (signals ?? []).map((s) => SIGNAL_WORDS[s] ?? s.replaceAll("_", " ")).join(", ");
 }
 
-async function paintApi() {
-  const state = await chrome.runtime.sendMessage({ type: "get-state" });
-  apiEl.querySelector(".status-text").textContent = state?.ready
-    ? `API conectada · ${state.principal}`
-    : "API: sin conexión — arranca cargo run -p sovir-api";
-  apiEl.classList.toggle("is-on", !!state?.ready);
-  pauseBtn.textContent = state?.paused ? "Reanudar" : "Pausar todo";
+async function paint() {
+  const [tab, state, site] = await Promise.all([
+    chrome.tabs.query({ active: true, currentWindow: true }).then(([t]) => t),
+    chrome.runtime.sendMessage({ type: "get-state" }),
+    chrome.tabs
+      .query({ active: true, currentWindow: true })
+      .then(([t]) =>
+        t?.url ? chrome.runtime.sendMessage({ type: "site-state", url: t.url }) : null,
+      ),
+  ]);
+  currentTab = tab;
+  siteReason = site?.reason ?? "unobservable";
+
+  // --- hero -------------------------------------------------------------
+  if (!state?.ready) {
+    heroState.textContent = "Sin conexión";
+    heroSub.textContent = "No se pudo hablar con el servicio de SOVIR.";
+  } else if (state.paused) {
+    heroState.textContent = "Protección en pausa";
+    heroSub.textContent = "Reanúdala para seguir protegido.";
+  } else {
+    heroState.textContent = "Protección activa";
+    heroSub.textContent =
+      site?.reason === "sensitive"
+        ? "Este sitio está protegido: SOVIR no lo observa."
+        : "Observando las páginas que visitas en busca de riesgos.";
+  }
+  heroEl.dataset.state = !state?.ready ? "off" : state.paused ? "paused" : "on";
+
+  // --- stats ------------------------------------------------------------
+  const stats = state?.stats ?? { observed: 0, signals: 0, warns: 0 };
+  stPages.textContent = stats.observed;
+  stSignals.textContent = stats.signals;
+  stWarns.textContent = stats.warns;
+
+  // --- this site ----------------------------------------------------------
+  const host = currentTab?.url && /^https?:/.test(currentTab.url)
+    ? new URL(currentTab.url).hostname
+    : null;
+  siteEl.dataset.state = siteReason;
+  siteText.textContent = !host
+    ? "Esta pestaña no se puede observar"
+    : {
+        observed: `Observando ${host}`,
+        sensitive: `${host} está protegido por defecto — no se observa`,
+        excluded: `Excluiste ${host} — no se observa`,
+        not_granted: `${host} aún no está observado`,
+        unobservable: "Esta pestaña no se puede observar",
+      }[siteReason] ?? `${host} aún no está observado`;
+
+  observeBtn.hidden = !(host && siteReason === "not_granted" && state?.ready && !state?.paused);
+
+  // --- latest warning -----------------------------------------------------
+  const d = state?.lastDecision;
+  const obs = state?.lastObservation;
+  if (d?.decision === "warn" && obs) {
+    alertEl.hidden = false;
+    alertEl.textContent = `Aviso ${fmtTime(d.at_ms)}: ${friendlySignals(obs.signals)} — riesgo ${d.risk_level}.`;
+  } else {
+    alertEl.hidden = true;
+    alertEl.textContent = "";
+  }
+
+  pauseBtn.textContent = state?.paused ? "Reanudar protección" : "Pausar protección";
   pauseBtn.dataset.paused = state?.paused ? "true" : "false";
   errorEl.textContent = state?.lastError ? `Último error: ${state.lastError}` : "";
-  lastEl.textContent = state?.lastObservation
-    ? `Última emisión ${fmtTime(state.lastObservation.at_ms)}${
-        state.lastObservation.modality && state.lastObservation.modality !== "TEXT"
-          ? ` [${state.lastObservation.modality}]`
-          : ""
-      }: ${state.lastObservation.signals.join(", ")}`
-    : "";
-  // Council verdict on the last observation — inferred, never a policy
-  // decision; benign votes stay quiet like the rest of the product.
-  const v = state?.lastVerdict;
-  verdictEl.textContent =
-    v && v.hypotheses?.length && !v.hypotheses.every((h) => h === "no_pattern_detected")
-      ? `Concilio (inferido): ${v.hypotheses.join(", ")} · ${v.provenance ?? ""}`
-      : "";
-  // The authoritative EventDecision — what policy actually decided.
-  const d = state?.lastDecision;
-  decisionEl.textContent = d
-    ? `Decisión: ${d.decision} · riesgo ${d.risk_level} · ${fmtTime(d.at_ms)}`
-    : "";
-  decisionEl.classList.toggle("is-warn", d?.decision === "warn");
-  return state;
-}
-
-async function paintSite() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  currentTab = tab;
-  if (!tab?.url || !/^https?:/.test(tab.url)) {
-    siteEl.querySelector(".status-text").textContent = "Este sitio: no observable";
-    siteEl.classList.remove("is-on");
-    observeBtn.disabled = true;
-    return;
-  }
-  const origin = new URL(tab.url).origin;
-  const granted = await chrome.permissions.contains({ origins: [`${origin}/*`] });
-  siteEl.querySelector(".status-text").textContent = granted
-    ? `Observando ${origin}`
-    : `Sin observar ${origin}`;
-  siteEl.classList.toggle("is-on", granted);
-  observeBtn.textContent = granted ? "Observación activa" : "Observar este sitio";
-  observeBtn.disabled = granted;
-}
-
-async function paintList() {
-  const sites = await grantedOrigins();
-  listEl.innerHTML = "";
-  if (!sites.length) {
-    listEl.innerHTML = "<li class='muted'>Ningún sitio observado</li>";
-    return;
-  }
-  for (const pattern of sites) {
-    const li = document.createElement("li");
-    li.textContent = pattern.replace("/*", "");
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "revoke";
-    btn.textContent = "Quitar";
-    btn.addEventListener("click", async () => {
-      await chrome.permissions.remove({ origins: [pattern] });
-      await paintSite();
-      await paintList();
-    });
-    li.appendChild(btn);
-    listEl.appendChild(li);
-  }
 }
 
 observeBtn.addEventListener("click", async () => {
@@ -101,24 +109,26 @@ observeBtn.addEventListener("click", async () => {
   const origin = new URL(currentTab.url).origin;
   const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
   if (!granted) return;
-  // Immediate inject for this tab; the registered content script covers
-  // future loads on this origin (background.js sync).
   await chrome.scripting.executeScript({
     target: { tabId: currentTab.id },
     files: ["brand-domains.js", "extractor.js", "content.js"],
   });
-  await paintSite();
-  await paintList();
+  await paint();
 });
 
 pauseBtn.addEventListener("click", async () => {
   const paused = pauseBtn.dataset.paused !== "true";
   await chrome.runtime.sendMessage({ type: "set-paused", paused });
-  await paintApi();
+  await paint();
 });
 
-paintApi().then((s) => {
-  if (!s?.ready) chrome.runtime.sendMessage({ type: "connect" }, paintApi);
+document.querySelector("#open-options").addEventListener("click", () => {
+  chrome.runtime.openOptionsPage();
 });
-paintSite();
-paintList();
+
+paint().then(() => {
+  // First open without a session: connect once, then repaint.
+  chrome.runtime.sendMessage({ type: "get-state" }).then((s) => {
+    if (!s?.ready) chrome.runtime.sendMessage({ type: "connect" }, paint);
+  });
+});

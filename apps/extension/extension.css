@@ -187,9 +187,72 @@ input[type="checkbox"]:checked::before { transform: scale(1); }
 .popup-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding-bottom: 12px;
   margin-bottom: 12px;
   border-bottom: 1px solid var(--border);
+}
+button.small { padding: 4px 12px; font-size: 12px; }
+
+/* hero: the one-line answer to "am I protected?" */
+.hero { margin: 2px 0 14px; }
+.hero-state {
+  font-family: var(--display);
+  font-size: 1.55rem;
+  font-weight: 500;
+  line-height: 1.2;
+  margin: 0;
+}
+.hero[data-state="off"] .hero-state { color: var(--danger); }
+.hero[data-state="paused"] .hero-state { color: var(--text-muted); }
+.hero-sub { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); }
+
+/* activity counters — real session numbers, never padded */
+.stat-grid {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+}
+.stat-grid li {
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 10px 8px;
+  text-align: center;
+}
+.stat-num {
+  display: block;
+  font-family: var(--display);
+  font-size: 1.5rem;
+  line-height: 1.15;
+}
+.stat-grid li:last-child .stat-num { color: var(--danger); }
+.stat-label { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* current site: observed / protected / excluded */
+.site-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+.site-line .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--border); }
+.site-line[data-state="observed"] .dot { background: var(--brand); }
+.site-line[data-state="sensitive"] .dot, .site-line[data-state="excluded"] .dot { background: var(--text-muted); }
+
+.alert-line {
+  font-size: 13px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0 0 8px;
 }
 .status { margin: 0 0 6px; font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; }
 .dot {

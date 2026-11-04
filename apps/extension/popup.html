@@ -10,22 +10,32 @@
     <main class="popup">
       <header class="popup-head">
         <span class="brand-lockup"><span class="mark" aria-hidden="true"></span><span class="brand-name">SOVIR</span></span>
+        <button id="open-options" type="button" class="ghost small" title="Ajustes">Ajustes</button>
       </header>
-      <p class="kicker">Estado</p>
-      <p id="api" class="status"><span class="dot" aria-hidden="true"></span><span class="status-text">API: comprobando…</span></p>
-      <p id="site" class="status"><span class="dot" aria-hidden="true"></span><span class="status-text">Este sitio: sin observar</span></p>
-      <div class="popup-actions">
-        <button id="observe" type="button">Observar este sitio</button>
-        <button id="pause" type="button" class="ghost">Pausar todo</button>
-      </div>
-      <ul id="granted" class="granted-list"></ul>
-      <p id="last" class="note"></p>
-      <p id="verdict" class="note"></p>
-      <p id="decision" class="note"></p>
+
+      <section class="hero" id="hero">
+        <p class="hero-state" id="hero-state">Comprobando…</p>
+        <p class="hero-sub" id="hero-sub"></p>
+      </section>
+
+      <ul class="stat-grid" aria-label="Actividad de protección">
+        <li><span class="stat-num" id="st-pages">0</span><span class="stat-label">páginas revisadas</span></li>
+        <li><span class="stat-num" id="st-signals">0</span><span class="stat-label">señales vistas</span></li>
+        <li><span class="stat-num warn" id="st-warns">0</span><span class="stat-label">avisos</span></li>
+      </ul>
+
+      <p id="site" class="site-line"><span class="dot" aria-hidden="true"></span><span id="site-text">…</span></p>
+      <p id="alert" class="alert-line" hidden></p>
       <p id="error" class="note error" role="alert"></p>
+
+      <div class="popup-actions">
+        <button id="observe" type="button" class="ghost" hidden>Observar esta página</button>
+        <button id="pause" type="button" class="ghost">Pausar</button>
+      </div>
+
       <p class="note popup-foot">
-        La observación extrae señales tipadas (nunca contenido), corre solo en sitios concedidos y
-        persiste hasta que revocas el origen aquí o el grant en la consola.
+        SOVIR lee solo señales de riesgo — nunca guarda tu contenido, contraseñas ni capturas.
+        Banca y redes sociales quedan fuera salvo que las actives en Ajustes.
       </p>
     </main>
     <script src="popup.js"></script>
