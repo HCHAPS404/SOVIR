@@ -757,6 +757,45 @@ pub fn is_material_change(prev: Option<&ObservedEvent>, next: &ObservedEvent) ->
     }
 }
 
+/// H4 non-correlation justification: for window events that produced no
+/// sequence finding, record the provable reasons they were not linked —
+/// never a guess about intent. Two classes only:
+///  - same-millisecond pairs carrying signals: order is unprovable, so the
+///    sequence detector must stay silent on them (fail closed on order).
+///  - a multi-event window with zero findings: stated as such, so "no
+///    correlation" is a recorded decision, not an absence of output.
+pub fn explain_non_correlations(
+    events: &[ObservedEvent],
+    findings: &[SequenceFinding],
+) -> Vec<String> {
+    let mut notes = Vec::new();
+    for (i, a) in events.iter().enumerate() {
+        for b in events.iter().skip(i + 1) {
+            if a.observed_at_ms == b.observed_at_ms
+                && !a.signals.is_empty()
+                && !b.signals.is_empty()
+            {
+                notes.push(format!(
+                    "{}/{}: same-millisecond pair, order unprovable — not linked",
+                    a.event_id, b.event_id
+                ));
+            }
+        }
+    }
+    if findings.is_empty() && events.len() > 1 {
+        notes.push(format!(
+            "window has {} events across {} source(s); no temporal pattern matched",
+            events.len(),
+            events
+                .iter()
+                .map(|e| e.source_id.as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+        ));
+    }
+    notes
+}
+
 /// Detect escalation sequences inside a normalized window. Pure function;
 /// hints only — findings are hypotheses, not proof of intent.
 pub fn detect_sequences(events: &[ObservedEvent]) -> Vec<SequenceFinding> {
@@ -1235,6 +1274,10 @@ pub struct EventDecision {
     /// Escalation hypotheses found in the principal's evidence window (B2).
     #[serde(default)]
     pub sequence_findings: Vec<SequenceFinding>,
+    /// Provable reasons events were NOT linked (H4): recorded so an absent
+    /// correlation is a justified decision, not silence.
+    #[serde(default)]
+    pub correlation_notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1591,6 +1634,27 @@ mod tests {
         assert!(is_material_change(Some(&prev), &extra));
         // First sighting is always material.
         assert!(is_material_change(None, &event()));
+    }
+    #[test]
+    fn non_correlation_is_justified_not_silent() {
+        let mut a = event();
+        a.event_id = "a".into();
+        a.signals = vec![RiskSignal::UrgentAction];
+        let mut b = event();
+        b.event_id = "b".into();
+        b.signals = vec![RiskSignal::PaymentRequest];
+        // Same-millisecond pair: no provable order, so the note explains why
+        // they were not linked.
+        let notes = explain_non_correlations(&[a.clone(), b.clone()], &[]);
+        assert!(notes.iter().any(|n| n.contains("same-millisecond")));
+        // Ordered but pattern-free: the window state is recorded.
+        b.observed_at_ms = 2000;
+        let notes = explain_non_correlations(&[a.clone(), b.clone()], &[]);
+        assert!(notes.iter().any(|n| n.contains("no temporal pattern")));
+        // A real finding suppresses the "no pattern" note.
+        let findings = detect_sequences(&normalize_events(vec![a, b]));
+        let notes = explain_non_correlations(&normalize_events(vec![]), &findings);
+        assert!(!notes.iter().any(|n| n.contains("no temporal pattern")));
     }
     #[test]
     fn detects_hook_then_payment_sequence() {

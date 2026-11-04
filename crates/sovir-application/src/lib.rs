@@ -1,13 +1,14 @@
 //! Use cases and orchestrated policy checks. No Axum, SQL or model SDK dependencies.
 use sovir_domain::{
-    data_class_label, detect_sequences, intervention_for, is_material_change, next_attempt_ms,
-    normalize_events, risk_signal_label, valid_identifier, validate_consent, validate_device,
-    validate_event, validate_url_for_egress, Assessment, AuditAction, AuditEvent, ConsentGrant,
-    DecisionKind, DeletionReceipt, DeliveryAuditEntry, DeliveryState, Device, DomainError,
-    EventDecision, EventFeedback, FeedbackVerdict, InferenceRequest, InferenceVerdict,
-    IntelIndicator, Intervention, Investigation, InvestigationFact, InvestigationFactKind,
-    ObservedEvent, Platform, Principal, RiskLevel, Scope, SequencePattern, Session,
-    WebhookEndpoint, MAX_DELIVERY_ATTEMPTS, MAX_INVESTIGATION_EVENTS, MAX_INVESTIGATION_WINDOW_MS,
+    data_class_label, detect_sequences, explain_non_correlations, intervention_for,
+    is_material_change, next_attempt_ms, normalize_events, risk_signal_label, valid_identifier,
+    validate_consent, validate_device, validate_event, validate_url_for_egress, Assessment,
+    AuditAction, AuditEvent, ConsentGrant, DecisionKind, DeletionReceipt, DeliveryAuditEntry,
+    DeliveryState, Device, DomainError, EventDecision, EventFeedback, FeedbackVerdict,
+    InferenceRequest, InferenceVerdict, IntelIndicator, Intervention, Investigation,
+    InvestigationFact, InvestigationFactKind, ObservedEvent, Platform, Principal, RiskLevel, Scope,
+    SequencePattern, Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS, MAX_INVESTIGATION_EVENTS,
+    MAX_INVESTIGATION_WINDOW_MS,
 };
 use sovir_ports::{
     AuditLog, BudgetLedger, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel,
@@ -578,6 +579,7 @@ impl SovirService {
                 },
                 protected_action_executed: false,
                 sequence_findings: vec![],
+                correlation_notes: vec![],
             });
         }
         let mut assessment = self.risk.analyze(&event);
@@ -586,6 +588,7 @@ impl SovirService {
         window.push(event);
         let window = normalize_events(window);
         let sequence_findings = detect_sequences(&window);
+        let correlation_notes = explain_non_correlations(&window, &sequence_findings);
         for f in &sequence_findings {
             assessment
                 .reasons
@@ -609,6 +612,7 @@ impl SovirService {
             assessment,
             protected_action_executed: false,
             sequence_findings,
+            correlation_notes,
         };
         // Deterministic policy: warn/review decisions enqueue an intervention
         // for the device channel. `Observe` produces nothing; there is no
