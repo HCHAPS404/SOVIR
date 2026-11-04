@@ -24,11 +24,30 @@ const DEFAULT_API = "https://hell.taile32c7d.ts.net/api";
 const API_URL_KEY = "sovir-api-url"; // storage.local — user setting
 const PRINCIPAL_KEY = "sovir-principal"; // storage.local — console identity
 const SOURCE = "screen-observer:ext";
-const DEVICE = "ext-web";
+// Device + grant identity is per-INSTALL, not per-platform: consent_grants
+// is keyed by grant_id globally, so a fixed id meant the second install
+// (another browser, another user's laptop) collided, tolerated the 409 and
+// never owned a grant — its events then failed closed server-side. A UUID
+// persisted in storage.local stays stable across reconnects while keeping
+// every install distinct (multi-device visibility in the console).
+const DEVICE_KIND = "ext-web";
+const INSTALL_KEY = "sovir-install-id";
+async function installId() {
+  const s = await chrome.storage.local.get(INSTALL_KEY);
+  if (s[INSTALL_KEY]) return s[INSTALL_KEY];
+  const id = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  await chrome.storage.local.set({ [INSTALL_KEY]: id });
+  return id;
+}
+async function deviceId() {
+  return `${DEVICE_KIND}-${await installId()}`;
+}
 // Consent is (principal, device)-bound: the grant id carries the device so
 // a second device can neither renew nor hijack this device's consent, and
 // each daily reconnect renews its own grant in place (server-side refresh).
-const GRANT = `ext-observer-grant:${DEVICE}`;
+async function grantId() {
+  return `ext-observer-grant:${await deviceId()}`;
+}
 const STATE_KEY = "sovir-ext-state";
 const SEEN_KEY = "sovir-ext-seen";
 const SEEN_TTL_MS = 60_000;
@@ -173,7 +192,7 @@ async function connect() {
   } else {
     const session = await api("/v1/auth/dev-session", {
       method: "POST",
-      body: { principal_id: await principalId(), device_id: DEVICE, tenant_id: "dev" },
+      body: { principal_id: await principalId(), device_id: await deviceId(), tenant_id: "dev" },
     });
     token = session.token;
     principal = session.principal_id;
@@ -184,7 +203,7 @@ async function connect() {
   await api("/v1/devices", {
     token,
     method: "POST",
-    body: { device_id: DEVICE, platform: "BROWSER_EXTENSION", label: "Extensión de navegador" },
+    body: { device_id: await deviceId(), platform: "BROWSER_EXTENSION", label: "Extensión de navegador" },
   }).catch((e) => {
     if (e.status !== 409) throw e;
   });
@@ -192,7 +211,7 @@ async function connect() {
     token,
     method: "POST",
     body: {
-      grant_id: GRANT,
+      grant_id: await grantId(),
       source_id: SOURCE,
       expires_at_ms: Date.now() + 24 * 60 * 60 * 1000,
     },
@@ -280,7 +299,7 @@ async function emitEvent(tabId, { signals, digest, observed_at_ms, modality = "T
     observed_at_ms,
     modality,
     content_digest: digest,
-    consent_grant_id: GRANT,
+    consent_grant_id: await grantId(),
     sensitive_data_class: "PUBLIC",
     signals: emitted,
   };
