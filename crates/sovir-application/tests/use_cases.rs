@@ -337,6 +337,9 @@ async fn retention_deletes_old_events_keeps_recent_and_pending() {
     let mut old = event();
     old.event_id = "event-old".into();
     old.observed_at_ms = 9_000;
+    // Distinct content: with H3 dedup, an identical second view would not be
+    // stored — this test exercises retention, not dedup.
+    old.content_digest = "sha256:old".into();
     service.ingest(&p, old).await.unwrap();
     service.ingest(&p, event()).await.unwrap(); // observed_at_ms = 10_000
                                                 // FixedClock now = 10_000; retention 500ms -> cutoff 9_500.
@@ -550,6 +553,38 @@ async fn evidence_window_escalates_hook_then_payment() {
     assert_eq!(items[0].kind, sovir_domain::InterventionKind::WarnBanner);
 }
 
+#[tokio::test]
+async fn duplicate_content_dedups_without_inference_or_insert() {
+    let service = service();
+    let p = principal("p-dup");
+    service.grant(&p, grant()).await.unwrap();
+    // First view: analyzed and stored.
+    let d1 = service.ingest(&p, event()).await.unwrap();
+    assert_eq!(d1.assessment.risk_level, RiskLevel::High);
+    // A different event_id carrying the same digest+signals is a duplicate
+    // view: no second assessment, no second stored event, no intervention.
+    let mut again = event();
+    again.event_id = "event-2".into();
+    again.observed_at_ms = 10_100;
+    let d2 = service.ingest(&p, again).await.unwrap();
+    assert_eq!(d2.assessment.decision, sovir_domain::DecisionKind::Observe);
+    assert_eq!(d2.assessment.provenance, "dedup:no-material-change");
+    assert!(!d2.protected_action_executed);
+    assert_eq!(service.export_data(&p).await.unwrap().events.len(), 1);
+    // Replaying the SAME event_id still fails closed as a duplicate.
+    assert!(matches!(
+        service.ingest(&p, event()).await,
+        Err(AppError::Port(_))
+    ));
+    // A new signal on the same digest IS material: assessed and stored.
+    let mut changed = event();
+    changed.event_id = "event-3".into();
+    changed.observed_at_ms = 10_200;
+    changed.signals.push(RiskSignal::ExtortionLanguage);
+    let d3 = service.ingest(&p, changed).await.unwrap();
+    assert_ne!(d3.assessment.provenance, "dedup:no-material-change");
+    assert_eq!(service.export_data(&p).await.unwrap().events.len(), 2);
+}
 // ---- B4: inference budget + privacy modes ------------------------------
 
 use sovir_domain::{InferenceRequest, InferenceVerdict, IntelIndicator, PrivacyMode};

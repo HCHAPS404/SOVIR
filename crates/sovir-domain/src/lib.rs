@@ -738,6 +738,25 @@ fn strictly_after(a: &ObservedEvent, b: &ObservedEvent) -> bool {
     b.observed_at_ms > a.observed_at_ms
 }
 
+/// H3 semantic delta: whether `next` is a *material* change over the most
+/// recent event already seen for the same source — worth a fresh
+/// assessment — or a duplicate view of the same content.
+///
+/// Material iff the content digest differs, or `next` carries at least
+/// one signal the previous view did not report. Same content with equal or
+/// fewer signals is a duplicate (the user saw the same thing again, not a
+/// new fact). Pure: the caller supplies the previous event — `None` means
+/// first sighting, always material.
+pub fn is_material_change(prev: Option<&ObservedEvent>, next: &ObservedEvent) -> bool {
+    match prev {
+        None => true,
+        Some(p) => {
+            p.content_digest != next.content_digest
+                || next.signals.iter().any(|s| !p.signals.contains(s))
+        }
+    }
+}
+
 /// Detect escalation sequences inside a normalized window. Pure function;
 /// hints only — findings are hypotheses, not proof of intent.
 pub fn detect_sequences(events: &[ObservedEvent]) -> Vec<SequenceFinding> {
@@ -1546,6 +1565,32 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].event_id, "a");
         assert_eq!(out[1].event_id, "b");
+    }
+    #[test]
+    fn material_change_only_on_new_facts() {
+        let mut prev = event();
+        prev.signals = vec![RiskSignal::UrgentAction, RiskSignal::PaymentRequest];
+        // Same digest + same or fewer signals = duplicate view, not material.
+        let mut same = event();
+        same.event_id = "again".into();
+        same.observed_at_ms = 200;
+        same.signals = prev.signals.clone();
+        assert!(!is_material_change(Some(&prev), &same));
+        let mut fewer = same.clone();
+        fewer.event_id = "fewer".into();
+        fewer.signals = vec![RiskSignal::UrgentAction];
+        assert!(!is_material_change(Some(&prev), &fewer));
+        // A different digest or any new signal = material change.
+        let mut other = event();
+        other.event_id = "other".into();
+        other.content_digest = "sha256:different".into();
+        assert!(is_material_change(Some(&prev), &other));
+        let mut extra = event();
+        extra.event_id = "extra".into();
+        extra.signals.push(RiskSignal::ScarewareClaim);
+        assert!(is_material_change(Some(&prev), &extra));
+        // First sighting is always material.
+        assert!(is_material_change(None, &event()));
     }
     #[test]
     fn detects_hook_then_payment_sequence() {

@@ -1,13 +1,13 @@
 //! Use cases and orchestrated policy checks. No Axum, SQL or model SDK dependencies.
 use sovir_domain::{
-    data_class_label, detect_sequences, intervention_for, next_attempt_ms, normalize_events,
-    risk_signal_label, valid_identifier, validate_consent, validate_device, validate_event,
-    validate_url_for_egress, AuditAction, AuditEvent, ConsentGrant, DecisionKind, DeletionReceipt,
-    DeliveryAuditEntry, DeliveryState, Device, DomainError, EventDecision, EventFeedback,
-    FeedbackVerdict, InferenceRequest, InferenceVerdict, IntelIndicator, Intervention,
-    Investigation, InvestigationFact, InvestigationFactKind, ObservedEvent, Platform, Principal,
-    RiskLevel, Scope, SequencePattern, Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
-    MAX_INVESTIGATION_EVENTS, MAX_INVESTIGATION_WINDOW_MS,
+    data_class_label, detect_sequences, intervention_for, is_material_change, next_attempt_ms,
+    normalize_events, risk_signal_label, valid_identifier, validate_consent, validate_device,
+    validate_event, validate_url_for_egress, Assessment, AuditAction, AuditEvent, ConsentGrant,
+    DecisionKind, DeletionReceipt, DeliveryAuditEntry, DeliveryState, Device, DomainError,
+    EventDecision, EventFeedback, FeedbackVerdict, InferenceRequest, InferenceVerdict,
+    IntelIndicator, Intervention, Investigation, InvestigationFact, InvestigationFactKind,
+    ObservedEvent, Platform, Principal, RiskLevel, Scope, SequencePattern, Session,
+    WebhookEndpoint, MAX_DELIVERY_ATTEMPTS, MAX_INVESTIGATION_EVENTS, MAX_INVESTIGATION_WINDOW_MS,
 };
 use sovir_ports::{
     AuditLog, BudgetLedger, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel,
@@ -545,18 +545,46 @@ impl SovirService {
                 now,
             )
             .await?;
-        let mut assessment = self.risk.analyze(&event);
-        let id = event.event_id.clone();
-        self.events.insert_once(event).await?;
         // Evidence window (B2/ADR-0011): correlate the principal's recent
         // events; findings can only raise the decision floor, never weaken
         // consent/device checks or trigger enforcement by themselves.
         let since = now.saturating_sub(EVIDENCE_WINDOW_MS);
-        let window = normalize_events(
-            self.events
-                .list_recent(&principal.tenant_id, &principal.principal_id, since)
-                .await?,
-        );
+        let mut window = self
+            .events
+            .list_recent(&principal.tenant_id, &principal.principal_id, since)
+            .await?;
+        // H3 semantic delta: same content already seen for this source adds
+        // no new signal — no analysis, no insert, no intervention. The dedup
+        // decision says so honestly instead of pretending an inference ran.
+        // A replay of the same event_id is idempotency, not content dedup:
+        // it still hits insert_once and fails closed as a Duplicate.
+        let prev_same_source = window
+            .iter()
+            .filter(|e| e.source_id == event.source_id && e.event_id != event.event_id)
+            .max_by_key(|e| e.observed_at_ms);
+        if prev_same_source.is_some() && !is_material_change(prev_same_source, &event) {
+            let prev = prev_same_source.expect("checked is_some");
+            return Ok(EventDecision {
+                event_id: event.event_id,
+                assessment: Assessment {
+                    risk_level: RiskLevel::Unknown,
+                    decision: DecisionKind::Observe,
+                    reasons: vec![format!(
+                        "Duplicate of {}: same content, no material change",
+                        prev.event_id
+                    )],
+                    provenance: "dedup:no-material-change".into(),
+                    policy_version: "dedup".into(),
+                },
+                protected_action_executed: false,
+                sequence_findings: vec![],
+            });
+        }
+        let mut assessment = self.risk.analyze(&event);
+        let id = event.event_id.clone();
+        self.events.insert_once(event.clone()).await?;
+        window.push(event);
+        let window = normalize_events(window);
         let sequence_findings = detect_sequences(&window);
         for f in &sequence_findings {
             assessment
