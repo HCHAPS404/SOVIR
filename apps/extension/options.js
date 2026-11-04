@@ -38,9 +38,15 @@ chrome.storage.local.get([KEY, PRINCIPAL_KEY, OIDC_ISSUER_KEY, OIDC_CLIENT_KEY, 
 
 visionToggle.addEventListener("change", () => {
   chrome.storage.local.set({ [VISION_KEY]: visionToggle.checked }, () => {
-    savedVision.textContent = visionToggle.checked
-      ? "Activo — escanea QR solo en sitios otorgados."
-      : "Desactivado.";
+    if (!visionToggle.checked) {
+      savedVision.textContent = "Desactivado.";
+      return;
+    }
+    chrome.permissions.contains({ origins: ["<all_urls>"] }, (has) => {
+      savedVision.textContent = has
+        ? "Activo — escanea QR solo en sitios otorgados."
+        : "Activo pero sin efecto: la captura visual requiere \"Observación amplia\" (arriba).";
+    });
   });
 });
 

@@ -45,6 +45,8 @@ function installMocks() {
     },
     permissions: {
       getAll: async () => ({ origins: permissionOrigins }),
+      contains: async (req) =>
+        req.origins?.every((o) => permissionOrigins.includes(o) || permissionOrigins.includes("<all_urls>")),
       onAdded: { addListener: (fn) => permAddedListeners.push(fn) },
       onRemoved: { addListener: () => {} },
     },
@@ -310,6 +312,7 @@ test("vision-check with the flag off never captures", async () => {
 test("vision-check enabled emits IMAGE_REGION event with QR_PRESENT", async () => {
   installVision(qrImage());
   storageLocal["sovir-vision-enabled"] = true;
+  permissionOrigins = ["<all_urls>"];
   const res = await sendVision();
   assert.equal(res.ok, true);
   const event = fetchCalls.find((c) => c.url.endsWith("/v1/events"));
@@ -327,6 +330,7 @@ test("vision-check enabled emits IMAGE_REGION event with QR_PRESENT", async () =
 test("vision-check on a clean page emits nothing", async () => {
   installVision({ data: new Uint8ClampedArray(96 * 96 * 4).fill(240), width: 96, height: 96 });
   storageLocal["sovir-vision-enabled"] = true;
+  permissionOrigins = ["<all_urls>"];
   const res = await sendVision();
   assert.deepEqual(res.signals, []);
   assert.equal(fetchCalls.filter((c) => c.url.endsWith("/v1/events")).length, 0);
@@ -344,6 +348,7 @@ test("vision-check paused is dropped before any capture", async () => {
 test("logo_frame from the page reaches the ONNX analyzer", async () => {
   installVision({ data: new Uint8ClampedArray(96 * 96 * 4).fill(240), width: 96, height: 96 });
   storageLocal["sovir-vision-enabled"] = true;
+  permissionOrigins = ["<all_urls>"];
   let seen = null;
   globalThis.ort = { env: {} }; // skips the importScripts path in ensure
   globalThis.sovirVisionOnnx = {

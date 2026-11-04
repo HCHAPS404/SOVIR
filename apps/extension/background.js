@@ -387,7 +387,12 @@ async function assessWithHint(st, message) {
 // ---------------------------------------------------------------------------
 async function visionEnabled() {
   const s = await chrome.storage.local.get(VISION_KEY);
-  return s[VISION_KEY] === true;
+  if (s[VISION_KEY] !== true) return false;
+  // captureVisibleTab requires <all_urls> (or transient activeTab, which a
+  // background message never has): a per-site grant injects the extractor
+  // but cannot screenshot. Gating on the real permission keeps the toggle
+  // honest instead of erroring "permission required" on every page.
+  return chrome.permissions.contains({ origins: ["<all_urls>"] });
 }
 
 async function capturePixels(windowId) {

@@ -50,7 +50,8 @@
         <p>
           Análisis visual limitado: una captura de la pestaña otorgada se reduce en el worker, se
           escanean patrones QR y se descarta — el evento lleva solo <code>QR_PRESENT</code> + digest
-          del frame, nunca píxeles ni OCR de página completa.
+          del frame, nunca píxeles ni OCR de página completa. Chrome solo permite la captura
+          con el permiso amplio: también necesitas "Observación amplia" activada.
         </p>
         <label class="check" for="vision-enabled">
           <input id="vision-enabled" type="checkbox" />
