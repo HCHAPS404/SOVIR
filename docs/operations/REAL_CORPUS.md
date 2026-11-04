@@ -30,6 +30,9 @@ la materia prima para recalibrar/reentrenar mañana.
 | Telegram | skip | — | Escudo sensible: la app se omite entera, ni siquiera se extrae. |
 | WhatsApp (foreground previo) | skip | — | Idem — chat names visibles solo vía uiautomator (herramienta OS), nunca por el servicio. |
 | Superficie no navegador (tour previo) | señales si patrón | `PRIZE_LOTTERY_CLAIM, PAYMENT_REQUEST` → `and-7061192c4748` | Emisión real previa — probablemente un anuncio/superficie legítima con forma de premio. **Posible FP real en producción**: vigilar. |
+| TikTok (incluida por-app) | señales si patrón | silencio en caption benigno ("#opsec #techtok") | Inclusión individual verificada: la app YA se observa; correctamente callada en contenido benigno. |
+| Gmail inbox (app nativa) | señales si patrón | silencio — lee subjects reales ("Vence hoy", "Run failed CI", ofertas de empleo) | Lectura real de app no-navegador confirmada. **Gap de vocabulario**: "Vence hoy" = urgencia real no cubierta por la tabla (`expira` sí, `vence`/`caduca` no). |
+| Facebook login, Instagram feed | señales si patrón | silencio | Incluidas por-app; plausible — login sin campo password visible, feed sin patrones. |
 
 ## Hallazgos operativos del dispositivo real
 

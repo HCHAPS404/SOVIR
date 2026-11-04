@@ -10,13 +10,15 @@ import android.content.pm.PackageManager
  * Two layers, both user-controlled and editable in the Protection screen:
  *  - `excluded_packages`: the person's own exempt list (any package name).
  *  - Sensitive categories (social/messaging, banking, wallets): excluded
- *    BY DEFAULT even when the accessibility service is on — a single
- *    toggle enables them, mirroring the extension's sensitive shield.
+ *    BY DEFAULT even when the accessibility service is on. The person can
+ *    opt IN per app (`sensitive_included`) or flip the whole shield
+ *    (`sensitive_allowed`) — consent is requested per surface.
  * Nothing is asked per-app; one consent at grant time, exemptions after.
  */
 object AppExclusions {
     private const val K_EXCLUDED = "excluded_packages"
     private const val K_SENSITIVE = "sensitive_allowed"
+    private const val K_SENSITIVE_INCLUDED = "sensitive_included"
 
     private lateinit var prefs: SharedPreferences
 
@@ -56,13 +58,32 @@ object AppExclusions {
 
     fun isSensitive(pkg: String) = pkg in SENSITIVE_FLAT
 
+    /** Sensitive packages the person individually opted IN — per-app consent,
+     *  not a blanket switch. Each is a deliberate exception to the shield. */
+    val sensitiveIncluded: Set<String>
+        get() = if (::prefs.isInitialized) prefs.getStringSet(K_SENSITIVE_INCLUDED, emptySet()) ?: emptySet() else emptySet()
+
+    fun setSensitiveIncluded(pkg: String, included: Boolean) {
+        val cur = sensitiveIncluded
+        setSensitiveIncluded(if (included) cur + pkg else cur - pkg)
+    }
+
+    fun setSensitiveIncluded(pkgs: Set<String>) =
+        prefs.edit().putStringSet(K_SENSITIVE_INCLUDED, pkgs.filter { it in SENSITIVE_FLAT }.toSet()).apply()
+
     /** The single gate the accessibility service consults per package. */
-    fun skips(pkg: String): Boolean = skipsWith(pkg, excludedPackages, sensitiveAllowed)
+    fun skips(pkg: String): Boolean = skipsWith(pkg, excludedPackages, sensitiveAllowed, sensitiveIncluded)
 
     /** Pure form, unit-testable without SharedPreferences. */
-    fun skipsWith(pkg: String, excluded: Set<String>, sensitiveAllowed: Boolean): Boolean {
+    fun skipsWith(
+        pkg: String,
+        excluded: Set<String>,
+        sensitiveAllowed: Boolean,
+        sensitiveIncluded: Set<String> = emptySet(),
+    ): Boolean {
         if (pkg in excluded) return true
-        return !sensitiveAllowed && pkg in SENSITIVE_FLAT
+        if (pkg !in SENSITIVE_FLAT) return false
+        return !sensitiveAllowed && pkg !in sensitiveIncluded
     }
 
     /** Sensitive packages actually installed here — for the settings UI. */

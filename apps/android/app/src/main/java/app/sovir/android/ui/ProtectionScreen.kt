@@ -146,29 +146,28 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
         Gap(14.dp)
         Panel {
             PanelHead("Apps que no se observan", kicker = "Tus excepciones")
-            var sensitiveOn by remember { mutableStateOf(AppExclusions.sensitiveAllowed) }
             val installedSensitive = remember { AppExclusions.installedSensitive(ctx.packageManager) }
+            var included by remember { mutableStateOf(AppExclusions.sensitiveIncluded) }
             Text(
-                "El observador cubre todas tus apps menos las que excluyas aquí — sin preguntas repetidas.",
+                "El observador cubre todas tus apps menos las que excluyas aquí — sin preguntas repetidas. " +
+                    "Las sensibles están protegidas por defecto: las incluyes una a una, solo si tú decides.",
                 style = MaterialTheme.typography.bodySmall, color = p.muted,
             )
             Gap(10.dp)
-            Line(
-                "Apps sensibles (social, banca, carteras)",
-                if (sensitiveOn) "También observadas" else "Excluidas por defecto",
-                tone = if (sensitiveOn) Tone.Warning else Tone.Success,
-                divider = installedSensitive.isNotEmpty() || AppExclusions.excludedPackages.isNotEmpty(),
-                trailing = {
-                    QuietAction(if (sensitiveOn) "Excluir" else "Incluir", {
-                        sensitiveOn = !sensitiveOn
-                        AppExclusions.sensitiveAllowed = sensitiveOn
-                    })
-                },
-            )
-            if (installedSensitive.isNotEmpty()) {
-                installedSensitive.take(4).forEach { (pkg, cat) ->
-                    Fact(cat, appLabel(ctx.packageManager, pkg) ?: pkg, divider = true)
-                }
+            installedSensitive.forEachIndexed { i, (pkg, cat) ->
+                val isIncluded = pkg in included
+                Line(
+                    appLabel(ctx.packageManager, pkg) ?: pkg,
+                    "$cat · " + if (isIncluded) "observada — la incluiste" else "excluida por defecto",
+                    tone = if (isIncluded) Tone.Warning else Tone.Success,
+                    divider = i < installedSensitive.lastIndex || AppExclusions.excludedPackages.isNotEmpty(),
+                    trailing = {
+                        QuietAction(if (isIncluded) "Excluir" else "Incluir", {
+                            AppExclusions.setSensitiveIncluded(pkg, !isIncluded)
+                            included = AppExclusions.sensitiveIncluded
+                        })
+                    },
+                )
             }
             val excluded = AppExclusions.excludedPackages
             excluded.forEach { pkg ->

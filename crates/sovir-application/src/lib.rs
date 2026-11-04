@@ -563,8 +563,7 @@ impl SovirService {
             .iter()
             .filter(|e| e.source_id == event.source_id && e.event_id != event.event_id)
             .max_by_key(|e| e.observed_at_ms);
-        if prev_same_source.is_some() && !is_material_change(prev_same_source, &event) {
-            let prev = prev_same_source.expect("checked is_some");
+        if let Some(prev) = prev_same_source.filter(|p| !is_material_change(Some(*p), &event)) {
             return Ok(EventDecision {
                 event_id: event.event_id,
                 assessment: Assessment {
