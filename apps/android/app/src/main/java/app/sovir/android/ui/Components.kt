@@ -270,15 +270,23 @@ fun Fact(label: String, value: String, valueTone: Tone? = null, mono: Boolean = 
 }
 
 @Composable
-fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, loading: Boolean = false) {
+fun PrimaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tone: Tone? = null,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+) {
     val p = LocalPalette.current
+    val container = tone?.let(p::tone) ?: p.ink
     Button(
         onClick = onClick,
         enabled = enabled && !loading,
         modifier = modifier.fillMaxWidth().heightIn(min = 50.dp),
         shape = ButtonShape,
         colors = ButtonDefaults.buttonColors(
-            containerColor = p.ink, contentColor = p.onInk,
+            containerColor = container, contentColor = if (tone != null) Color.White else p.onInk,
             disabledContainerColor = p.surface2, disabledContentColor = p.muted,
         ),
     ) {

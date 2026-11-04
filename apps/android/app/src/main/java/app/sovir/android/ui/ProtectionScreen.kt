@@ -1,22 +1,36 @@
 package app.sovir.android.ui
 
 import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.sovir.android.data.Api
+import app.sovir.android.data.AppExclusions
 import app.sovir.android.data.PhoneLink
 import app.sovir.android.model.ConsentGrant
 import app.sovir.android.model.Device
@@ -25,10 +39,21 @@ import app.sovir.android.model.Humanize
 import app.sovir.android.model.Tone
 import app.sovir.android.observer.AlertSync
 
+// The activation flow is an emergent, guided sequence — never a wall of
+// toggles. The user presses one button; the app asks only for the step
+// that is actually missing (OS toggle → SOVIR grant → battery exemption),
+// in plain language, and every step is a system or SOVIR dialog.
+
 private sealed interface Pending {
     data class RevokeGrant(val g: ConsentGrant) : Pending
     data class RevokeDevice(val d: Device) : Pending
-    data object RevokePhone : Pending
+    data object Deactivate : Pending
+}
+
+private sealed interface Activation {
+    data object NeedOs : Activation
+    data object Interrupted : Activation
+    data object NeedGrant : Activation
 }
 
 @Composable
@@ -36,11 +61,12 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
     val ctx = LocalContext.current
     val p = LocalPalette.current
     val now = System.currentTimeMillis()
-    var span by rememberSaveable { mutableStateOf(GrantSpan.Week) }
     var busy by remember { mutableStateOf(false) }
     var phoneMsg by remember { mutableStateOf<String?>(null) }
     var listMsg by remember { mutableStateOf<String?>(null) }
     var confirm by remember { mutableStateOf<Pending?>(null) }
+    var activation by remember { mutableStateOf<Activation?>(null) }
+    var showAppPicker by remember { mutableStateOf(false) }
     var askedNotif by rememberSaveable { mutableStateOf(false) }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         askedNotif = true
@@ -51,83 +77,79 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
     ScreenScroll {
         PageHeader(
             "Protección",
-            kicker = "Permisos y fuentes",
-            sub = "Qué puede observar SOVIR, quién lo autorizó y cómo retirarlo en cualquier momento.",
+            kicker = "Tu escudo",
+            sub = "Un botón para activarla, otro para pausarla. Sin ajustes que configurar.",
         )
 
-        // --- this phone: two independent layers, shown separately ---------
+        // --- hero: one state, one verb -----------------------------------
         Panel {
-            PanelHead("Observador de este teléfono") {
-                Chip(if (coverage.observing) "Observando" else "No observa", if (coverage.observing) Tone.Success else Tone.Unknown)
-            }
-            Kicker("1 · Permiso de Android")
-            Gap(4.dp)
-            Fact(
-                "Servicio de accesibilidad",
-                if (coverage.observerOs) "Activado" else "Desactivado",
-                if (coverage.observerOs) Tone.Success else Tone.Unknown,
-                divider = false,
-            )
-            Text(
-                "Android decide si SOVIR puede leer la pantalla. Solo tú puedes activarlo, desde los ajustes del sistema.",
-                style = MaterialTheme.typography.bodySmall, color = p.muted,
-            )
-            Gap(10.dp)
-            SecondaryButton(
-                if (coverage.observerOs) "Desactivar en ajustes de Android" else "Activar en ajustes de Android",
-                { openAccessibilitySettings(ctx) },
-            )
-
-            Gap(18.dp)
-            Rule()
-            Gap(14.dp)
-            Kicker("2 · Permiso de SOVIR para enviar")
-            Gap(4.dp)
-            if (coverage.uploadAllowed) {
-                Fact("Estado", "Vigente hasta ${fmtDateTime(coverage.grantExpiresAt)}", Tone.Success, divider = false)
-                Gap(8.dp)
-                SecondaryButton("Revocar ahora", { confirm = Pending.RevokePhone }, tone = Tone.Danger, loading = busy)
-            } else {
-                Fact("Estado", "Sin conceder", Tone.Unknown, divider = false)
-                Text(
-                    "Aunque Android lo permita, nada sale del teléfono sin este permiso. Elige cuánto dura:",
-                    style = MaterialTheme.typography.bodySmall, color = p.muted,
+            val (icon, stateTitle, stateSub, stateTone) = when {
+                coverage.observing -> Quad(
+                    Glyphs.eye, "Te protegemos",
+                    "SOVIR observa tu pantalla buscando señales de estafa. Nada sale del teléfono sin tu permiso.",
+                    Tone.Success,
                 )
-                Gap(10.dp)
-                Segmented(GrantSpan.entries, span, { it.label }) { span = it }
-                Gap(10.dp)
-                PrimaryButton("Conceder por ${span.label}", {
-                    busy = true
-                    phoneMsg = null
-                    model.act({ PhoneLink.grant(span.ms) }) { err ->
-                        busy = false
-                        phoneMsg = err
-                        onCoverageChanged()
-                    }
-                }, loading = busy)
+                coverage.observerInterrupted -> Quad(
+                    Glyphs.eyeOff, "Se detuvo",
+                    "El sistema cerró el observador en segundo plano. Reactívalo para seguir protegido.",
+                    Tone.Warning,
+                )
+                !coverage.observerOs -> Quad(
+                    Glyphs.eyeOff, "Protección desactivada",
+                    "Nada se observa ahora mismo. Actívala cuando quieras.",
+                    Tone.Unknown,
+                )
+                else -> Quad(
+                    Glyphs.eye, "Casi lista",
+                    "Solo falta tu permiso para empezar a observar.",
+                    Tone.Warning,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null, tint = p.tone(stateTone), modifier = Modifier.size(40.dp))
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(stateTitle, style = MaterialTheme.typography.titleLarge, color = p.ink)
+                    Text(stateSub, style = MaterialTheme.typography.bodyMedium, color = p.muted)
+                }
+            }
+            Gap(16.dp)
+            if (coverage.observing) {
+                SecondaryButton("Desactivar protección", { confirm = Pending.Deactivate }, tone = Tone.Danger)
+            } else {
+                PrimaryButton(
+                    "Activar protección",
+                    {
+                        activation = when {
+                            coverage.observerInterrupted -> Activation.Interrupted
+                            !coverage.observerOs -> Activation.NeedOs
+                            else -> Activation.NeedGrant
+                        }
+                    },
+                    tone = Tone.Success,
+                    loading = busy,
+                )
             }
             Notice(phoneMsg)
-
-            Gap(18.dp)
-            Rule()
-            Gap(12.dp)
-            Kicker("Qué hace exactamente")
-            Gap(6.dp)
-            Fact("Lee", "El texto visible de otras apps, para buscar señales de riesgo")
-            Fact("Envía", "Los tipos de señal y las frases que coincidieron, solo a tu servidor")
-            Fact("Nunca envía", "Capturas, contraseñas ni campos de clave")
-            Fact("Ignora", "Barra del sistema, ajustes, la propia app de SOVIR y tus apps exentas", divider = false)
         }
 
-        // --- app exemptions + sensitive shield -----------------------------
+        // --- plain-language truth about what observation means ------------
         Gap(14.dp)
         Panel {
-            PanelHead("Apps que no se observan", kicker = "Privacidad por app")
-            val pm = ctx.packageManager
-            var sensitiveOn by remember { mutableStateOf(app.sovir.android.data.AppExclusions.sensitiveAllowed) }
-            val installedSensitive = remember { app.sovir.android.data.AppExclusions.installedSensitive(pm) }
+            PanelHead("Qué hace", kicker = "Sin letra pequeña")
+            Fact("Observa", "El texto visible de tus apps, buscando señales de estafa")
+            Fact("Comparte", "Solo los tipos de señal — nunca capturas ni contraseñas")
+            Fact("Omite", "Las apps que excluyas abajo y las sensibles por defecto", divider = false)
+        }
+
+        // --- privacy exceptions -------------------------------------------
+        Gap(14.dp)
+        Panel {
+            PanelHead("Apps que no se observan", kicker = "Tus excepciones")
+            var sensitiveOn by remember { mutableStateOf(AppExclusions.sensitiveAllowed) }
+            val installedSensitive = remember { AppExclusions.installedSensitive(ctx.packageManager) }
             Text(
-                "Una vez das el permiso, el observador cubre todas tus apps. Aquí pones las excepciones — sin preguntas repetidas.",
+                "El observador cubre todas tus apps menos las que excluyas aquí — sin preguntas repetidas.",
                 style = MaterialTheme.typography.bodySmall, color = p.muted,
             )
             Gap(10.dp)
@@ -135,50 +157,44 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
                 "Apps sensibles (social, banca, carteras)",
                 if (sensitiveOn) "También observadas" else "Excluidas por defecto",
                 tone = if (sensitiveOn) Tone.Warning else Tone.Success,
-                divider = installedSensitive.isNotEmpty(),
+                divider = installedSensitive.isNotEmpty() || AppExclusions.excludedPackages.isNotEmpty(),
                 trailing = {
                     QuietAction(if (sensitiveOn) "Excluir" else "Incluir", {
                         sensitiveOn = !sensitiveOn
-                        app.sovir.android.data.AppExclusions.sensitiveAllowed = sensitiveOn
+                        AppExclusions.sensitiveAllowed = sensitiveOn
                     })
                 },
             )
             if (installedSensitive.isNotEmpty()) {
-                installedSensitive.forEach { (pkg, cat) ->
-                    Fact(cat, pkg, divider = true)
+                installedSensitive.take(4).forEach { (pkg, cat) ->
+                    Fact(cat, appLabel(ctx.packageManager, pkg) ?: pkg, divider = true)
                 }
             }
-            Gap(8.dp)
-            var exemptText by remember {
-                mutableStateOf(app.sovir.android.data.AppExclusions.excludedPackages.joinToString("\n"))
-            }
-            OutlinedTextField(
-                value = exemptText,
-                onValueChange = { exemptText = it },
-                label = { Text("Paquetes exentos — uno por línea") },
-                supportingText = { Text("Ej: com.mi.banco — nunca se lee su pantalla") },
-                colors = serverFieldColors(p),
-                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                minLines = 2,
-            )
-            Gap(8.dp)
-            SecondaryButton("Guardar exenciones", {
-                app.sovir.android.data.AppExclusions.setExcluded(
-                    exemptText.split("\n", ",", " ").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            val excluded = AppExclusions.excludedPackages
+            excluded.forEach { pkg ->
+                Line(
+                    appLabel(ctx.packageManager, pkg) ?: pkg,
+                    "Excluida — su pantalla nunca se lee",
+                    tone = Tone.Success,
+                    divider = true,
+                    trailing = {
+                        QuietAction("Quitar", { AppExclusions.setExcluded(excluded - pkg) })
+                    },
                 )
-            })
+            }
+            Gap(8.dp)
+            SecondaryButton("Excluir una app", { showAppPicker = true })
             Gap(4.dp)
         }
 
-        // --- notifications -----------------------------------------------
+        // --- notifications -------------------------------------------------
         Gap(14.dp)
         Panel {
             PanelHead("Avisos en pantalla") {
                 Chip(if (coverage.notifications) "Permitidos" else "Bloqueados", if (coverage.notifications) Tone.Success else Tone.Warning)
             }
             Text(
-                "Avisos de alertas nuevas de todos tus dispositivos. En segundo plano el teléfono consulta tu servidor " +
-                    "cada 15 minutos aproximadamente; lo que detecta este teléfono se avisa al momento.",
+                "Te avisamos cuando algo parece una estafa — aquí y en tus otros dispositivos.",
                 style = MaterialTheme.typography.bodyMedium, color = p.muted,
             )
             if (!coverage.notifications) {
@@ -223,7 +239,7 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
             Notice(listMsg)
         }
 
-        // --- devices ----------------------------------------------------------
+        // --- devices ---------------------------------------------------------
         Gap(14.dp)
         Panel {
             PanelHead("Dispositivos vinculados")
@@ -244,19 +260,100 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
         }
     }
 
+    // --- emergent activation dialogs — one step at a time -------------------
+    activation?.let { step ->
+        when (step) {
+            Activation.NeedOs -> ConfirmDialog(
+                "Permiso de Android",
+                "Android te mostrará su lista de servicios de accesibilidad: busca SOVIR y actívalo. Es el permiso del sistema — solo tú puedes concederlo, y puedes quitarlo igual.",
+                "Abrir ajustes",
+                danger = false,
+                onDismiss = { activation = null },
+                onConfirm = {
+                    activation = null
+                    openAccessibilitySettings(ctx)
+                },
+            )
+            Activation.Interrupted -> AlertDialog(
+                onDismissRequest = { activation = null },
+                containerColor = p.surface,
+                titleContentColor = p.ink,
+                textContentColor = p.muted,
+                title = { Text("El observador se detuvo", style = MaterialTheme.typography.titleLarge) },
+                text = {
+                    Column {
+                        Text(
+                            "Tu teléfono cerró SOVIR en segundo plano para ahorrar batería. Dos pasos para que no vuelva a pasar:",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Gap(14.dp)
+                        SecondaryButton("1 · Eximir de ahorro de batería", { requestBatteryExemption(ctx) })
+                        Gap(10.dp)
+                        SecondaryButton("2 · Reactivar el permiso en ajustes", { openAccessibilitySettings(ctx) })
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { activation = null }) {
+                        Text("Entendido", style = MaterialTheme.typography.labelLarge, color = p.ink)
+                    }
+                },
+            )
+            Activation.NeedGrant -> {
+                var span by remember { mutableStateOf(GrantSpan.Week) }
+                AlertDialog(
+                    onDismissRequest = { activation = null },
+                    containerColor = p.surface,
+                    titleContentColor = p.ink,
+                    textContentColor = p.muted,
+                    title = { Text("¿Activar protección?", style = MaterialTheme.typography.titleLarge) },
+                    text = {
+                        Column {
+                            Text(
+                                "SOVIR observará tu pantalla hasta la fecha que elijas y nada saldrá del teléfono sin este permiso. Puedes desactivarla cuando quieras.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Gap(14.dp)
+                            Segmented(GrantSpan.entries, span, { it.label }) { span = it }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            activation = null
+                            busy = true
+                            phoneMsg = null
+                            model.act({ PhoneLink.grant(span.ms) }) { err ->
+                                busy = false
+                                phoneMsg = err
+                                onCoverageChanged()
+                            }
+                        }) {
+                            Text("Activar", style = MaterialTheme.typography.labelLarge, color = p.tone(Tone.Success))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { activation = null }) {
+                            Text("Cancelar", style = MaterialTheme.typography.labelLarge, color = p.muted)
+                        }
+                    },
+                )
+            }
+        }
+    }
+
+    // --- emergent deactivation / revocation ---------------------------------
     confirm?.let { c ->
         val (title, body) = when (c) {
-            Pending.RevokePhone -> "Revocar el permiso de este teléfono" to
-                "El observador dejará de enviar señales al instante. Puedes volver a concederlo cuando quieras."
+            Pending.Deactivate -> "Desactivar la protección" to
+                "El observador dejará de mirar tu pantalla al instante. Puedes activarla cuando quieras."
             is Pending.RevokeGrant -> "Revocar el permiso de ${Humanize.source(c.g.sourceId)}" to
                 "Esa fuente no podrá enviar más señales. Lo ya observado se conserva hasta que lo borres."
             is Pending.RevokeDevice -> "Revocar ${c.d.label.ifBlank { Humanize.platform(c.d.platform) }}" to
                 "El dispositivo quedará desvinculado de tu cuenta y no podrá volver a usarse sin registrarlo de nuevo."
         }
-        ConfirmDialog(title, body, "Revocar", danger = true, onDismiss = { confirm = null }, onConfirm = {
+        ConfirmDialog(title, body, if (c == Pending.Deactivate) "Desactivar" else "Revocar", danger = true, onDismiss = { confirm = null }, onConfirm = {
             confirm = null
             when (c) {
-                Pending.RevokePhone -> {
+                Pending.Deactivate -> {
                     busy = true
                     model.act({ PhoneLink.revoke() }) { err -> busy = false; phoneMsg = err; onCoverageChanged() }
                 }
@@ -270,4 +367,69 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
             }
         })
     }
+
+    // --- emergent app exclusion picker ---------------------------------------
+    if (showAppPicker) {
+        val pm = ctx.packageManager
+        val apps = remember { launchableApps(pm) }
+        var excluded by remember { mutableStateOf(AppExclusions.excludedPackages) }
+        AlertDialog(
+            onDismissRequest = { showAppPicker = false },
+            containerColor = p.surface,
+            titleContentColor = p.ink,
+            title = { Text("Excluir una app", style = MaterialTheme.typography.titleLarge) },
+            text = {
+                Column {
+                    Text(
+                        "Su pantalla nunca se lee. Toca para marcar o quitar.",
+                        style = MaterialTheme.typography.bodySmall, color = p.muted,
+                    )
+                    Gap(10.dp)
+                    Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                        apps.forEach { (label, pkg) ->
+                            val isExcluded = pkg in excluded
+                            Line(
+                                label,
+                                pkg,
+                                tone = if (isExcluded) Tone.Success else null,
+                                divider = true,
+                                onClick = {
+                                    excluded = if (isExcluded) excluded - pkg else excluded + pkg
+                                    AppExclusions.setExcluded(excluded)
+                                },
+                                trailing = {
+                                    if (isExcluded) Chip("Excluida", Tone.Success, dot = false)
+                                },
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAppPicker = false }) {
+                    Text("Listo", style = MaterialTheme.typography.labelLarge, color = p.ink)
+                }
+            },
+        )
+    }
+}
+
+private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+
+private fun appLabel(pm: PackageManager, pkg: String): String? =
+    runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
+
+private fun launchableApps(pm: PackageManager): List<Pair<String, String>> {
+    val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    val resolved = if (Build.VERSION.SDK_INT >= 33) {
+        pm.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
+    } else {
+        @Suppress("DEPRECATION")
+        pm.queryIntentActivities(intent, 0)
+    }
+    return resolved
+        .mapNotNull { it.activityInfo?.packageName?.let { pkg -> it.loadLabel(pm).toString() to pkg } }
+        .filter { it.second != "app.sovir.android" }
+        .distinctBy { it.second }
+        .sortedBy { it.first.lowercase() }
 }

@@ -21,6 +21,31 @@ la materia prima para recalibrar/reentrenar mañana.
    engaño: dominio, mismatch, identity) — como ya hace `link_spoofing`.
 3. El votante visual ONNX no disparó nada (coherente con NOT READY).
 
+## Corpus Android en dispositivo real (2026-11-04, selene/MIUI)
+
+| Superficie | Esperado | Emitido | Lectura |
+|---|---|---|---|
+| Chrome → `scam-test.html` (adb reverse) | warn | `URGENT_ACTION, PAYMENT_REQUEST, CREDENTIAL_REQUEST` → evento `and-d7ebeeaba9f7` en API | **Pipeline completo verificado en hardware real**: árbol a11y → señales → evento → API. |
+| YouTube home | silencio | — | Correcto: ninguna señal en app benigna. |
+| Telegram | skip | — | Escudo sensible: la app se omite entera, ni siquiera se extrae. |
+| WhatsApp (foreground previo) | skip | — | Idem — chat names visibles solo vía uiautomator (herramienta OS), nunca por el servicio. |
+| Superficie no navegador (tour previo) | señales si patrón | `PRIZE_LOTTERY_CLAIM, PAYMENT_REQUEST` → `and-7061192c4748` | Emisión real previa — probablemente un anuncio/superficie legítima con forma de premio. **Posible FP real en producción**: vigilar. |
+
+## Hallazgos operativos del dispositivo real
+
+1. **MIUI mata el servicio de accesibilidad** (`died: cch+10 CAC`) y Android lo
+   aparca en "crashed" sin re-vincular — la protección queda inerte en
+   silencio. Corregido: el servicio firma su pid al vincularse y la app
+   detecta "habilitado pero muerto" → estado "Se detuvo" + remedio de
+   batería (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, diálogo del SO).
+2. **MIUI limpia `enabled_accessibility_services` en force-stop** — mismo
+   estado detectado y guiado por la nueva pantalla.
+3. **Sesión OIDC muere tras reiniciar Keycloak dev** → `emit failed:
+   SignedOut` silencioso. Gap real: el usuario no se entera — pendiente
+   notificación de sesión expirada. Mitigado en dev con dev-session.
+4. CPU del proceso observer+app: ~22.7s en ~45min de vida (incluye uso de
+   UI). Drain real de batería pendiente: requiere medición desconectado.
+
 ## Verificación del votante remoto (Baseten, 2026-07-25)
 
 Instancia aparte en `:8788` (`SOVIR_HTTP_EGRESS=real`, allowlist

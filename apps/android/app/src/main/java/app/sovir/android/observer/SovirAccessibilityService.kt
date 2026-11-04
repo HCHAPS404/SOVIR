@@ -33,6 +33,12 @@ class SovirAccessibilityService : AccessibilityService() {
         Auth.init(applicationContext)
         PhoneLink.init(applicationContext)
         AppExclusions.init(applicationContext)
+        PhoneLink.markObserverBound()
+    }
+
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        PhoneLink.markObserverUnbound()
+        return super.onUnbind(intent)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -94,6 +100,7 @@ class SovirAccessibilityService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        PhoneLink.markObserverUnbound()
         executor.shutdownNow()
         super.onDestroy()
     }

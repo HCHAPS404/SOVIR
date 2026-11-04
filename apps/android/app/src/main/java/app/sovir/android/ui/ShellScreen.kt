@@ -56,8 +56,16 @@ enum class Tab(val label: String, val icon: ImageVector, val tag: String) {
 }
 
 /** What this phone can actually observe right now — read from the OS + grant. */
-data class Coverage(val observerOs: Boolean, val uploadAllowed: Boolean, val grantExpiresAt: Long, val notifications: Boolean) {
-    val observing get() = observerOs && uploadAllowed
+data class Coverage(
+    val observerOs: Boolean,
+    val observerAlive: Boolean,
+    val uploadAllowed: Boolean,
+    val grantExpiresAt: Long,
+    val notifications: Boolean,
+) {
+    /** Toggle enabled but the service is dead (OEM killed it) — needs re-activation. */
+    val observerInterrupted get() = observerOs && !observerAlive
+    val observing get() = observerOs && observerAlive && uploadAllowed
 }
 
 @Composable
@@ -66,6 +74,7 @@ fun currentCoverage(@Suppress("UNUSED_PARAMETER") tick: Int = 0): Coverage {
     resumeTick() // re-read after returning from system settings
     return Coverage(
         observerOs = isObserverEnabled(ctx),
+        observerAlive = PhoneLink.observerAlive(),
         uploadAllowed = PhoneLink.uploadAllowed(),
         grantExpiresAt = PhoneLink.grantExpiresAt,
         notifications = notificationsAllowed(ctx),

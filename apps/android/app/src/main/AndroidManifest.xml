@@ -14,6 +14,10 @@
     <!-- Solo para que el sondeo periódico de alertas (JobScheduler.setPersisted)
          sobreviva a un reinicio. No arranca ningún servicio propio al encender. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Diálogo del SO (no lectura ni captura): eximir a SOVIR del ahorro
+         agresivo de batería. Necesario en MIUI/otros OEM que matan el proceso
+         del servicio de accesibilidad y dejan la protección inerte. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Visibilidad de paquetes (Android 11+): solo los paquetes sensibles
          que conocemos — sin esto getInstalledPackages devuelve lista vacía

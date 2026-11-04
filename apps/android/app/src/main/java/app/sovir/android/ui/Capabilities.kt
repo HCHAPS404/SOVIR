@@ -40,6 +40,30 @@ fun openAccessibilitySettings(ctx: Context) {
     ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
+/** Battery exemption state — aggressive OEM savers (MIUI) kill a11y services. */
+fun batterySaverExempt(ctx: Context): Boolean =
+    (ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager)
+        .isIgnoringBatteryOptimizations(ctx.packageName)
+
+/** System dialog asking to exempt this app from battery optimizations. */
+fun requestBatteryExemption(ctx: Context) {
+    runCatching {
+        ctx.startActivity(
+            Intent(
+                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:${ctx.packageName}"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }.onFailure { openAppDetails(ctx) }
+}
+
+fun openAppDetails(ctx: Context) {
+    ctx.startActivity(
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+    )
+}
+
 fun openNotificationSettings(ctx: Context) {
     val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
         .putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName)

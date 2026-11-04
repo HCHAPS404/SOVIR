@@ -31,6 +31,29 @@ object PhoneLink {
     val grantId: String? get() = prefs.getString("grant_id", null)
     val grantExpiresAt: Long get() = prefs.getLong("grant_expires_at", 0)
 
+    // Observer liveness. `enabled_accessibility_services` only says the OS
+    // toggle is on — it does NOT say the service is bound: when the system
+    // (e.g. MIUI battery) kills our process, Android parks the service in
+    // "crashed" and it never observes again until re-toggled. The service
+    // stamps its own pid on bind; a flag written by a dead process cannot
+    // equal this process's pid, so a stale flag can never fake aliveness.
+    fun markObserverBound() {
+        prefs.edit()
+            .putBoolean("observer_bound", true)
+            .putInt("observer_pid", android.os.Process.myPid())
+            .apply()
+    }
+
+    fun markObserverUnbound() {
+        prefs.edit().putBoolean("observer_bound", false).apply()
+    }
+
+    /** OS toggle on AND the service is actually bound in this live process. */
+    fun observerAlive(): Boolean =
+        ::prefs.isInitialized &&
+            prefs.getBoolean("observer_bound", false) &&
+            prefs.getInt("observer_pid", -1) == android.os.Process.myPid()
+
     fun uploadAllowed(now: Long = System.currentTimeMillis()) =
         ::prefs.isInitialized && grantId != null && grantExpiresAt > now && Auth.signedIn.value
 
