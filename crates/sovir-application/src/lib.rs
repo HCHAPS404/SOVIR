@@ -7,8 +7,8 @@ use sovir_domain::{
     DeliveryState, Device, DomainError, EventDecision, EventFeedback, FeedbackVerdict,
     InferenceRequest, InferenceVerdict, IntelIndicator, Intervention, Investigation,
     InvestigationFact, InvestigationFactKind, ObservedEvent, Platform, Principal, RiskLevel, Scope,
-    SequencePattern, Session, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS, MAX_INVESTIGATION_EVENTS,
-    MAX_INVESTIGATION_WINDOW_MS,
+    SequencePattern, Session, SignalPrecisionRow, WebhookEndpoint, MAX_DELIVERY_ATTEMPTS,
+    MAX_INVESTIGATION_EVENTS, MAX_INVESTIGATION_WINDOW_MS,
 };
 use sovir_ports::{
     AuditLog, BudgetLedger, Clock, ConsentRepository, DeletionReceiptStore, DeliveryChannel,
@@ -765,6 +765,22 @@ impl SovirService {
         })
     }
 
+    /// H7 measurement read-model: per-signal precision joined with the
+    /// principal's own human labels. Read-only; it never alters policy.
+    pub async fn signal_precision(
+        &self,
+        principal: &Principal,
+    ) -> Result<Vec<SignalPrecisionRow>, AppError> {
+        let events = self
+            .events
+            .list_recent(&principal.tenant_id, &principal.principal_id, 0)
+            .await?;
+        let feedback = self
+            .events
+            .list_feedback(&principal.tenant_id, &principal.principal_id)
+            .await?;
+        Ok(sovir_domain::signal_precision(&events, &feedback))
+    }
     /// Eval loop (B3): records the principal's own human verdict on an
     /// event. The port refuses labels on foreign/missing events — in
     /// Postgres the check is atomic (`INSERT ... WHERE EXISTS`), so there

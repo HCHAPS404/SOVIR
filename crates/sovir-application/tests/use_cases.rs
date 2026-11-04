@@ -625,6 +625,52 @@ async fn device_revocation_expires_pending_interventions() {
     }
 }
 
+// ---- H7 precision read-model: signals joined to human labels ----
+
+#[tokio::test]
+async fn signal_precision_joins_labels_to_signals() {
+    let service = service();
+    let p = principal("p-prec");
+    service.grant(&p, grant()).await.unwrap();
+    let mut a = event();
+    a.event_id = "prec-a".into();
+    a.content_digest = "sha256:pa".into();
+    a.signals = vec![RiskSignal::PaymentRequest];
+    service.ingest(&p, a).await.unwrap();
+    let mut b = event();
+    b.event_id = "prec-b".into();
+    b.content_digest = "sha256:pb".into();
+    b.signals = vec![RiskSignal::PaymentRequest, RiskSignal::UrgentAction];
+    service.ingest(&p, b).await.unwrap();
+    service
+        .record_feedback(&p, "prec-a", sovir_domain::FeedbackVerdict::FalsePositive)
+        .await
+        .unwrap();
+    service
+        .record_feedback(&p, "prec-b", sovir_domain::FeedbackVerdict::Correct)
+        .await
+        .unwrap();
+    let rows = service.signal_precision(&p).await.unwrap();
+    let pay = rows
+        .iter()
+        .find(|r| r.signal == "PAYMENT_REQUEST")
+        .expect("payment_request row");
+    assert_eq!(pay.events_observed, 2);
+    assert_eq!(pay.labeled_false_positive, 1);
+    assert_eq!(pay.labeled_correct, 1);
+    let urg = rows
+        .iter()
+        .find(|r| r.signal == "URGENT_ACTION")
+        .expect("urgency row");
+    assert_eq!(urg.events_observed, 1);
+    assert_eq!(urg.labeled_correct, 1);
+    // A label on a foreign event id attaches nowhere.
+    service
+        .record_feedback(&p, "ghost", sovir_domain::FeedbackVerdict::Correct)
+        .await
+        .ok();
+}
+
 // ---- H4 correlation eval: linked, ambiguously-unlinked, unprovable-order ----
 
 #[tokio::test]

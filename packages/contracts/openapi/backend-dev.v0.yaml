@@ -193,6 +193,15 @@ components:
         cap_usd: {type: number}
         spent_usd: {type: number}
         remaining_usd: {type: number}
+    SignalPrecisionRow:
+      type: object
+      required: [signal, events_observed, labeled_correct, labeled_false_positive, labeled_unsure]
+      properties:
+        signal: {type: string, description: Typed signal name (e.g. PAYMENT_REQUEST)}
+        events_observed: {type: integer, format: int64}
+        labeled_correct: {type: integer, format: int64}
+        labeled_false_positive: {type: integer, format: int64}
+        labeled_unsure: {type: integer, format: int64}
     InferenceRequestBody:
       type: object
       description: >-
@@ -434,6 +443,12 @@ paths:
       summary: Tenant inference budget — cap, settled spend and remaining (USD and micro-USD)
       responses:
         '200': {description: Budget view, content: {application/json: {schema: {$ref: '#/components/schemas/BudgetView'}}}}
+        '401': {description: Unauthorized}
+  /v1/me/precision:
+    get:
+      summary: Per-signal precision joined with the caller's own labels (H7 read-model; never feeds policy)
+      responses:
+        '200': {description: Precision rows, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/SignalPrecisionRow'}}}}}
         '401': {description: Unauthorized}
   /v1/me/data:
     get:

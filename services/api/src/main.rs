@@ -1208,6 +1208,19 @@ async fn me_budget(
         remaining_usd: remaining as f64 / M,
     }))
 }
+/// H7 read-model: per-signal precision vs the caller's own labels.
+async fn me_precision(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<sovir_domain::SignalPrecisionRow>>, ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    Ok(Json(
+        s.service
+            .signal_precision(&p)
+            .await
+            .map_err(|e| map_error(e, &headers))?,
+    ))
+}
 async fn purge_data(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -1259,6 +1272,7 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/interventions/dispatch", post(dispatch))
         .route("/v1/me/data", get(export_data).delete(purge_data))
         .route("/v1/me/budget", get(me_budget))
+        .route("/v1/me/precision", get(me_precision))
         .route("/v1/me/audit", get(list_audit))
         .route("/v1/inference/assess", post(assess_inference))
         .route("/v1/intel/pull", post(pull_intel))

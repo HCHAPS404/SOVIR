@@ -251,6 +251,57 @@ pub struct EventFeedback {
     pub labeled_at_ms: u64,
 }
 
+/// Per-signal precision read-model (H7 measurement only — it NEVER feeds
+/// policy). Joins observed signals with human labels by event: each row
+/// answers "when this signal appeared, what did the human later say?".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalPrecisionRow {
+    pub signal: String,
+    pub events_observed: u64,
+    pub labeled_correct: u64,
+    pub labeled_false_positive: u64,
+    pub labeled_unsure: u64,
+}
+
+/// Pure join: events ↔ feedback by event_id. Labels on unknown or
+/// foreign events count nowhere — they cannot inflate a signal.
+pub fn signal_precision(
+    events: &[ObservedEvent],
+    feedback: &[EventFeedback],
+) -> Vec<SignalPrecisionRow> {
+    let known: std::collections::BTreeMap<&str, &ObservedEvent> =
+        events.iter().map(|e| (e.event_id.as_str(), e)).collect();
+    let mut labels: std::collections::BTreeMap<&str, &FeedbackVerdict> =
+        std::collections::BTreeMap::new();
+    for f in feedback {
+        if known.contains_key(f.event_id.as_str()) {
+            labels.insert(f.event_id.as_str(), &f.verdict);
+        }
+    }
+    let mut rows: std::collections::BTreeMap<String, SignalPrecisionRow> =
+        std::collections::BTreeMap::new();
+    for e in events {
+        for s in &e.signals {
+            let name = risk_signal_label(*s).to_string();
+            let row = rows.entry(name.clone()).or_insert(SignalPrecisionRow {
+                signal: name,
+                events_observed: 0,
+                labeled_correct: 0,
+                labeled_false_positive: 0,
+                labeled_unsure: 0,
+            });
+            row.events_observed += 1;
+            match labels.get(e.event_id.as_str()) {
+                Some(FeedbackVerdict::Correct) => row.labeled_correct += 1,
+                Some(FeedbackVerdict::FalsePositive) => row.labeled_false_positive += 1,
+                Some(FeedbackVerdict::Unsure) => row.labeled_unsure += 1,
+                _ => {}
+            }
+        }
+    }
+    rows.into_values().collect()
+}
+
 /// Durable audit tombstone produced by erasure. Carries only counts and the
 /// pseudonymous principal id — never payloads. Retained after purge so the
 /// deletion itself is auditable.
