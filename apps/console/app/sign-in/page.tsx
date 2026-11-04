@@ -13,6 +13,29 @@ const ERROR_KEYS: Record<string, keyof Strings["signin"]["errors"]> = {
   oidc_token: "oidcToken",
 };
 
+function DevSessionForm({ s }: { s: Strings }) {
+  return (
+    <form className="register-email" action="/bff/session" method="post">
+      <label>
+        {s.signin.inputLabel}
+        <input
+          name="principal"
+          type="text"
+          required
+          minLength={1}
+          maxLength={40}
+          pattern="[A-Za-z0-9._\-\s]+"
+          placeholder={s.signin.placeholder}
+          autoComplete="username"
+        />
+      </label>
+      <button className="button secondary" type="submit">
+        {s.signin.button}
+      </button>
+    </form>
+  );
+}
+
 export default async function SignInPage({
   searchParams,
 }: {
@@ -33,32 +56,26 @@ export default async function SignInPage({
         <h1>{s.signin.title}</h1>
         {note ? <p role="alert">{note}</p> : null}
         <p>{s.signin.sub}</p>
-        <form className="register-email" action="/bff/session" method="post">
-          <label>
-            {s.signin.inputLabel}
-            <input
-              name="principal"
-              type="text"
-              required
-              minLength={1}
-              maxLength={40}
-              pattern="[A-Za-z0-9._\-\s]+"
-              placeholder={s.signin.placeholder}
-              autoComplete="username"
-            />
-          </label>
-          <button className="button" type="submit">
-            {s.signin.button}
-          </button>
-        </form>
         {oidc ? (
-          <form className="register-email" action="/bff/auth/oidc/login" method="get">
-            <button className="button secondary" type="submit">
-              {s.signin.oidcButton}
-            </button>
-          </form>
-        ) : null}
-        <p className="register-note">{s.signin.note}</p>
+          <>
+            <form className="register-email" action="/bff/auth/oidc/login" method="get">
+              <button className="button" type="submit">
+                {s.signin.oidcButton}
+              </button>
+            </form>
+            <p className="oidc-hint">{s.signin.oidcHint}</p>
+            <details className="dev-mode">
+              <summary>{s.signin.devMode}</summary>
+              <DevSessionForm s={s} />
+              <p className="register-note">{s.signin.note}</p>
+            </details>
+          </>
+        ) : (
+          <>
+            <DevSessionForm s={s} />
+            <p className="register-note">{s.signin.note}</p>
+          </>
+        )}
       </div>
     </main>
   );

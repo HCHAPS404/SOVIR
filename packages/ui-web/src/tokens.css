@@ -1524,6 +1524,24 @@ a.button.secondary:hover {
   font-size: 0.82rem;
 }
 .register-note a { color: var(--register-ink); }
+.oidc-hint {
+  margin: 0.65rem 0 0;
+  color: var(--register-muted);
+  font-size: 0.82rem;
+}
+.dev-mode {
+  margin-top: 1.4rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--register-line);
+}
+.dev-mode summary {
+  cursor: pointer;
+  color: var(--register-muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+}
+.dev-mode[open] summary { margin-bottom: 0.9rem; }
+.dev-mode .register-note { margin-top: 1.1rem; padding-top: 0.9rem; border-top: none; }
 .access-stack { width: min(26rem, 100%); }
 .dev-profile { margin: 0.85rem 0 0; }
 .dev-profile button {

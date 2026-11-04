@@ -1,14 +1,16 @@
 import { SiteFrame } from "../../components/SiteFrame";
 
-export const metadata = { title: "Precios" };
+export const metadata = { title: "Próximamente" };
 
 export default function PricingPage() {
   return (
     <SiteFrame current="/pricing">
       <article>
-        <h1>No hay precios publicados</h1>
+        <p className="kicker">Precios</p>
+        <h1>Próximamente</h1>
         <p className="lede">
-          Personal, Plus y Enterprise siguen como hipótesis. Esta página no muestra cifras, planes ni botones de pago.
+          Todavía no hay planes ni plataforma de pagos. SOVIR está en pruebas con las personas que ya
+          crearon su cuenta — cuando haya algo que cobrar, esta página dirá qué y por qué.
         </p>
       </article>
     </SiteFrame>

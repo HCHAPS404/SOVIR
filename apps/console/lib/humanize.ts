@@ -65,7 +65,12 @@ export function describeIntervention(i: {
   state: string;
   event_id: string;
 }): { title: string; what: string; state: string } {
-  const title = i.kind === "warn_banner" ? "Alerta de protección" : `Acción ${i.kind}`;
+  const KIND_TITLES: Record<string, string> = {
+    warn_banner: "Alerta de protección",
+    require_review: "Revisión sugerida",
+    notify: "Aviso",
+  };
+  const title = KIND_TITLES[i.kind] ?? "Aviso de protección";
   const prefix = i.event_id.split("-")[0];
   const what =
     prefix === "pay"

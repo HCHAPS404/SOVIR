@@ -189,8 +189,9 @@ export const siteNav: SiteEntry[] = [
       },
     ],
   },
+  { kind: "link", href: "/download", label: "Descarga" },
   { kind: "link", href: "/enterprise", label: "Organizaciones" },
-  { kind: "link", href: "/pricing", label: "Precios" },
+  { kind: "link", href: "/pricing", label: "Próximamente" },
 ];
 
 export const landingStages = [

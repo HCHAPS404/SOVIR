@@ -38,6 +38,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   IMPULSE_FUNNEL: "Te empuja a comprar sin pensar",
   DOOM_REINFORCEMENT: "Contenido fatalista en cadena",
   INSECURITY_EXPLOITATION: "Usa inseguridades para venderte",
+  VISUAL_BRAND_MATCH: "Logo de marca en dominio ajeno (confirmado)",
 };
 
 export interface WeeklyDigest {

@@ -9,6 +9,6 @@ export const LOCALE_NAMES: Record<Locale, string> = {
   fr: "Français",
   it: "Italiano",
   de: "Deutsch",
-  ja: "",
-  zh: "",
+  ja: "日本語",
+  zh: "中文",
 };

@@ -3,6 +3,10 @@ import { HeroField } from "../components/HeroField";
 import { LandingScroll } from "../components/LandingScroll";
 import { PlatformIcon } from "../components/PlatformIcon";
 import { SiteFrame } from "../components/SiteFrame";
+import { ThreatSequence } from "../components/ThreatSequence";
+import { TesterCounter } from "../components/TesterCounter";
+import { PhotoSpot } from "../components/PhotoSpot";
+import { BrowserFrame, ConsoleIncidents, ExtensionPopup } from "../components/AppScreens";
 import { downloads } from "../lib/downloads";
 import { landingReadings, landingStages, pages } from "../lib/content";
 
@@ -63,6 +67,34 @@ export default function HomePage() {
       </section>
 
       <LandingScroll>
+        <section className="sheet beat" data-beat aria-labelledby="envivo">
+          <header className="block-head line">
+            <h2 id="envivo">Cuando algo intenta engañarte</h2>
+            <p>Un mensaje entra. SOVIR decide en el teléfono y te dice por qué.</p>
+          </header>
+          <div className="stage-composition line">
+            <div className="stage-browser">
+              <BrowserFrame url="hell.taile32c7d.ts.net — avisos">
+                <ConsoleIncidents />
+              </BrowserFrame>
+            </div>
+            <div className="stage-phone">
+              <ThreatSequence />
+            </div>
+            <div className="stage-ext">
+              <ExtensionPopup />
+            </div>
+          </div>
+        </section>
+
+        <section className="sheet beat" data-beat aria-labelledby="testers">
+          <header className="block-head line">
+            <h2 id="testers">Quienes ya lo prueban</h2>
+            <p>Gente real le está dando una oportunidad.</p>
+          </header>
+          <TesterCounter />
+        </section>
+
         <section className="sheet beat" data-beat aria-labelledby="recorrido">
           <header className="block-head line">
             <h2 id="recorrido">El recorrido</h2>
@@ -194,6 +226,33 @@ export default function HomePage() {
                 <small>{item.note}</small>
               </Link>
             ))}
+          </div>
+        </section>
+
+        <section className="sheet beat" data-beat aria-labelledby="diario">
+          <header className="block-head line">
+            <h2 id="diario">En el día a día</h2>
+            <p>Protección que se nota solo cuando hace falta.</p>
+          </header>
+          <div className="photo-grid line">
+            <PhotoSpot
+              shot="mano-teléfono-café"
+              caption="El aviso llega donde estás."
+              alt="Persona revisando un aviso de SOVIR en su teléfono en una mesa de café"
+              ratio="3 / 4"
+            />
+            <PhotoSpot
+              shot="escritorio-portátil"
+              caption="En la consola, el porqué completo."
+              alt="Escritorio con portátil mostrando la consola de SOVIR"
+              ratio="3 / 4"
+            />
+            <PhotoSpot
+              shot="teléfono-calle"
+              caption="También en la calle, sin ruido."
+              alt="Persona caminando con el teléfono en la mano y un aviso visible"
+              ratio="3 / 4"
+            />
           </div>
         </section>
 

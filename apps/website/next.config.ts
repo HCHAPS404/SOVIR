@@ -7,6 +7,17 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@sovir/ui-web"],
   poweredByHeader: false,
   allowedDevOrigins: ["127.0.0.1"],
+  async rewrites() {
+    // Same-origin /api for the public counter. On the funnel, Tailscale
+    // serves /api before this app sees it; in dev, proxy to the local API.
+    return [
+      {
+        source: "/api/:path*",
+        destination: "http://127.0.0.1:8787/:path*",
+        basePath: false,
+      },
+    ];
+  },
   async redirects() {
     return [
       { source: "/download/ios", destination: "/download/apple", permanent: false },

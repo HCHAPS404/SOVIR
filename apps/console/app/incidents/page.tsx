@@ -144,11 +144,6 @@ export default async function IncidentsPage() {
                   </button>
                 </form>
               ) : null}
-              <form action={emitSequencePair}>
-                <button className="btn-op" type="submit">
-                  Probar un aviso de ejemplo
-                </button>
-              </form>
             </div>
           </header>
 

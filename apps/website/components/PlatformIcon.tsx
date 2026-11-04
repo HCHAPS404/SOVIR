@@ -4,7 +4,41 @@ const frame = { viewBox: "0 0 24 24", "aria-hidden": true as const };
 
 export function PlatformIcon({ id }: { id: DownloadId }) {
   if (id === "windows") return <WindowsMark />;
+  if (id === "android") return <AndroidMark />;
+  if (id === "extension") return <ExtensionMark />;
   return <AppleMark />;
+}
+
+// Official Android robot: antennae + dome head with eyes + capsule arms + body + legs.
+function AndroidMark() {
+  return (
+    <svg {...frame} viewBox="0 0 24 24">
+      <path
+        fill="#3DDC84"
+        d="m8.1 5.2-1-1.75a.28.28 0 0 1 .1-.38.28.28 0 0 1 .38.1l1.05 1.8a5.6 5.6 0 0 1 6.74 0l1.05-1.8a.28.28 0 0 1 .38-.1.28.28 0 0 1 .1.38l-1 1.75A5.25 5.25 0 0 1 17.2 9H6.8a5.25 5.25 0 0 1 1.3-3.8Zm1.6 1.9a.72.72 0 1 0 0-1.44.72.72 0 0 0 0 1.44Zm4.6 0a.72.72 0 1 0 0-1.44.72.72 0 0 0 0 1.44Z"
+      />
+      <path
+        fill="#3DDC84"
+        d="M3.6 10.1a.95.95 0 0 1 1.9 0v4.9a.95.95 0 0 1-1.9 0v-4.9Zm14.9 0a.95.95 0 0 1 1.9 0v4.9a.95.95 0 0 1-1.9 0v-4.9Z"
+      />
+      <path
+        fill="#3DDC84"
+        d="M6.4 10.1h11.2v6.2c0 .41-.34.75-.75.75h-1.1v2.5a.95.95 0 0 1-1.9 0v-2.5h-3.8v2.5a.95.95 0 0 1-1.9 0v-2.5h-1.1a.75.75 0 0 1-.75-.75v-6.2Z"
+      />
+    </svg>
+  );
+}
+
+function ExtensionMark() {
+  return (
+    <svg {...frame}>
+      <path
+        fill="currentColor"
+        d="M13.5 3a2.5 2.5 0 0 0-2.5 2.5V7H7.5A2.5 2.5 0 0 0 5 9.5V13h1.5a2.5 2.5 0 1 1 0 5H5v1.5A2.5 2.5 0 0 0 7.5 22H11v-1.5a2.5 2.5 0 1 1 5 0V22h1.5a2.5 2.5 0 0 0 2.5-2.5V16h-1.5a2.5 2.5 0 1 1 0-5H20V9.5A2.5 2.5 0 0 0 17.5 7H16V5.5A2.5 2.5 0 0 0 13.5 3Z"
+        transform="translate(-1.5 -1) scale(0.95)"
+      />
+    </svg>
+  );
 }
 
 function AppleMark() {

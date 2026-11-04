@@ -43,7 +43,7 @@ export interface Strings {
   };
   signin: {
     title: string; sub: string; inputLabel: string; placeholder: string;
-    button: string; oidcButton: string; note: string;
+    button: string; oidcButton: string; oidcHint: string; devMode: string; note: string;
     errors: {
       backend: string; session: string; name: string;
       oidcDenied: string; oidcState: string; oidcExchange: string; oidcToken: string;
@@ -91,6 +91,8 @@ const es: Strings = {
     placeholder: "p. ej. Ana",
     button: "Entrar a mi panel",
     oidcButton: "Entrar con mi cuenta",
+    oidcHint: "¿Primera vez? Creas tu cuenta con contraseña en el paso siguiente.",
+    devMode: "Entorno de desarrollo",
     note: "Cada nombre tiene su propio espacio privado de avisos, dispositivos y permisos. Entorno local de demostración (sesión aislada en httpOnly, sin contraseñas ni envío de datos a terceros).",
     errors: {
       backend: "El servicio local de SOVIR no está encendido en 127.0.0.1:8787.",
@@ -177,6 +179,8 @@ const en: Strings = {
     placeholder: "e.g. Ana",
     button: "Enter my panel",
     oidcButton: "Sign in with my account",
+    oidcHint: "First time? You create your password-protected account in the next step.",
+    devMode: "Development environment",
     note: "Each name gets its own private space of alerts, devices and permissions. Local demo environment (isolated httpOnly session, no passwords, no data sent to third parties).",
     errors: {
       backend: "SOVIR's local service is not running on 127.0.0.1:8787.",
@@ -262,6 +266,8 @@ const pt: Strings = {
     placeholder: "p. ex. Ana",
     button: "Entrar no meu painel",
     oidcButton: "Entrar com a minha conta",
+    oidcHint: "Primeira vez? Cria a sua conta com palavra-passe no passo seguinte.",
+    devMode: "Ambiente de desenvolvimento",
     note: "Cada nome tem o seu próprio espaço privado de avisos, dispositivos e permissões. Ambiente local de demonstração (sessão isolada em httpOnly, sem senhas nem envio de dados a terceiros).",
     errors: {
       backend: "O serviço local do SOVIR não está ativo em 127.0.0.1:8787.",
@@ -348,6 +354,8 @@ const fr: Strings = {
     placeholder: "p. ex. Ana",
     button: "Entrer dans mon panneau",
     oidcButton: "Me connecter avec mon compte",
+    oidcHint: "Première fois ? Vous créez votre compte avec mot de passe à l’étape suivante.",
+    devMode: "Environnement de développement",
     note: "Chaque nom possède son espace privé d'alertes, d'appareils et d'autorisations. Environnement local de démonstration (session isolée en httpOnly, sans mots de passe ni envoi de données à des tiers).",
     errors: {
       backend: "Le service local SOVIR n'est pas actif sur 127.0.0.1:8787.",
@@ -434,6 +442,8 @@ const it: Strings = {
     placeholder: "es. Ana",
     button: "Entra nel mio pannello",
     oidcButton: "Accedi con il mio account",
+    oidcHint: "Prima volta? Crei il tuo account con password al passo successivo.",
+    devMode: "Ambiente di sviluppo",
     note: "Ogni nome ha il suo spazio privato di avvisi, dispositivi e permessi. Ambiente demo locale (sessione isolata in httpOnly, senza password né invio di dati a terzi).",
     errors: {
       backend: "Il servizio locale SOVIR non è attivo su 127.0.0.1:8787.",
@@ -520,6 +530,8 @@ const de: Strings = {
     placeholder: "z. B. Ana",
     button: "Mein Panel öffnen",
     oidcButton: "Mit meinem Konto anmelden",
+    oidcHint: "Zum ersten Mal? Im nächsten Schritt erstellen Sie Ihr Konto mit Passwort.",
+    devMode: "Entwicklungsumgebung",
     note: "Jeder Name hat seinen privaten Bereich für Warnungen, Geräte und Berechtigungen. Lokale Demo-Umgebung (isolierte httpOnly-Session, keine Passwörter, keine Daten an Dritte).",
     errors: {
       backend: "Der lokale SOVIR-Dienst läuft nicht auf 127.0.0.1:8787.",
@@ -606,6 +618,8 @@ const ja: Strings = {
     placeholder: "例：アナ",
     button: "マイパネルに入る",
     oidcButton: "アカウントでサインイン",
+    oidcHint: "初めての方は次のステップでパスワード付きアカウントを作成します。",
+    devMode: "開発環境",
     note: "名前ごとに、警告・デバイス・許可のプライベートなスペースがあります。ローカルのデモ環境です（httpOnlyの分離セッション、パスワード不要、第三者へのデータ送信なし）。",
     errors: {
       backend: "SOVIRのローカルサービスが127.0.0.1:8787で動作していません。",
@@ -689,6 +703,8 @@ const zh: Strings = {
     placeholder: "例如 Ana",
     button: "进入我的面板",
     oidcButton: "使用我的账户登录",
+    oidcHint: "首次使用？您将在下一步创建带密码的账户。",
+    devMode: "开发环境",
     note: "每个名字都有自己私密的提醒、设备和权限空间。本地演示环境（httpOnly隔离会话，无密码，不向第三方发送数据）。",
     errors: {
       backend: "SOVIR本地服务未在127.0.0.1:8787上运行。",
