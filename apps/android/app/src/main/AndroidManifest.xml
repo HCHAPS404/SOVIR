@@ -15,6 +15,35 @@
          sobreviva a un reinicio. No arranca ningún servicio propio al encender. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Visibilidad de paquetes (Android 11+): solo los paquetes sensibles
+         que conocemos — sin esto getInstalledPackages devuelve lista vacía
+         y la UI de exenciones no detecta nada. Nombrados, no QUERY_ALL_PACKAGES. -->
+    <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <package android:name="com.instagram.android" />
+        <package android:name="com.facebook.katana" />
+        <package android:name="com.facebook.orca" />
+        <package android:name="org.telegram.messenger" />
+        <package android:name="com.zhiliaoapp.musically" />
+        <package android:name="com.twitter.android" />
+        <package android:name="com.snapchat.android" />
+        <package android:name="org.thoughtcrime.securesms" />
+        <package android:name="com.bbva.bbvacontigo" />
+        <package android:name="es.bancosantander.apps" />
+        <package android:name="es.caixabank.MobilePhone" />
+        <package android:name="com.bancsabadell.BSApp" />
+        <package android:name="com.ingdirect.b2c" />
+        <package android:name="com.revolut.revolut" />
+        <package android:name="de.number26.android" />
+        <package android:name="com.transferwise.android" />
+        <package android:name="com.paypal.android.p2pmobile" />
+        <package android:name="com.mercadopago.wallet" />
+        <package android:name="com.binance.dev" />
+        <package android:name="com.coinbase.android" />
+        <package android:name="com.kraken.invest" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
