@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Funnel serves the marketing site under /web — assets and routes must
+  // carry the prefix or /_next/* hits the console app instead.
+  basePath: "/web",
   transpilePackages: ["@sovir/ui-web"],
   poweredByHeader: false,
   allowedDevOrigins: ["127.0.0.1"],
