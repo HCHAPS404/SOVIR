@@ -351,6 +351,45 @@ pub struct InferenceRequest {
     pub text_hint: Option<String>,
 }
 
+/// Typed explanation request (A1): asks an explainer to turn typed
+/// signals + policy reasons into bounded human language. Carries NO raw
+/// content — remote explainers see the same field-by-field discipline
+/// as remote inference (typed signals only, never text_hint/digests).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplanationRequest {
+    /// Egress-safe correlation id (no tenant/user identity).
+    pub request_id: String,
+    pub signals: Vec<RiskSignal>,
+    /// Deterministic policy reasons already attached to the decision —
+    /// explainers may weave them in, never contradict them.
+    #[serde(default)]
+    pub reasons: Vec<String>,
+    /// Same gate as inference: remote explainers serve Standard only —
+    /// Private filters them out of the chain before any egress.
+    #[serde(default = "default_privacy_standard")]
+    pub privacy: PrivacyMode,
+    /// BCP-47-ish output language; "es" and "en" supported.
+    #[serde(default = "default_lang")]
+    pub lang: String,
+}
+fn default_lang() -> String {
+    "es".to_string()
+}
+fn default_privacy_standard() -> PrivacyMode {
+    PrivacyMode::Standard
+}
+/// Bounded explanation result. `text` is presentation language marked
+/// with its generation provenance — policy never consumes it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Explanation {
+    pub text: String,
+    /// "local_template" | "explain/<label>:<host>" — honest provenance.
+    pub provenance: String,
+    pub model_id: String,
+    #[serde(default)]
+    pub usage: Option<ReportedUsage>,
+}
+
 /// Provider-reported metering for one verdict (B21 honest accounting).
 /// Optional — providers without usage fields carry None and the
 /// reservation settles at the configured estimate. Local voters report

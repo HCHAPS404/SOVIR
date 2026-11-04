@@ -2651,6 +2651,242 @@ impl InferenceGateway for FallbackInferenceGateway {
         self.providers.iter().any(|(_, g)| g.serves(mode))
     }
 }
+/// Human-language explanation adapters (A1). Typed signals/reasons in,
+/// bounded presentation text out — the text is user-facing language,
+/// never a typed hypothesis, and policy never consumes it. The remote
+/// explainer carries the same field-by-field envelope discipline as
+/// remote inference: signals and reasons only, no text_hint, no
+/// digests, no identities.
+///
+/// Spanish signal phrases for the deterministic local template. Kept
+/// adapter-side (like `risk_signal_label` is domain-side): presentation
+/// language for users, not taxonomy truth.
+fn signal_phrase_es(s: sovir_domain::RiskSignal) -> &'static str {
+    use sovir_domain::RiskSignal as R;
+    match s {
+        R::CredentialRequest => "pide tus credenciales o contraseñas",
+        R::PaymentRequest => "pide un pago o transferencia",
+        R::UrgentAction => "presiona para que actúes de inmediato",
+        R::IdentityUnverified => "la identidad del remitente no está verificada",
+        R::TrackingObserved => "contiene rastreo de tu actividad",
+        R::HiddenFeePattern => "oculta cargos que aparecen al pagar",
+        R::ConsentDarkPattern => "usa un patrón oscuro para forzar tu consentimiento",
+        R::UserDefinedExposureLimit => "supera el límite de exposición que definiste",
+        R::LinkDestinationMismatch => "el texto del enlace no coincide con su destino real",
+        R::SuspiciousDomain => "usa un dominio de alto abuso o suplantado",
+        R::ExtortionLanguage => "amenaza con publicar o filtrar si no pagas",
+        R::ScarewareClaim => "finge una infección para asustarte y que actúes",
+        R::PrizeLotteryClaim => "anuncia un premio o sorteo que no pediste",
+        R::InvestmentPromise => "promete rendimientos garantizados irreales",
+        R::GiftCardPayment => "exige pago con tarjetas de regalo o prepago",
+        R::SeedPhraseRequest => "pide tu frase de recuperación o llave privada",
+        R::DeliveryCustomsFee => "cobra una 'cuota de aduana' por un paquete retenido",
+        R::AuthorityImpersonation => "se hace pasar por una autoridad o entidad oficial",
+        R::ScarcityPressure => "usa escasez falsa o cuenta regresiva para presionarte",
+        R::JobScamOffer => "ofrece empleo fácil con pago por adelantado",
+        R::RomanceBait => "mezcla vínculo afectivo con una petición de dinero",
+        R::MiracleCureClaim => "vende una cura milagrosa sin evidencia",
+        R::DataHarvesting => "recolecta más datos personales de los que justifica",
+        R::OffPlatformMove => "quiere sacar la conversación fuera de la plataforma",
+        R::BulkBuyerLure => "ofrece compra inmediata con sobrepago, patrón de estafa",
+        R::QrPresent => "contiene un código QR que puede llevar a un destino malicioso",
+        R::DomBrandMismatch => "presenta una marca conocida desde un dominio que no es suyo",
+    }
+}
+/// Deterministic local explainer: always available, zero egress, used
+/// under Private mode and as the last entry of every remote chain.
+/// Produces one or two clauses — the top signals by the taxonomy's own
+/// order, never more than three so the phrase stays readable.
+pub struct LocalExplainer;
+#[async_trait]
+impl sovir_ports::Explainer for LocalExplainer {
+    async fn explain(
+        &self,
+        req: &sovir_domain::ExplanationRequest,
+    ) -> Result<sovir_domain::Explanation, PortError> {
+        let clauses: Vec<&str> = req
+            .signals
+            .iter()
+            .take(3)
+            .map(|s| signal_phrase_es(*s))
+            .collect();
+        let text = if clauses.is_empty() {
+            "No se detectaron señales claras en este contenido.".to_string()
+        } else {
+            format!(
+                "Este contenido {}. Mantén precaución antes de actuar.",
+                clauses.join(", y además ")
+            )
+        };
+        Ok(sovir_domain::Explanation {
+            text,
+            provenance: "local_template".to_string(),
+            model_id: "sovir-local-explainer-v1".to_string(),
+            usage: Some(sovir_domain::ReportedUsage {
+                tokens_input: 0,
+                tokens_output: 0,
+                cost_micro_usd: Some(0),
+            }),
+        })
+    }
+    fn serves(&self, _mode: sovir_domain::PrivacyMode) -> bool {
+        true
+    }
+}
+/// Remote explanation gateway over OpenAI-compatible chat/completions.
+/// Same wire discipline as `ChatCompletionInferenceGateway`: typed JSON
+/// in, strict JSON out, request_id echoed and verified, usage reported.
+/// The model is instructed to explain the supplied signals ONLY — it
+/// receives no content, so it cannot leak or embellish user data.
+pub struct ChatExplainerGateway {
+    egress: Arc<dyn HttpEgress>,
+    endpoint: String,
+    api_key: String,
+    model_id: String,
+}
+impl ChatExplainerGateway {
+    pub fn new(
+        egress: Arc<dyn HttpEgress>,
+        endpoint: String,
+        api_key: String,
+        model_id: String,
+    ) -> Self {
+        Self {
+            egress,
+            endpoint,
+            api_key,
+            model_id,
+        }
+    }
+}
+/// The explanation JSON the model is instructed to produce.
+#[derive(serde::Deserialize)]
+struct ChatExplanation {
+    request_id: String,
+    #[serde(default)]
+    explanation: String,
+}
+#[async_trait]
+impl sovir_ports::Explainer for ChatExplainerGateway {
+    async fn explain(
+        &self,
+        req: &sovir_domain::ExplanationRequest,
+    ) -> Result<sovir_domain::Explanation, PortError> {
+        if !sovir_domain::egress_safe_identifier(&req.request_id) {
+            return Err(PortError::Unauthorized);
+        }
+        const SYSTEM_PROMPT: &str = "You are the explanation writer for SOVIR, a \
+            privacy-first scam shield. The user message is JSON: {\"request_id\", \
+            \"signals\": [typed risk signals], \"reasons\": [policy reasons], \"lang\"}. \
+            Write ONE short paragraph (max 40 words) in the requested language \
+            explaining to a non-technical user what the signals mean and why \
+            caution is warranted. Explain ONLY the given signals — never invent \
+            content, URLs, brand names or facts. Reply with JSON only: \
+            {\"request_id\": \"<echo exactly>\", \"explanation\": \"<text>\"}.";
+        let body = serde_json::json!({
+            "model": self.model_id,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": serde_json::json!({
+                    "request_id": req.request_id,
+                    "signals": req.signals,
+                    "reasons": req.reasons,
+                    "lang": req.lang,
+                }).to_string()},
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0,
+            "max_tokens": 1024,
+        })
+        .to_string();
+        let headers = vec![
+            (
+                "authorization".to_string(),
+                format!("Bearer {}", self.api_key),
+            ),
+            ("content-type".to_string(), "application/json".to_string()),
+        ];
+        let text = self
+            .egress
+            .post_and_receive(&self.endpoint, &body, &headers)
+            .await?;
+        let resp: ChatCompletionResponse =
+            serde_json::from_str(&text).map_err(|_| PortError::Storage)?;
+        let content = resp
+            .choices
+            .first()
+            .and_then(|c| c.message.content.as_deref())
+            .ok_or(PortError::Unavailable)?;
+        let v: ChatExplanation =
+            serde_json::from_str(strip_code_fence(content)).map_err(|_| PortError::Storage)?;
+        if v.request_id != req.request_id || v.explanation.trim().is_empty() {
+            return Err(PortError::Storage); // unbound or empty → not an answer
+        }
+        // Bound the presentation text: single line, 320 chars max — an
+        // explanation is read by the user, never acted on by policy.
+        let mut t = v.explanation.replace(['\n', '\r'], " ");
+        if t.chars().count() > 320 {
+            t = t.chars().take(320).collect();
+        }
+        let host = sovir_domain::host_of(&self.endpoint).unwrap_or_default();
+        Ok(sovir_domain::Explanation {
+            text: t,
+            provenance: format!("explain:{host}"),
+            model_id: self.model_id.clone(),
+            usage: resp.usage.map(|u| sovir_domain::ReportedUsage {
+                tokens_input: u.prompt_tokens,
+                tokens_output: u.completion_tokens,
+                cost_micro_usd: None,
+            }),
+        })
+    }
+    fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+        mode == sovir_domain::PrivacyMode::Standard
+    }
+}
+/// Ordered explainer fallback chain — same semantics as
+/// `FallbackInferenceGateway`: each provider tried at most once, first
+/// Ok wins, last error returned when all fail. The local template is
+/// normally appended as the final entry so an explanation always exists.
+pub struct FallbackExplainer {
+    providers: Vec<(String, Arc<dyn sovir_ports::Explainer>)>,
+}
+impl FallbackExplainer {
+    pub fn new(providers: Vec<(String, Arc<dyn sovir_ports::Explainer>)>) -> Self {
+        Self { providers }
+    }
+}
+#[async_trait]
+impl sovir_ports::Explainer for FallbackExplainer {
+    async fn explain(
+        &self,
+        req: &sovir_domain::ExplanationRequest,
+    ) -> Result<sovir_domain::Explanation, PortError> {
+        let mut last_err = PortError::Unavailable;
+        for (label, gateway) in &self.providers {
+            // Same pre-call privacy gate the council applies — a remote
+            // explainer under Private mode is skipped before any egress.
+            if !gateway.serves(req.privacy) {
+                continue;
+            }
+            match gateway.explain(req).await {
+                Ok(mut exp) => {
+                    // Inner gateways stamp `explain:{host}` or
+                    // `local_template`; annotate which chain entry won.
+                    if let Some(detail) = exp.provenance.strip_prefix("explain:") {
+                        exp.provenance = format!("explain/{label}:{detail}");
+                    }
+                    return Ok(exp);
+                }
+                Err(e) => last_err = e,
+            }
+        }
+        Err(last_err)
+    }
+    fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+        self.providers.iter().any(|(_, g)| g.serves(mode))
+    }
+}
 /// Threat-intel candidate source from a local JSON fixture file
 /// (`SOVIR_INTEL_FIXTURE`). Each pull re-reads the file and returns
 /// items with `at_ms >= since_ms`; provenance must already be present
@@ -3148,6 +3384,80 @@ mod tests {
         assert!(gw.assess(&private_req).await.is_err());
         assert!(e1.sent.lock().unwrap().is_empty());
         assert!(e2.sent.lock().unwrap().is_empty());
+    }
+
+    // --- A1 explainer tests -------------------------------------------------
+    use sovir_ports::Explainer as _;
+    const CHAT_EXPLAIN_OK: &str = r#"{"choices":[{"message":{"content":"{\"request_id\":\"exp-1\",\"explanation\":\"Este contenido pide un pago y presiona para actuar ya.\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":20}}"#;
+
+    fn exp_req() -> sovir_domain::ExplanationRequest {
+        sovir_domain::ExplanationRequest {
+            request_id: "exp-1".into(),
+            signals: vec![RiskSignal::PaymentRequest, RiskSignal::UrgentAction],
+            reasons: vec![],
+            privacy: PrivacyMode::Standard,
+            lang: "es".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn local_explainer_always_answers_with_signal_phrases() {
+        let exp = LocalExplainer.explain(&exp_req()).await.unwrap();
+        assert!(exp.text.contains("pago") && exp.text.contains("inmediato"));
+        assert_eq!(exp.provenance, "local_template");
+        assert_eq!(exp.usage.unwrap().cost_micro_usd, Some(0));
+    }
+
+    #[tokio::test]
+    async fn chat_explainer_maps_response_and_stamps_provenance() {
+        let egress = Arc::new(FakeEgress {
+            response: CHAT_EXPLAIN_OK.into(),
+            sent: StdMutex::new(vec![]),
+        });
+        let gw = ChatExplainerGateway::new(
+            egress.clone(),
+            "https://a.example/v1/chat/completions".into(),
+            "k".into(),
+            "m-1".into(),
+        );
+        let exp = gw.explain(&exp_req()).await.unwrap();
+        assert!(exp.text.contains("pago"));
+        assert_eq!(exp.provenance, "explain:a.example");
+        // The wire carried typed signals only — never content or ids.
+        let sent = egress.sent.lock().unwrap();
+        let body: serde_json::Value = serde_json::from_str(&sent[0].1).unwrap();
+        let user = body["messages"][1]["content"].as_str().unwrap();
+        assert!(user.contains("PAYMENT_REQUEST"));
+        assert!(!user.contains("text_hint") && !user.contains("digest"));
+    }
+
+    #[tokio::test]
+    async fn explainer_chain_local_last_and_private_skips_remote() {
+        let e = Arc::new(FakeEgress {
+            response: "{}".into(), // unparseable → remote fails
+            sent: StdMutex::new(vec![]),
+        });
+        let remote: Arc<dyn sovir_ports::Explainer> = Arc::new(ChatExplainerGateway::new(
+            e.clone(),
+            "https://a.example/v1/chat/completions".into(),
+            "k".into(),
+            "m".into(),
+        ));
+        let chain = FallbackExplainer::new(vec![
+            ("primary".into(), remote),
+            ("local".into(), Arc::new(LocalExplainer)),
+        ]);
+        // Remote fails → local template answers (an explanation always exists).
+        let exp = chain.explain(&exp_req()).await.unwrap();
+        assert_eq!(exp.provenance, "local_template");
+        assert_eq!(e.sent.lock().unwrap().len(), 1); // tried once, never retried
+        // Private mode: the remote is skipped before any egress at all.
+        let mut req = exp_req();
+        req.privacy = PrivacyMode::Private;
+        e.sent.lock().unwrap().clear();
+        let exp = chain.explain(&req).await.unwrap();
+        assert_eq!(exp.provenance, "local_template");
+        assert!(e.sent.lock().unwrap().is_empty());
     }
 
     fn fixture_file(items: &[IntelIndicator]) -> std::path::PathBuf {

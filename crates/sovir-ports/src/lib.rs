@@ -8,7 +8,8 @@
 use async_trait::async_trait;
 use sovir_domain::{
     Assessment, AuditEvent, ConsentGrant, DeletionReceipt, Device, EventFeedback,
-    IdempotentResponse, InferenceRequest, InferenceVerdict, IntelIndicator, Intervention,
+    Explanation, ExplanationRequest, IdempotentResponse, InferenceRequest, InferenceVerdict,
+    IntelIndicator, Intervention,
     InterventionKind, Investigation, ObservedEvent, PrivacyMode, Session, VerifiedIdentity,
     WebhookEndpoint,
 };
@@ -313,6 +314,19 @@ pub trait InferenceGateway: Send + Sync {
     /// Typed signals in, typed hypotheses out. Never raw content.
     async fn assess(&self, req: &InferenceRequest) -> Result<InferenceVerdict, PortError>;
     /// Which privacy modes this gateway may serve under the egress policy.
+    fn serves(&self, mode: PrivacyMode) -> bool;
+}
+/// Explanation boundary (A1): typed signals/reasons in, bounded human
+/// language out. Implementations may be local templates or remote LLMs
+/// behind the same egress discipline as inference — typed input only,
+/// never raw content, `serves` gates privacy modes before any call.
+#[async_trait]
+pub trait Explainer: Send + Sync {
+    async fn explain(
+        &self,
+        req: &ExplanationRequest,
+    ) -> Result<Explanation, PortError>;
+    /// Which privacy modes this explainer may serve (remote = Standard only).
     fn serves(&self, mode: PrivacyMode) -> bool;
 }
 /// Per-tenant inference budget, micro-USD (integer money). Fail closed:

@@ -59,6 +59,10 @@ struct AppState {
     /// Surfaced to clients as `is_admin` on whoami — it is a UI hint only:
     /// no endpoint authorizes on it until real admin surfaces exist.
     admin_principals: std::collections::HashSet<String>,
+    /// Explanation chain (A1): remote explainers (same provider envs as
+    /// inference, Meta→Baseten) then the local template last — an
+    /// explanation always exists; only typed signals egress.
+    explainer: std::sync::Arc<dyn sovir_ports::Explainer>,
     /// Internal counters for the local metrics endpoint (B-metrics). Cheap
     /// atomics, incremented at handler success points — not telemetry, they
     /// never leave the loopback API.
@@ -314,6 +318,47 @@ fn remote_inference_gateway(
         (None, None, None) => primary,
         _ => panic!("SOVIR_INFERENCE_FALLBACK_* partially configured: need URL+KEY+MODEL"),
     })
+}
+/// Explanation chain (A1): remote explainers built from the same
+/// provider envs as inference (`SOVIR_INFERENCE_*` primary →
+/// `SOVIR_INFERENCE_FALLBACK_*` emergency), then the deterministic local
+/// template appended last — an explanation ALWAYS exists. Remote
+/// explainers see typed signals/reasons only: no text_hint, digests or
+/// identities ever egress; under Private mode they are filtered out by
+/// `serves` and the local template answers.
+fn explainer_chain(
+    webhook_allowlist: &[String],
+    sovir_env: &str,
+) -> std::sync::Arc<dyn sovir_ports::Explainer> {
+    let allowlist = egress_allowlist_env(webhook_allowlist);
+    let egress = pick_egress(&allowlist, sovir_env);
+    let mut chain: Vec<(String, std::sync::Arc<dyn sovir_ports::Explainer>)> = vec![];
+    if real_egress_enabled(&allowlist, sovir_env) {
+        let build = |url: String, key: String, model: String| {
+            std::sync::Arc::new(sovir_adapters::ChatExplainerGateway::new(
+                egress.clone(),
+                url,
+                key,
+                model,
+            )) as std::sync::Arc<dyn sovir_ports::Explainer>
+        };
+        if let (Ok(u), Ok(k), Ok(m)) = (
+            env::var("SOVIR_INFERENCE_URL"),
+            env::var("SOVIR_INFERENCE_KEY"),
+            env::var("SOVIR_INFERENCE_MODEL"),
+        ) {
+            chain.push(("primary".into(), build(u, k, m)));
+        }
+        if let (Ok(u), Ok(k), Ok(m)) = (
+            env::var("SOVIR_INFERENCE_FALLBACK_URL"),
+            env::var("SOVIR_INFERENCE_FALLBACK_KEY"),
+            env::var("SOVIR_INFERENCE_FALLBACK_MODEL"),
+        ) {
+            chain.push(("fallback".into(), build(u, k, m)));
+        }
+    }
+    chain.push(("local".into(), std::sync::Arc::new(sovir_adapters::LocalExplainer)));
+    std::sync::Arc::new(sovir_adapters::FallbackExplainer::new(chain))
 }
 /// Inference composition (ADR-0012): `private` → local heuristic (zero
 /// egress, deterministic, provenance says heuristic); `standard` → remote
@@ -825,6 +870,40 @@ async fn post_feedback(
         .map_err(|e| map_error(e, &headers))?;
     Ok(StatusCode::NO_CONTENT)
 }
+/// A1 — "why" explanation for one of the caller's own events. The
+/// explainer chain receives ONLY the event's typed signals + request id
+/// (no digest, no content, no identity): remote providers (Meta →
+/// Baseten) answer under Standard, the local template always can.
+async fn explain_event(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<sovir_domain::Explanation>, ApiError> {
+    let p = require_principal(&headers, &s).await?;
+    let events = s
+        .service
+        .list_events(&p)
+        .await
+        .map_err(|e| map_error(e, &headers))?;
+    let ev = match events.iter().find(|e| e.event_id == id) {
+        Some(e) => e,
+        None => {
+            return Err(api_err(StatusCode::NOT_FOUND, "not_found", &headers, false));
+        }
+    };
+    let req = sovir_domain::ExplanationRequest {
+        request_id: format!("exp-{}", ev.event_id),
+        signals: ev.signals.clone(),
+        reasons: vec![],
+        privacy: sovir_domain::PrivacyMode::Standard,
+        lang: "es".into(),
+    };
+    s.explainer
+        .explain(&req)
+        .await
+        .map(Json)
+        .map_err(|_| api_err(StatusCode::SERVICE_UNAVAILABLE, "explainer_unavailable", &headers, true))
+}
 /// Served contract revision — single source for the version endpoint and
 /// the `sovir-contract-version` response header.
 const CONTRACT_VERSION: &str = "backend-dev.v0";
@@ -1309,6 +1388,7 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/consents/{id}/revoke", post(revoke))
         .route("/v1/events", post(ingest).get(list_events))
         .route("/v1/events/{id}/feedback", post(post_feedback))
+        .route("/v1/events/{id}/explanation", get(explain_event))
         .route("/v1/version", get(version))
         .route("/v1/interventions", get(list_interventions))
         .route("/v1/interventions/dispatch", post(dispatch))
@@ -1547,6 +1627,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         service,
         dev_session_enabled,
+        explainer: explainer_chain(&webhook_allowlist, &sovir_env),
         pg,
         limits: std::sync::Arc::new(Mutex::new(HashMap::new())),
         rate_limit_per_min,
@@ -1611,6 +1692,11 @@ mod tests {
             budget,
             webhook_allowlist: vec!["127.0.0.1".to_string(), "localhost".to_string()],
             admin_principals: std::collections::HashSet::new(),
+            // Recording egress never answers a remote explain — the chain
+            // lands on the local template in tests.
+            explainer: std::sync::Arc::new(sovir_adapters::FallbackExplainer::new(vec![
+                ("local".into(), std::sync::Arc::new(sovir_adapters::LocalExplainer)),
+            ])),
             counters: std::sync::Arc::new(Counters::default()),
         }
     }

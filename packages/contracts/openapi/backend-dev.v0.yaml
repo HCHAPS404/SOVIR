@@ -618,6 +618,43 @@ paths:
         '400': {description: Foreign or missing event — labels never attach}
         '401': {description: Not authorized}
         '422': {description: Verdict outside the closed taxonomy}
+  /v1/events/{id}/explanation:
+    get:
+      summary: "Why" explanation for one of the caller's own events (A1)
+      description: >-
+        Turns the event's typed signals into bounded human language. Only
+        typed signals + a request-scoped id ever leave the server (no
+        content, digests or identities). The explainer chain is remote
+        providers first (primary → fallback, Standard privacy only) with a
+        deterministic local template always appended — an explanation is
+        always returned. `provenance` honestly records which chain entry
+        produced the text (explain/<label>:<host> | local_template).
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Generated explanation
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [text, provenance, model_id]
+                properties:
+                  text: {type: string, description: Bounded single-paragraph human language}
+                  provenance: {type: string, description: "explain/<label>:<host> | local_template"}
+                  model_id: {type: string}
+                  usage:
+                    type: object
+                    properties:
+                      tokens_input: {type: integer}
+                      tokens_output: {type: integer}
+                      cost_micro_usd: {type: integer, nullable: true}
+        '401': {description: Not authorized}
+        '404': {description: Foreign or missing event}
+        '503': {description: No explainer available (retryable)}
   /v1/version:
     get:
       summary: Build and contract version disclosure
