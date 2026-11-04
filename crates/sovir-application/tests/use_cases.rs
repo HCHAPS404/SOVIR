@@ -553,6 +553,131 @@ async fn evidence_window_escalates_hook_then_payment() {
     assert_eq!(items[0].kind, sovir_domain::InterventionKind::WarnBanner);
 }
 
+// ---- H4 correlation eval: linked, ambiguously-unlinked, unprovable-order ----
+
+#[tokio::test]
+async fn correlation_links_across_sources_with_evidence() {
+    // H4 acceptance: cross-source correlation must be verifiable — the
+    // finding names both event ids, which live under different grants and
+    // different source_ids.
+    let service = service();
+    let p = principal("p-xlink");
+    let mut g_ext = grant();
+    g_ext.grant_id = "grant-ext".into();
+    g_ext.source_id = "screen-observer:ext".into();
+    let mut g_droid = grant();
+    g_droid.grant_id = "grant-droid".into();
+    g_droid.source_id = "screen-observer:android".into();
+    service.grant(&p, g_ext).await.unwrap();
+    service.grant(&p, g_droid).await.unwrap();
+    let mut hook = event();
+    hook.event_id = "ext-hook".into();
+    hook.source_id = "screen-observer:ext".into();
+    hook.consent_grant_id = "grant-ext".into();
+    hook.observed_at_ms = 9_000;
+    hook.content_digest = "sha256:hook".into();
+    hook.signals = vec![RiskSignal::UrgentAction];
+    service.ingest(&p, hook).await.unwrap();
+    let mut pay = event();
+    pay.event_id = "droid-pay".into();
+    pay.source_id = "screen-observer:android".into();
+    pay.consent_grant_id = "grant-droid".into();
+    pay.observed_at_ms = 10_000;
+    pay.content_digest = "sha256:pay".into();
+    pay.signals = vec![RiskSignal::PaymentRequest];
+    let d = service.ingest(&p, pay).await.unwrap();
+    let f = d
+        .sequence_findings
+        .iter()
+        .find(|f| f.pattern == sovir_domain::SequencePattern::HookThenPayment)
+        .expect("cross-source HookThenPayment finding");
+    assert!(f.event_ids.contains(&"ext-hook".to_string()));
+    assert!(f.event_ids.contains(&"droid-pay".to_string()));
+}
+
+#[tokio::test]
+async fn non_correlation_same_millisecond_is_justified() {
+    // Two signal-bearing events at the same instant: order is unprovable,
+    // so no sequence fires — and the assessment must SAY why, not stay
+    // silent.
+    let service = service();
+    let p = principal("p-samems");
+    service.grant(&p, grant()).await.unwrap();
+    let mut a = event();
+    a.event_id = "same-a".into();
+    a.content_digest = "sha256:a".into();
+    a.signals = vec![RiskSignal::UrgentAction];
+    service.ingest(&p, a).await.unwrap();
+    let mut b = event();
+    b.event_id = "same-b".into();
+    b.content_digest = "sha256:b".into();
+    b.signals = vec![RiskSignal::PaymentRequest];
+    let d = service.ingest(&p, b).await.unwrap();
+    assert!(d.sequence_findings.is_empty());
+    assert!(d
+        .correlation_notes
+        .iter()
+        .any(|n| n.contains("same-millisecond")));
+}
+
+#[tokio::test]
+async fn non_correlation_pattern_free_window_is_justified() {
+    // Two unrelated observations in the same window: no pattern fires and
+    // the recorded note documents that correlation was considered and
+    // rejected, not overlooked.
+    let service = service();
+    let p = principal("p-nopat");
+    service.grant(&p, grant()).await.unwrap();
+    let mut a = event();
+    a.event_id = "nopat-a".into();
+    a.observed_at_ms = 9_000;
+    a.content_digest = "sha256:na".into();
+    a.signals = vec![RiskSignal::TrackingObserved];
+    service.ingest(&p, a).await.unwrap();
+    let mut b = event();
+    b.event_id = "nopat-b".into();
+    b.observed_at_ms = 10_000;
+    b.content_digest = "sha256:nb".into();
+    b.signals = vec![RiskSignal::TrackingObserved];
+    let d = service.ingest(&p, b).await.unwrap();
+    assert!(d.sequence_findings.is_empty());
+    assert!(d
+        .correlation_notes
+        .iter()
+        .any(|n| n.contains("no temporal pattern")));
+}
+
+#[tokio::test]
+async fn correlation_suppresses_absence_note() {
+    // When a real pattern links events, the "no temporal pattern" note must
+    // not appear — presence of evidence and absence-claims are exclusive.
+    let service = service();
+    let p = principal("p-haspat");
+    let mut g = grant();
+    g.grant_id = "grant-haspat".into();
+    g.expires_at_ms = 20_000;
+    service.grant(&p, g).await.unwrap();
+    let mut hook = event();
+    hook.event_id = "hp-hook".into();
+    hook.consent_grant_id = "grant-haspat".into();
+    hook.observed_at_ms = 9_000;
+    hook.content_digest = "sha256:hh".into();
+    hook.signals = vec![RiskSignal::UrgentAction];
+    service.ingest(&p, hook).await.unwrap();
+    let mut pay = event();
+    pay.event_id = "hp-pay".into();
+    pay.consent_grant_id = "grant-haspat".into();
+    pay.observed_at_ms = 10_000;
+    pay.content_digest = "sha256:pp".into();
+    pay.signals = vec![RiskSignal::PaymentRequest];
+    let d = service.ingest(&p, pay).await.unwrap();
+    assert!(!d.sequence_findings.is_empty());
+    assert!(!d
+        .correlation_notes
+        .iter()
+        .any(|n| n.contains("no temporal pattern")));
+}
+
 #[tokio::test]
 async fn duplicate_content_dedups_without_inference_or_insert() {
     let service = service();
