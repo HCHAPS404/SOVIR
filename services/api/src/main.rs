@@ -236,6 +236,9 @@ fn real_egress_enabled(allowlist: &[String], sovir_env: &str) -> bool {
 /// `SOVIR_INFERENCE_API` picks the wire format: `openai-chat` for
 /// OpenAI-compatible chat/completions endpoints (Baseten, event LLMs),
 /// `sovir`/unset for endpoints speaking the native verdict schema.
+/// `SOVIR_INFERENCE_FALLBACK_URL/KEY/MODEL` add an optional second
+/// provider tried once when the primary fails (e.g. Meta → Baseten);
+/// unset = today's single-provider behavior.
 fn remote_inference_gateway(
     egress: &Arc<dyn sovir_ports::HttpEgress>,
     allowlist: &[String],
@@ -247,31 +250,70 @@ fn remote_inference_gateway(
     let url = env::var("SOVIR_INFERENCE_URL").ok()?;
     let key = env::var("SOVIR_INFERENCE_KEY").ok()?;
     let model = env::var("SOVIR_INFERENCE_MODEL").ok()?;
-    match env::var("SOVIR_INFERENCE_API")
-        .unwrap_or_else(|_| "sovir".into())
-        .as_str()
-    {
-        "openai-chat" => Some(Arc::new(
-            sovir_adapters::ChatCompletionInferenceGateway::new(
+    let api = env::var("SOVIR_INFERENCE_API").unwrap_or_else(|_| "sovir".into());
+    // One provider endpoint+key+model behind the selected wire format.
+    // `priced` maps the SOVIR_INFERENCE_PRICE_* pair — only the primary
+    // uses it. The fallback stays unpriced: its tokens still reach
+    // `usage`, but cost reports "unknown" and settles at the
+    // reservation estimate instead of billing another provider's rate
+    // (a dedicated FALLBACK_PRICE pair is a deliberate follow-up).
+    let build = |url: String,
+                 key: String,
+                 model: String,
+                 priced: bool|
+     -> Arc<dyn sovir_ports::InferenceGateway> {
+        match api.as_str() {
+            "openai-chat" => Arc::new(sovir_adapters::ChatCompletionInferenceGateway::new(
                 egress.clone(),
                 url,
                 key,
                 model,
-                env::var("SOVIR_INFERENCE_PRICE_IN_MICROS_PER_MTOK")
-                    .ok()
-                    .and_then(|v| v.parse().ok()),
-                env::var("SOVIR_INFERENCE_PRICE_OUT_MICROS_PER_MTOK")
-                    .ok()
-                    .and_then(|v| v.parse().ok()),
-            ),
-        )),
-        _ => Some(Arc::new(sovir_adapters::RemoteInferenceGateway::new(
-            egress.clone(),
-            url,
-            key,
-            model,
-        ))),
-    }
+                priced
+                    .then(|| {
+                        env::var("SOVIR_INFERENCE_PRICE_IN_MICROS_PER_MTOK")
+                            .ok()
+                            .and_then(|v| v.parse().ok())
+                    })
+                    .flatten(),
+                priced
+                    .then(|| {
+                        env::var("SOVIR_INFERENCE_PRICE_OUT_MICROS_PER_MTOK")
+                            .ok()
+                            .and_then(|v| v.parse().ok())
+                    })
+                    .flatten(),
+            )),
+            _ => Arc::new(sovir_adapters::RemoteInferenceGateway::new(
+                egress.clone(),
+                url,
+                key,
+                model,
+            )),
+        }
+    };
+    let primary = build(url, key, model, true);
+    // Optional fallback provider (e.g. Meta primary → Baseten): the
+    // same wire format and serve rules apply, and the chain bounds the
+    // whole remote vote to one extra attempt — still inside the
+    // council's voter timeout and the same budget reservation. ALL
+    // THREE SOVIR_INFERENCE_FALLBACK_* are required or none: a partial
+    // config refuses startup (same rule as OIDC) rather than silently
+    // dropping the resilience the operator configured.
+    let fallback_cfg = (
+        env::var("SOVIR_INFERENCE_FALLBACK_URL").ok(),
+        env::var("SOVIR_INFERENCE_FALLBACK_KEY").ok(),
+        env::var("SOVIR_INFERENCE_FALLBACK_MODEL").ok(),
+    );
+    Some(match fallback_cfg {
+        (Some(u), Some(k), Some(m)) => Arc::new(
+            sovir_adapters::FallbackInferenceGateway::new(vec![
+                ("primary".to_string(), primary),
+                ("fallback".to_string(), build(u, k, m, false)),
+            ]),
+        ),
+        (None, None, None) => primary,
+        _ => panic!("SOVIR_INFERENCE_FALLBACK_* partially configured: need URL+KEY+MODEL"),
+    })
 }
 /// Inference composition (ADR-0012): `private` → local heuristic (zero
 /// egress, deterministic, provenance says heuristic); `standard` → remote

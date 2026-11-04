@@ -4,7 +4,7 @@
 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (118M) +
 cabeza lineal entrenada sobre el corpus sintético SOVIR. Votante
 `onnx-text` del concilio (ADR-0025). Adapter `OnnxTextVoter` —
-`feature="onnx"` + `SOVIR_ONNX_TEXT_DIR=ml/artifacts/text-v1`.
+`feature="onnx"` + `SOVIR_ONNX_TEXT_DIR=ml/artifacts/text-v2`.
 
 **Entrenamiento:** `infra/modal/text_train_app.py` en Modal T4
 (offline batch, ADR-0017). Corpus `ml/datasets/text-corpus/`
@@ -25,16 +25,25 @@ DELIVERY_CUSTOMS_FEE+PAYMENT_REQUEST; "videos grabados, paga bitcoin" →
 EXTORTION_LANGUAGE; "ganador del sorteo, reclama tu premio" →
 PRIZE_LOTTERY_CLAIM — los tres con heurístico en `no_pattern`).
 
-## Eval (2026-11-04, corpus sintético propio)
+## Eval
 
-- micro precision 0.968 / micro recall 0.86
-- benign FP rate 5.4% (objetivo del gate: ≤1% — el corpus benigno
-  sintético es pequeño; revisar antes de decisiones de ship)
-- F1 por señal: 19/21 señales en 1.0; excepciones honestas:
-  `PAYMENT_REQUEST` F1=0.727 (thr 0.8), `URGENT_ACTION` F1=0.0
-  (thr 0.9 — la calibración lo desactiva: "urgencia" aparece también en
-  correos legítimos, correctamente reconocido como no aprendible con
-  este corpus).
+### v2 (2026-11-04, corpus expandido: 2438 train / 476 val / 823 benign)
+
+- micro precision **1.0** / micro recall **0.928** / benign FP **1.94%**
+- `URGENT_ACTION` F1 0.909 (los benignos difíciles de urgencia legítima
+  lo rescataron del F1=0.0 de v1)
+- `PAYMENT_REQUEST` thr 0.94 — conservador tras benignos de pago
+  legítimo; sigue disparando en texto de estafa agudo (aduana verificado)
+  pero calla en facturas reales; cobertura recae en señales compañeras
+- Verificado en vivo: sextorsión → EXTORTION_LANGUAGE 8052bp; "hola mamá
+  cambié de número" → AUTHORITY_IMPERSONATION; factura Telcel benigna →
+  no_pattern_detected
+
+### v1 (2026-11-04, corpus semilla: 548 train / 98 val / 203 benign)
+
+- micro precision 0.968 / micro recall 0.86 / benign FP 5.4%
+- `PAYMENT_REQUEST` F1=0.727, `URGENT_ACTION` F1=0.0 (desactivado por
+  calibración).
 
 ## Privacidad (invariante crítico)
 

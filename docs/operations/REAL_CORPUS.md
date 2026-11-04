@@ -85,3 +85,11 @@ centavos, muy por debajo del techo autorizado.
   incluyeran.
 - **Web phishing real**: corpus Phishpedia URLs vivas (con cuidado — solo
   lectura de señales, nunca credenciales ni envío de contenido).
+
+## Batería — medición real (desenchufado, ADB por WiFi)
+
+Ventana 1h uso normal (Gmail spam, TikTok incluida, navegación):
+- Drain total: 76% → 68% (8%/h, casi todo pantalla + sistema)
+- **SOVIR CPU: 1m16s en 1h (~1.2% del wall time)** — usr 1m2s + krn 12s
+- Foreground app 39min (uso manual), top 22min; wakelocks: solo AlertSync 5.8s total (5 jobs)
+- El observador NO es un driver de batería medible en esta ventana

@@ -2589,6 +2589,68 @@ impl InferenceGateway for ChatCompletionInferenceGateway {
         mode == sovir_domain::PrivacyMode::Standard
     }
 }
+/// Ordered remote-provider fallback chain (ADR-0012/ADR-0016). The
+/// primary gateway is tried first; ANY typed failure — transport error,
+/// non-2xx, malformed/unbound response or a provider abstention
+/// surfaced as `PortError` — hands the same typed envelope to the next
+/// provider, exactly once each. A provider is never retried, so the
+/// chain can neither loop nor stall: at most `providers.len()` billable
+/// attempts per request, and the council's per-voter timeout wraps the
+/// whole chain. When every provider fails the gateway returns the last
+/// error — the council then records no remote vote and settles on
+/// local votes (fail closed, never an invented verdict).
+///
+/// `serves` is the union of provider modes; remote providers still only
+/// ever serve Standard, so Private requests are filtered before any
+/// call exactly like a single remote — the invariant is unchanged.
+pub struct FallbackInferenceGateway {
+    /// `(label, gateway)` pairs in try-order — first entry is the
+    /// primary. The label names the answering provider in provenance
+    /// (`remote/{label}:{host}`) so audits show which chain entry —
+    /// and therefore which configured endpoint — actually produced
+    /// the verdict (`remote/fallback:…` is the degradation signal).
+    providers: Vec<(String, Arc<dyn InferenceGateway>)>,
+}
+impl FallbackInferenceGateway {
+    pub fn new(providers: Vec<(String, Arc<dyn InferenceGateway>)>) -> Self {
+        Self { providers }
+    }
+}
+#[async_trait]
+impl InferenceGateway for FallbackInferenceGateway {
+    async fn assess(
+        &self,
+        req: &sovir_domain::InferenceRequest,
+    ) -> Result<sovir_domain::InferenceVerdict, PortError> {
+        let mut last_err = PortError::Unavailable;
+        for (label, gateway) in &self.providers {
+            // Same pre-call privacy gate the council applies — a provider
+            // that cannot serve this mode is skipped before any egress.
+            if !gateway.serves(req.privacy) {
+                continue;
+            }
+            match gateway.assess(req).await {
+                Ok(mut verdict) => {
+                    // Remote gateways stamp `remote:{host}`; annotate the
+                    // winning chain entry so the audit trail records WHICH
+                    // provider answered, not just "a remote".
+                    let detail = verdict
+                        .provenance
+                        .strip_prefix("remote:")
+                        .map(str::to_string)
+                        .unwrap_or_else(|| verdict.provenance.clone());
+                    verdict.provenance = format!("remote/{label}:{detail}");
+                    return Ok(verdict);
+                }
+                Err(e) => last_err = e,
+            }
+        }
+        Err(last_err)
+    }
+    fn serves(&self, mode: sovir_domain::PrivacyMode) -> bool {
+        self.providers.iter().any(|(_, g)| g.serves(mode))
+    }
+}
 /// Threat-intel candidate source from a local JSON fixture file
 /// (`SOVIR_INTEL_FIXTURE`). Each pull re-reads the file and returns
 /// items with `at_ms >= since_ms`; provenance must already be present
@@ -2938,6 +3000,154 @@ mod tests {
             gw.assess(&bad).await,
             Err(PortError::Unauthorized)
         ));
+    }
+
+    // ---- FallbackInferenceGateway: ordered provider chain (ADR-0012) ----
+    fn chat_gw_at(
+        endpoint: &str,
+        egress: Arc<FakeEgress>,
+    ) -> ChatCompletionInferenceGateway {
+        ChatCompletionInferenceGateway::new(
+            egress,
+            endpoint.into(),
+            "k".into(),
+            "m".into(),
+            None,
+            None,
+        )
+    }
+    const CHAT_OK: &str = r#"{"choices":[{"message":{"content":"{\"request_id\":\"r-1\",\"hypotheses\":[\"urgency_pressure\"],\"confidence_bp\":4100}"}}]}"#;
+
+    /// Primary answers → its verdict wins, provenance names the primary
+    /// chain entry, and the fallback is never called (never billed).
+    #[tokio::test]
+    async fn fallback_primary_answer_wins_and_fallback_never_called() {
+        let fb_egress = Arc::new(FakeEgress {
+            response: CHAT_OK.into(),
+            sent: StdMutex::new(vec![]),
+        });
+        let gw = FallbackInferenceGateway::new(vec![
+            (
+                "primary".into(),
+                Arc::new(chat_gw_at(
+                    "https://api.llama.example/v1/chat/completions",
+                    Arc::new(FakeEgress {
+                        response: CHAT_OK.into(),
+                        sent: StdMutex::new(vec![]),
+                    }),
+                )) as _,
+            ),
+            (
+                "fallback".into(),
+                Arc::new(chat_gw_at(
+                    "https://inference.baseten.co/v1/chat/completions",
+                    fb_egress.clone(),
+                )) as _,
+            ),
+        ]);
+        let v = gw.assess(&req()).await.unwrap();
+        assert_eq!(v.provenance, "remote/primary:api.llama.example");
+        assert_eq!(v.hypotheses, vec!["urgency_pressure".to_string()]);
+        assert!(fb_egress.sent.lock().unwrap().is_empty());
+    }
+
+    /// Primary fails after egress (malformed body → typed error) → the
+    /// fallback answers; each provider sees exactly one attempt.
+    #[tokio::test]
+    async fn fallback_hands_off_once_when_primary_fails() {
+        let bad = Arc::new(FakeEgress {
+            response: "this is not json".into(), // parse failure ⇒ Err
+            sent: StdMutex::new(vec![]),
+        });
+        let good = Arc::new(FakeEgress {
+            response: CHAT_OK.into(),
+            sent: StdMutex::new(vec![]),
+        });
+        let gw = FallbackInferenceGateway::new(vec![
+            (
+                "primary".into(),
+                Arc::new(chat_gw_at(
+                    "https://api.llama.example/v1/chat/completions",
+                    bad.clone(),
+                )) as _,
+            ),
+            (
+                "fallback".into(),
+                Arc::new(chat_gw_at(
+                    "https://inference.baseten.co/v1/chat/completions",
+                    good.clone(),
+                )) as _,
+            ),
+        ]);
+        let v = gw.assess(&req()).await.unwrap();
+        assert_eq!(v.provenance, "remote/fallback:inference.baseten.co");
+        assert_eq!(v.hypotheses, vec!["urgency_pressure".to_string()]);
+        // Bounded: one attempt per provider — never a retry loop.
+        assert_eq!(bad.sent.lock().unwrap().len(), 1);
+        assert_eq!(good.sent.lock().unwrap().len(), 1);
+    }
+
+    /// Every provider failing = the remote voter errors — the council
+    /// records no remote vote and settles on local votes (fail closed).
+    #[tokio::test]
+    async fn fallback_all_providers_fail_is_fail_closed() {
+        let gw = FallbackInferenceGateway::new(vec![
+            (
+                "primary".into(),
+                Arc::new(chat_gw_at(
+                    "https://api.llama.example/v1/chat/completions",
+                    Arc::new(FakeEgress {
+                        response: "junk".into(),
+                        sent: StdMutex::new(vec![]),
+                    }),
+                )) as _,
+            ),
+            (
+                "fallback".into(),
+                Arc::new(chat_gw_at(
+                    "https://inference.baseten.co/v1/chat/completions",
+                    Arc::new(FakeEgress {
+                        response: "junk".into(),
+                        sent: StdMutex::new(vec![]),
+                    }),
+                )) as _,
+            ),
+        ]);
+        assert!(gw.assess(&req()).await.is_err());
+    }
+
+    /// Privacy invariant survives the chain: remote providers only
+    /// serve Standard, so a Private request errors WITHOUT touching any
+    /// provider — same fail-closed posture as a single remote.
+    #[tokio::test]
+    async fn fallback_private_mode_never_egresses() {
+        let e1 = Arc::new(FakeEgress {
+            response: CHAT_OK.into(),
+            sent: StdMutex::new(vec![]),
+        });
+        let e2 = Arc::new(FakeEgress {
+            response: CHAT_OK.into(),
+            sent: StdMutex::new(vec![]),
+        });
+        let gw = FallbackInferenceGateway::new(vec![
+            (
+                "primary".into(),
+                Arc::new(chat_gw_at("https://a.example/v1/chat/completions", e1.clone()))
+                    as _,
+            ),
+            (
+                "fallback".into(),
+                Arc::new(chat_gw_at("https://b.example/v1/chat/completions", e2.clone()))
+                    as _,
+            ),
+        ]);
+        assert!(gw.serves(PrivacyMode::Standard));
+        assert!(!gw.serves(PrivacyMode::Private));
+        let mut private_req = req();
+        private_req.privacy = PrivacyMode::Private;
+        assert!(gw.assess(&private_req).await.is_err());
+        assert!(e1.sent.lock().unwrap().is_empty());
+        assert!(e2.sent.lock().unwrap().is_empty());
     }
 
     fn fixture_file(items: &[IntelIndicator]) -> std::path::PathBuf {
