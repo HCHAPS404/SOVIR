@@ -36,8 +36,6 @@ def main() -> int:
         'packages/ui-web/README.md',
         'design/figma/screen-manifest.json',
         'packages/design-system/component-contracts.json',
-        '.cursor/rules/50-design-fidelity.mdc',
-        '.cursor/rules/51-marketing-and-brand.mdc',
     ]
     missing = [p for p in required if not (ROOT/p).is_file()]
     if missing:

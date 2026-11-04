@@ -5,12 +5,9 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = [
-    'README.md', 'AGENTS.md', 'CLAUDE.md',
+    'README.md',
     'docs/adr/ADR-0000-template.md',
     'packages/contracts/schemas/observed-event.schema.json',
-    '.cursor/rules/00-global.mdc',
-    '.claude/agents/architect.md',
-    '.devin/README.md',
     '.github/workflows/ci.yml',
 ]
 issues = [f'Missing required file: {p}' for p in REQUIRED if not (ROOT / p).is_file()]

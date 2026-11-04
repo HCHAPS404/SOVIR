@@ -271,7 +271,6 @@ Si una verificación no está implementada se reporta `NOT_IMPLEMENTED` — nunc
 | **Frontend/diseño** | [Master plan](docs/design/FRONTEND_MASTER_PLAN.md) · [Gobernanza](docs/design/FRONTEND_GOVERNANCE.md) · [Figma workflow](docs/design/FIGMA_WORKFLOW.md) |
 | **Operaciones** | [SLOs](docs/operations/SLOS.md) · [Tailscale Funnel](docs/operations/TAILSCALE_FUNNEL.md) · [Named tunnel](docs/operations/NAMED_TUNNEL_MIGRATION.md) · [Toolchains diferidos](docs/operations/DEFERRED_TOOLCHAINS.md) · [Branches](docs/operations/BRANCHES.md) |
 | **ML** | [Model cards](ml/model-cards/) · [Pipelines](ml/pipelines/) · [docs/ml](docs/ml/) |
-| **Agentes** | [AGENTS.md](AGENTS.md) · [CLAUDE.md](CLAUDE.md) · [.cursor/rules](.cursor/rules/) |
 | **Auditoría** | [Auditoría pre-commit](docs/audits/AUDITORIA_PRECOMMIT_2026-10-27.md) |
 
 ## Roadmap
@@ -289,21 +288,6 @@ Si una verificación no está implementada se reporta `NOT_IMPLEMENTED` — nunc
 | H9 | Hardening + comercialización | Pendiente |
 
 Detalle y criterios de aceptación: [espec §23](docs/product/PRODUCT_SPEC.md#23-hitos-y-orden-de-implementación).
-
-## Trabajo multiagente
-
-Cuatro roles, un maintainer humano con autoridad final:
-
-| Rol | Área | Reglas |
-|---|---|---|
-| **Claude Code** | Dominio/puertos Rust, ML, contratos | [CLAUDE.md](CLAUDE.md) |
-| **Cursor** | Apps, UI, sensores OS | [.cursor/rules/](.cursor/rules/) |
-| **Devin** | Servicios, infra, identidad, CI | [.devin/](.devin/) |
-| **ChatGPT** | Arquitectura, ADRs, evals, auditoría | [.agents/skills/](.agents/skills/) |
-| **Humano** | Merges, permisos, gasto, releases | [AGENTS.md](AGENTS.md) |
-
-Un ticket = un owner + rutas editables + criterios verificables. Sin merges sin
-revisión humana; sin atribución de agente en commits.
 
 ## Invariantes
 

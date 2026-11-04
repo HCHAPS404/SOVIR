@@ -60,3 +60,12 @@ ml/datasets/
 apps/extension/models/
 apps/extension/ort/
 .venv-modal/
+
+# Agent-tooling config — lives on maintainer machines, not in the repo
+.agents/
+.claude/
+.codex/
+.cursor/
+.devin/
+AGENTS.md
+CLAUDE.md

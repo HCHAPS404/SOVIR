@@ -8,7 +8,7 @@ msg_file="$1"
 # Co-authored-by lines naming an agent, bot, or AI vendor account.
 if grep -iE "co-authored-by:.*(devin|claude|anthropic|openai|codex|cursor|copilot|\[bot\]|noreply)" "$msg_file" >/dev/null 2>&1; then
   echo "commit-msg: rejected — Co-Authored-By trailer names an agent/bot." >&2
-  echo "Remove agent attribution per AGENTS.md (commits carry maintainer identity only)." >&2
+  echo "Remove agent attribution (commits carry maintainer identity only)." >&2
   exit 1
 fi
 
