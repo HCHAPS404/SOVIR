@@ -104,6 +104,14 @@ object Humanize {
         else -> p
     }
 
+    /** What kind of thing a device is — "un móvil, un pc, una tablet". */
+    fun deviceKind(p: String) = when (p) {
+        "ANDROID" -> "Móvil"
+        "IOS" -> "iPhone o iPad"
+        "BROWSER_EXTENSION", "WINDOWS", "MACOS", "LINUX" -> "Ordenador"
+        else -> platform(p)
+    }
+
     fun voter(v: String) = when (v) {
         "heuristic" -> "Reglas locales"
         "onnx-text" -> "Clasificador de texto local"

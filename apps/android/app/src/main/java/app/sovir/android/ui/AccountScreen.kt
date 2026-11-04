@@ -67,11 +67,12 @@ fun AccountScreen(model: AppModel, theme: ThemeChoice, onTheme: (ThemeChoice) ->
             if (devices.isEmpty()) {
                 Text("Ningún dispositivo vinculado todavía.", style = MaterialTheme.typography.bodyMedium, color = p.muted)
             }
-            devices.forEachIndexed { i, d ->
+            devices.sortedByDescending { it.deviceId == PhoneLink.deviceId }.forEachIndexed { i, d ->
+                val mine = d.deviceId == PhoneLink.deviceId
                 Line(
-                    d.label.ifBlank { Humanize.platform(d.platform) },
-                    Humanize.platform(d.platform) +
-                        (d.lastSeenAtMs?.let { " · visto ${timeAgo(it, now)}" } ?: " · aún no visto"),
+                    if (mine) "Este teléfono" else d.label.ifBlank { Humanize.platform(d.platform) },
+                    Humanize.deviceKind(d.platform) +
+                        (d.lastSeenAtMs?.let { " · visto ${timeAgo(it, now)}" } ?: " · aún no ha observado"),
                     tone = Tone.Success,
                     divider = i < devices.lastIndex,
                 )
