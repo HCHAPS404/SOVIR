@@ -239,11 +239,3 @@ fun AccountScreen(model: AppModel, theme: ThemeChoice, onTheme: (ThemeChoice) ->
         null -> Unit
     }
 }
-
-@Composable
-private fun serverFieldColors(p: SovPalette) = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = p.ink, unfocusedBorderColor = p.line, cursorColor = p.ink,
-    focusedLabelColor = p.ink, unfocusedLabelColor = p.muted,
-    focusedTextColor = p.ink, unfocusedTextColor = p.ink,
-    focusedContainerColor = p.surface, unfocusedContainerColor = p.surface,
-)

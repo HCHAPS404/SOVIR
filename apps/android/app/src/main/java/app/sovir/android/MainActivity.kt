@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Auth.init(this)
         PhoneLink.init(this)
+        app.sovir.android.data.AppExclusions.init(this)
         Notifier.ensureChannels(this)
         enableEdgeToEdge()
         readIntent(intent)

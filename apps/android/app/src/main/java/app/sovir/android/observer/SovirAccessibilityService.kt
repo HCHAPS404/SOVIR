@@ -3,6 +3,7 @@ package app.sovir.android.observer
 import android.accessibilityservice.AccessibilityService
 import android.view.accessibility.AccessibilityEvent
 import app.sovir.android.data.Api
+import app.sovir.android.data.AppExclusions
 import app.sovir.android.data.Auth
 import app.sovir.android.data.PhoneLink
 import org.json.JSONArray
@@ -31,6 +32,7 @@ class SovirAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         Auth.init(applicationContext)
         PhoneLink.init(applicationContext)
+        AppExclusions.init(applicationContext)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -41,6 +43,9 @@ class SovirAccessibilityService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         // OS chrome and our own UI are not user content.
         if (pkg in SKIP_PACKAGES) return
+        // User exemptions + the default sensitive-app shield (social,
+        // banking) — editable in the app's Protection screen.
+        if (AppExclusions.skips(pkg)) return
         // Upload gate: no explicit SOVIR grant → nothing leaves the phone.
         if (!PhoneLink.uploadAllowed()) return
         val root = rootInActiveWindow ?: return

@@ -476,3 +476,11 @@ fun Notice(text: String?, tone: Tone = Tone.Danger) {
         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
     )
 }
+
+@Composable
+fun serverFieldColors(p: SovPalette) = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = p.ink, unfocusedBorderColor = p.line, cursorColor = p.ink,
+    focusedLabelColor = p.ink, unfocusedLabelColor = p.muted,
+    focusedTextColor = p.ink, unfocusedTextColor = p.ink,
+    focusedContainerColor = p.surface, unfocusedContainerColor = p.surface,
+)

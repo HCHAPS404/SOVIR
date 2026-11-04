@@ -55,6 +55,20 @@ const SEEN_TTL_MS = 60_000;
 // downsample of the granted tab. Off by default — enabling it is a
 // specific user choice layered on top of the per-site grant.
 const VISION_KEY = "sovir-vision-enabled";
+// Sensitive-category shield (default ON for the user, i.e. sensitive sites
+// stay excluded): banking/finance and social/messaging hosts are never
+// observed — under the broad <all_urls> grant or a per-site grant alike —
+// unless the person explicitly enables them in options.
+const SENSITIVE_KEY = "sovir-sensitive-enabled";
+const SENSITIVE_HOST_PATTERNS = [
+  "*://*.bbva.com/*", "*://*.bbva.es/*", "*://*.santander.com/*", "*://*.santander.es/*",
+  "*://*.caixabank.es/*", "*://*.bancsabadell.com/*", "*://*.ing.es/*",
+  "*://*.revolut.com/*", "*://*.n26.com/*", "*://*.wise.com/*",
+  "*://*.paypal.com/*", "*://*.binance.com/*", "*://*.coinbase.com/*", "*://*.kraken.com/*",
+  "*://*.facebook.com/*", "*://*.instagram.com/*", "*://*.whatsapp.com/*",
+  "*://*.telegram.org/*", "*://*.tiktok.com/*", "*://*.x.com/*", "*://*.twitter.com/*",
+  "*://*.snapchat.com/*",
+];
 
 async function apiBase() {
   const s = await chrome.storage.local.get(API_URL_KEY);
@@ -487,8 +501,13 @@ async function syncScripts() {
   // while host_permissions patterns never do.
   const baseOrigin = new URL(await apiBase()).origin;
   const sites = (origins ?? []).filter((o) => !o.startsWith(baseOrigin));
-  const { "sovir-observe-blocklist": blocklist } = await chrome.storage.local.get(
-    "sovir-observe-blocklist",
+  const { "sovir-observe-blocklist": blocklist, [SENSITIVE_KEY]: sensitiveOn } =
+    await chrome.storage.local.get(["sovir-observe-blocklist", SENSITIVE_KEY]);
+  // Exclusions: the user's own blocklist plus the sensitive shield while
+  // they haven't opted sensitive categories in. The shield applies to every
+  // registration — the only way sensitive hosts get observed is the toggle.
+  const exclude = (Array.isArray(blocklist) ? blocklist : []).concat(
+    sensitiveOn === true ? [] : SENSITIVE_HOST_PATTERNS,
   );
   try {
     await chrome.scripting.unregisterContentScripts({ ids: ["sovir-observer"] });
@@ -499,8 +518,8 @@ async function syncScripts() {
       id: "sovir-observer",
       matches: sites,
       // ADR-0022: user-listed origins are never observed, even under a
-      // broad <all_urls> grant.
-      excludeMatches: Array.isArray(blocklist) ? blocklist : [],
+      // broad <all_urls> grant; sensitive categories join them by default.
+      excludeMatches: exclude,
       js: ["brand-domains.js", "extractor.js", "content.js"],
       persistAcrossSessions: true,
       runAt: "document_idle",
@@ -512,7 +531,11 @@ chrome.runtime.onInstalled.addListener(syncScripts);
 chrome.permissions.onAdded.addListener(syncScripts);
 chrome.permissions.onRemoved.addListener(syncScripts);
 chrome.storage.onChanged?.addListener((changes, area) => {
-  if (area === "local" && "sovir-observe-blocklist" in changes) syncScripts();
+  if (
+    area === "local" &&
+    ("sovir-observe-blocklist" in changes || SENSITIVE_KEY in changes)
+  )
+    syncScripts();
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

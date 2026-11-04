@@ -19,17 +19,20 @@ const visionToggle = document.querySelector("#vision-enabled");
 const savedVision = document.querySelector("#saved-vision");
 const OBSERVE_ALL_KEY = "sovir-observe-all";
 const BLOCKLIST_KEY = "sovir-observe-blocklist";
+const SENSITIVE_KEY = "sovir-sensitive-enabled";
 const observeAllToggle = document.querySelector("#observe-all");
 const blocklistInput = document.querySelector("#observe-blocklist");
 const savedObserve = document.querySelector("#saved-observe");
+const sensitiveToggle = document.querySelector("#sensitive-enabled");
 
-chrome.storage.local.get([KEY, PRINCIPAL_KEY, OIDC_ISSUER_KEY, OIDC_CLIENT_KEY, VISION_KEY, BLOCKLIST_KEY], (s) => {
+chrome.storage.local.get([KEY, PRINCIPAL_KEY, OIDC_ISSUER_KEY, OIDC_CLIENT_KEY, VISION_KEY, BLOCKLIST_KEY, SENSITIVE_KEY], (s) => {
   input.value = s[KEY] ?? DEFAULT_API;
   principalInput.value = s[PRINCIPAL_KEY] ?? "";
   principalInput.placeholder = "ext-demo";
   oidcIssuer.value = s[OIDC_ISSUER_KEY] === undefined ? DEFAULT_OIDC_ISSUER : (s[OIDC_ISSUER_KEY] ?? "");
   oidcClient.value = s[OIDC_CLIENT_KEY] === undefined ? DEFAULT_OIDC_CLIENT : (s[OIDC_CLIENT_KEY] ?? "");
   visionToggle.checked = s[VISION_KEY] === true;
+  sensitiveToggle.checked = s[SENSITIVE_KEY] === true;
   blocklistInput.value = (s[BLOCKLIST_KEY] ?? []).join("\n");
   chrome.permissions.contains({ origins: ["<all_urls>"] }, (has) => {
     observeAllToggle.checked = has;
@@ -71,6 +74,14 @@ observeAllToggle.addEventListener("change", () => {
       });
     });
   }
+});
+
+sensitiveToggle.addEventListener("change", () => {
+  chrome.storage.local.set({ [SENSITIVE_KEY]: sensitiveToggle.checked }, () => {
+    savedObserve.textContent = sensitiveToggle.checked
+      ? "Sitios sensibles incluidos — banca y redes sociales también se observan."
+      : "Sitios sensibles protegidos — banca y redes sociales quedan excluidos.";
+  });
 });
 
 document.querySelector("#save-blocklist").addEventListener("click", () => {

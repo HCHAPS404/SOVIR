@@ -124,3 +124,32 @@ class MobileLogicTest {
         assertNull(secretProblem("secreto-local"))
     }
 }
+
+class AppExclusionsTest {
+    private val sensitive = app.sovir.android.data.AppExclusions.SENSITIVE_PACKAGES.values.flatten().toSet()
+
+    @Test
+    fun sensitivePackagesSkippedByDefault() {
+        assertTrue(app.sovir.android.data.AppExclusions.skipsWith("com.whatsapp", emptySet(), sensitiveAllowed = false))
+        assertTrue(app.sovir.android.data.AppExclusions.skipsWith("com.bbva.bbvacontigo", emptySet(), sensitiveAllowed = false))
+        assertFalse(app.sovir.android.data.AppExclusions.skipsWith("com.chrome.dev", emptySet(), sensitiveAllowed = false))
+    }
+
+    @Test
+    fun sensitiveOptInObservesThem() {
+        assertFalse(app.sovir.android.data.AppExclusions.skipsWith("com.whatsapp", emptySet(), sensitiveAllowed = true))
+        // User exemption always wins over the opt-in.
+        assertTrue(app.sovir.android.data.AppExclusions.skipsWith("com.whatsapp", setOf("com.whatsapp"), sensitiveAllowed = true))
+    }
+
+    @Test
+    fun userExemptionsSkipAnyPackage() {
+        assertTrue(app.sovir.android.data.AppExclusions.skipsWith("com.mi.banco", setOf("com.mi.banco"), sensitiveAllowed = false))
+    }
+
+    @Test
+    fun curatedListIsNonEmptyAndDistinct() {
+        assertTrue(sensitive.size >= 20)
+        assertEquals(sensitive.size, app.sovir.android.data.AppExclusions.SENSITIVE_PACKAGES.values.flatten().size)
+    }
+}

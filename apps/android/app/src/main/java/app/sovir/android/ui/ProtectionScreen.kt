@@ -4,7 +4,9 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -114,7 +116,58 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
             Fact("Lee", "El texto visible de otras apps, para buscar señales de riesgo")
             Fact("Envía", "Los tipos de señal y las frases que coincidieron, solo a tu servidor")
             Fact("Nunca envía", "Capturas, contraseñas ni campos de clave")
-            Fact("Ignora", "Barra del sistema, ajustes y la propia app de SOVIR", divider = false)
+            Fact("Ignora", "Barra del sistema, ajustes, la propia app de SOVIR y tus apps exentas", divider = false)
+        }
+
+        // --- app exemptions + sensitive shield -----------------------------
+        Gap(14.dp)
+        Panel {
+            PanelHead("Apps que no se observan", kicker = "Privacidad por app")
+            val pm = ctx.packageManager
+            var sensitiveOn by remember { mutableStateOf(app.sovir.android.data.AppExclusions.sensitiveAllowed) }
+            val installedSensitive = remember { app.sovir.android.data.AppExclusions.installedSensitive(pm) }
+            Text(
+                "Una vez das el permiso, el observador cubre todas tus apps. Aquí pones las excepciones — sin preguntas repetidas.",
+                style = MaterialTheme.typography.bodySmall, color = p.muted,
+            )
+            Gap(10.dp)
+            Line(
+                "Apps sensibles (social, banca, carteras)",
+                if (sensitiveOn) "También observadas" else "Excluidas por defecto",
+                tone = if (sensitiveOn) Tone.Warning else Tone.Success,
+                divider = installedSensitive.isNotEmpty(),
+                trailing = {
+                    QuietAction(if (sensitiveOn) "Excluir" else "Incluir", {
+                        sensitiveOn = !sensitiveOn
+                        app.sovir.android.data.AppExclusions.sensitiveAllowed = sensitiveOn
+                    })
+                },
+            )
+            if (installedSensitive.isNotEmpty()) {
+                installedSensitive.forEach { (pkg, cat) ->
+                    Fact(cat, pkg, divider = true)
+                }
+            }
+            Gap(8.dp)
+            var exemptText by remember {
+                mutableStateOf(app.sovir.android.data.AppExclusions.excludedPackages.joinToString("\n"))
+            }
+            OutlinedTextField(
+                value = exemptText,
+                onValueChange = { exemptText = it },
+                label = { Text("Paquetes exentos — uno por línea") },
+                supportingText = { Text("Ej: com.mi.banco — nunca se lee su pantalla") },
+                colors = serverFieldColors(p),
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                minLines = 2,
+            )
+            Gap(8.dp)
+            SecondaryButton("Guardar exenciones", {
+                app.sovir.android.data.AppExclusions.setExcluded(
+                    exemptText.split("\n", ",", " ").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+                )
+            })
+            Gap(4.dp)
         }
 
         // --- notifications -----------------------------------------------
