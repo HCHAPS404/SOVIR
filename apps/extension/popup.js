@@ -44,7 +44,11 @@ async function paint() {
     chrome.tabs
       .query({ active: true, currentWindow: true })
       .then(([t]) =>
-        t?.url ? chrome.runtime.sendMessage({ type: "site-state", url: t.url }) : null,
+        t?.url
+          ? chrome.runtime
+              .sendMessage({ type: "site-state", url: t.url })
+              .catch(() => null)
+          : null,
       ),
   ]);
   currentTab = tab;
@@ -89,12 +93,15 @@ async function paint() {
 
   observeBtn.hidden = !(host && siteReason === "not_granted" && state?.ready && !state?.paused);
 
-  // Voluntary per-site exclusion: shown while a site is observed, and as
-  // an undo path when it sits on the user's own blocklist.
+  // Voluntary per-site exclusion: on any observable page — while observed,
+  // preventively when it isn't yet, and as the undo path when it sits on
+  // the user's own blocklist. Not offered on sensitive hosts: those are
+  // governed by the shield toggle in Options, not the per-site list.
   excludeBtn.hidden = !(
     host &&
-    (siteReason === "observed" || siteReason === "excluded") &&
-    state?.ready
+    state?.ready &&
+    siteReason !== "sensitive" &&
+    siteReason !== "unobservable"
   );
   excludeBtn.textContent =
     siteReason === "excluded" ? "Volver a observarla" : "No observar esta página";
