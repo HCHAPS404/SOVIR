@@ -37,11 +37,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -129,6 +133,44 @@ fun Dot(tone: Tone, size: Dp = 8.dp) {
     Box(Modifier.size(size).clip(CircleShape).background(LocalPalette.current.tone(tone)))
 }
 
+/** A glyph inside a soft tile — the identity block rows lead with. */
+@Composable
+fun GlyphTile(icon: ImageVector, tone: Tone = Tone.Unknown, size: Dp = 38.dp) {
+    val p = LocalPalette.current
+    Box(
+        Modifier.size(size).clip(RoundedCornerShape(9.dp)).background(p.surface2),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = p.tone(tone), modifier = Modifier.size(20.dp))
+    }
+}
+
+/**
+ * The app's real icon from PackageManager — recognisability over decor:
+ * people pair "the WhatsApp icon" with the app far faster than a label.
+ * Fallback is a neutral tile when the package vanished.
+ */
+@Composable
+fun AppIcon(pkg: String, size: Dp = 38.dp) {
+    val p = LocalPalette.current
+    val ctx = LocalContext.current
+    val bmp = remember(pkg) {
+        runCatching {
+            val d = ctx.packageManager.getApplicationIcon(pkg)
+            val b = android.graphics.Bitmap.createBitmap(96, 96, android.graphics.Bitmap.Config.ARGB_8888)
+            val c = android.graphics.Canvas(b)
+            d.setBounds(0, 0, 96, 96)
+            d.draw(c)
+            b.asImageBitmap()
+        }.getOrNull()
+    }
+    if (bmp != null) {
+        Image(bmp, contentDescription = null, modifier = Modifier.size(size).clip(RoundedCornerShape(9.dp)))
+    } else {
+        GlyphTile(Glyphs.apps, size = size)
+    }
+}
+
 @Composable
 fun Chip(text: String, tone: Tone, dot: Boolean = true) {
     val c = LocalPalette.current.tone(tone)
@@ -198,7 +240,11 @@ fun Gap(h: Dp = 12.dp) = Spacer(Modifier.height(h))
 @Composable
 fun Rule() = HorizontalDivider(color = LocalPalette.current.line, thickness = 1.dp)
 
-/** A list line: tone dot, title, sub, trailing meta. Tappable when [onClick] is set. */
+/**
+ * A list line: optional leading visual (glyph tile or real app icon — takes
+ * precedence over the tone dot), title, sub, trailing meta. Tappable when
+ * [onClick] is set.
+ */
 @Composable
 fun Line(
     title: String,
@@ -207,6 +253,7 @@ fun Line(
     tone: Tone? = null,
     divider: Boolean = true,
     onClick: (() -> Unit)? = null,
+    leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val p = LocalPalette.current
@@ -220,7 +267,10 @@ fun Line(
                 .padding(vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (tone != null) {
+            if (leading != null) {
+                Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) { leading() }
+                Spacer(Modifier.width(12.dp))
+            } else if (tone != null) {
                 Dot(tone)
                 Spacer(Modifier.width(12.dp))
             }

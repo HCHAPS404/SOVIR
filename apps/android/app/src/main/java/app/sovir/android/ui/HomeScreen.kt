@@ -1,16 +1,20 @@
 package app.sovir.android.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.sovir.android.data.Auth
@@ -50,6 +54,8 @@ fun DataGate(model: AppModel, content: @Composable (DataExport) -> Unit) {
         }
     }
 }
+
+private data class Hero(val icon: ImageVector, val title: String, val tone: Tone, val line: String)
 
 private sealed interface FeedItem {
     val at: Long
@@ -93,17 +99,17 @@ fun HomeScreen(
     val otherDevices = data.devices.count { it.active && it.platform != "ANDROID" }
 
     // What the client answers at a glance: "¿me están protegiendo ahora?"
-    val (heroChip, heroTone, heroLine) = when {
-        model.sync == Sync.Offline -> Triple("Sin conexión", Tone.Warning, "No podemos hablar con tu servidor ahora mismo.")
-        !coverage.observing && otherDevices > 0 -> Triple(
-            "Protegido desde otros dispositivos", Tone.Brand,
+    val hero = when {
+        model.sync == Sync.Offline -> Hero(Glyphs.bell, "Sin conexión", Tone.Warning, "No podemos hablar con tu servidor ahora mismo.")
+        !coverage.observing && otherDevices > 0 -> Hero(
+            Glyphs.shieldCheck, "Protegido desde otros dispositivos", Tone.Brand,
             "Este teléfono está en pausa; tu extensión y demás dispositivos siguen observando.",
         )
-        !coverage.observing -> Triple(
-            "Este teléfono está en pausa", Tone.Warning,
+        !coverage.observing -> Hero(
+            Glyphs.shield, "Este teléfono está en pausa", Tone.Warning,
             "Activa su protección en la pestaña Protección — son tres pasos.",
         )
-        else -> Triple("Te estamos protegiendo", Tone.Success, "Este teléfono observa lo que miras y avisa si algo parece un engaño.")
+        else -> Hero(Glyphs.shieldCheck, "Te estamos protegiendo", Tone.Success, "Este teléfono observa lo que miras y avisa si algo parece un engaño.")
     }
 
     ScreenScroll {
@@ -112,19 +118,24 @@ fun HomeScreen(
             sub = "Así va tu protección.",
         )
 
-        // --- hero: protection state + real counters ----------------------
+        // --- hero: shield state + real counters --------------------------
         Panel {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Chip(heroChip, heroTone)
-                Spacer(Modifier.weight(1f))
+                GlyphTile(hero.icon, hero.tone, 48.dp)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(hero.title, style = MaterialTheme.typography.titleLarge, color = p.ink)
+                    Gap(2.dp)
+                    Text(hero.line, style = MaterialTheme.typography.bodyMedium, color = p.muted)
+                }
                 trend?.let { Text(it.first, style = MaterialTheme.typography.labelMedium, color = p.tone(it.second)) }
             }
-            Gap(8.dp)
-            Text(heroLine, style = MaterialTheme.typography.bodyMedium, color = p.muted)
             Gap(18.dp)
-            Row(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 StatTile(digest.signals, "pantallas\nrevisadas", Modifier.weight(1f))
+                Box(Modifier.width(1.dp).height(42.dp).background(p.line))
                 StatTile(digest.categories.sumOf { it.second }, "señales\nvistas", Modifier.weight(1f))
+                Box(Modifier.width(1.dp).height(42.dp).background(p.line))
                 StatTile(digest.alerts, "avisos\nemitidos", Modifier.weight(1f), if (digest.alerts > 0) Tone.Warning else null)
             }
             Gap(18.dp)

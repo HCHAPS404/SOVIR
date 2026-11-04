@@ -86,10 +86,10 @@ fun AlertsScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) { 
         val event = data.eventFor(i)
         val state = Humanize.interventionState(i.state)
         Line(
-            title = event?.signals?.firstOrNull()?.let(Humanize::signal) ?: "Aviso de protección",
+            title = event?.signals?.let(Humanize::dominantSignal)?.let(Humanize::signal) ?: "Aviso de protección",
             sub = "${event?.let { Humanize.source(it.sourceId) } ?: "Origen no disponible"} · ${timeAgo(i.createdAtMs, now)}",
-            tone = state.tone,
             divider = !last,
+            leading = { GlyphTile(event?.let { sourceIcon(it.sourceId) } ?: Glyphs.bell, state.tone) },
             onClick = { onOpen(i.interventionId) },
             trailing = { Chip(state.label, state.tone, dot = false) },
         )
@@ -132,20 +132,34 @@ fun ActivityScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) 
         at = { it.observedAtMs },
         now = now,
     ) { e, last ->
-        val labels = e.signals.map(Humanize::signal)
+        // The row is named by the most alarming signal — not whichever was
+        // stored first — and the rest collapse into a "+N señales" suffix.
+        val dominant = Humanize.dominantSignal(e.signals)
+        val rest = e.signals.size - 1
         val badge: (@Composable RowScope.() -> Unit)? =
             if (e.eventId in alerted) ({ Chip("Aviso", Tone.Warning, dot = false) }) else null
         Line(
-            title = labels.take(2).joinToString(" · ").ifEmpty { "Sin señales de riesgo" } +
-                if (labels.size > 2) " +${labels.size - 2}" else "",
-            sub = "${Humanize.source(e.sourceId)} · ${Humanize.modality(e.modality)}",
+            title = dominant?.let(Humanize::signal) ?: "Actividad sin señales de riesgo",
+            sub = buildString {
+                append(Humanize.source(e.sourceId))
+                append(" · ")
+                append(Humanize.modality(e.modality))
+                if (rest > 0) append(" · +$rest señales")
+            },
             meta = fmtTime(e.observedAtMs),
-            tone = if (e.eventId in alerted) Tone.Warning else Tone.Muted,
             divider = !last,
+            leading = { GlyphTile(sourceIcon(e.sourceId), if (e.eventId in alerted) Tone.Warning else Tone.Muted) },
             onClick = { onOpen(e.eventId) },
             trailing = badge,
         )
     }
+}
+
+/** Glyph that identifies where an observation came from. */
+private fun sourceIcon(sourceId: String) = when {
+    "android" in sourceId -> Glyphs.devicePhone
+    "ext" in sourceId || "browser" in sourceId -> Glyphs.browser
+    else -> Glyphs.key
 }
 
 /** Lazy list grouped by calendar day with a shared header. */

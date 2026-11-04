@@ -142,47 +142,80 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
             Fact("Omite", "Las apps que excluyas abajo y las sensibles por defecto", divider = false)
         }
 
-        // --- privacy exceptions -------------------------------------------
+        // --- privacy exceptions: observed vs not-observed, real icons ------
         Gap(14.dp)
         Panel {
-            PanelHead("Apps que no se observan", kicker = "Tus excepciones")
-            val installedSensitive = remember { AppExclusions.installedSensitive(ctx.packageManager) }
+            PanelHead("Qué apps se observan", kicker = "Tus excepciones")
+            val pm = ctx.packageManager
+            val installedSensitive = remember { AppExclusions.installedSensitive(pm) }
             var included by remember { mutableStateOf(AppExclusions.sensitiveIncluded) }
+            var excluded by remember { mutableStateOf(AppExclusions.excludedPackages) }
+            val launchable = remember { launchableApps(pm) }
+            val observedCount = launchable.count { !AppExclusions.skips(it.second) }
+            val sensitivePkgs = installedSensitive.map { it.first }
+            val refresh = {
+                included = AppExclusions.sensitiveIncluded
+                excluded = AppExclusions.excludedPackages
+            }
             Text(
-                "El observador cubre todas tus apps menos las que excluyas aquí — sin preguntas repetidas. " +
-                    "Las sensibles están protegidas por defecto: las incluyes una a una, solo si tú decides.",
+                "El observador cubre tus apps salvo las de abajo. Las sensibles están protegidas por defecto: las incluyes una a una, solo si decides.",
                 style = MaterialTheme.typography.bodySmall, color = p.muted,
             )
-            Gap(10.dp)
-            installedSensitive.forEachIndexed { i, (pkg, cat) ->
-                val isIncluded = pkg in included
+            Gap(12.dp)
+
+            Kicker("Con permiso para observarse")
+            Gap(4.dp)
+            val includedShown = included.filter { it in sensitivePkgs }.take(3)
+            includedShown.forEach { pkg ->
                 Line(
-                    appLabel(ctx.packageManager, pkg) ?: pkg,
-                    "$cat · " + if (isIncluded) "observada — la incluiste" else "excluida por defecto",
-                    tone = if (isIncluded) Tone.Warning else Tone.Success,
-                    divider = i < installedSensitive.lastIndex || AppExclusions.excludedPackages.isNotEmpty(),
+                    appLabel(pm, pkg) ?: pkg,
+                    "La incluiste — se observa",
+                    divider = true,
+                    leading = { AppIcon(pkg) },
                     trailing = {
-                        QuietAction(if (isIncluded) "Excluir" else "Incluir", {
-                            AppExclusions.setSensitiveIncluded(pkg, !isIncluded)
-                            included = AppExclusions.sensitiveIncluded
+                        QuietAction("Quitar", {
+                            AppExclusions.setSensitiveIncluded(pkg, false)
+                            refresh()
                         })
                     },
                 )
             }
-            val excluded = AppExclusions.excludedPackages
-            excluded.forEach { pkg ->
+            Line(
+                "Todas las demás apps",
+                if (observedCount == 0) "Ninguna otra se observa" else "$observedCount se observan",
+                divider = false,
+                leading = { GlyphTile(Glyphs.apps, Tone.Success) },
+            )
+
+            Gap(12.dp)
+            Kicker("Sin observar")
+            Gap(4.dp)
+            val notObserved: List<Triple<String, String, Boolean>> =
+                sensitivePkgs.filter { it !in included && it !in excluded }.map { Triple(it, "Protegida por defecto", true) } +
+                    excluded.map { Triple(it, "Excluida por ti", AppExclusions.isSensitive(it)) }
+            if (notObserved.isEmpty()) {
+                Text("Ninguna — todo lo que abres se observa.", style = MaterialTheme.typography.bodyMedium, color = p.muted)
+            }
+            notObserved.take(3).forEachIndexed { i, (pkg, why, isSensitive) ->
                 Line(
-                    appLabel(ctx.packageManager, pkg) ?: pkg,
-                    "Excluida — su pantalla nunca se lee",
-                    tone = Tone.Success,
-                    divider = true,
+                    appLabel(pm, pkg) ?: pkg,
+                    why,
+                    divider = i < minOf(3, notObserved.size) - 1 || notObserved.size > 3,
+                    leading = { AppIcon(pkg) },
                     trailing = {
-                        QuietAction("Quitar", { AppExclusions.setExcluded(excluded - pkg) })
+                        QuietAction("Incluir", {
+                            if (pkg in excluded) AppExclusions.setExcluded(excluded - pkg)
+                            if (isSensitive && AppExclusions.skips(pkg)) AppExclusions.setSensitiveIncluded(pkg, true)
+                            refresh()
+                        })
                     },
                 )
             }
+            if (notObserved.size > 3) {
+                Text("y ${notObserved.size - 3} más", style = MaterialTheme.typography.bodySmall, color = p.muted)
+            }
             Gap(8.dp)
-            SecondaryButton("Excluir una app", { showAppPicker = true })
+            SecondaryButton("Explorar apps", { showAppPicker = true })
             Gap(4.dp)
         }
 
@@ -209,15 +242,17 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
             Gap(4.dp)
         }
 
-        // --- all sources' grants ------------------------------------------
+        // --- all sources' grants: top of the list, full record on tap ------
         Gap(14.dp)
         Panel {
             PanelHead("Permisos de tus fuentes", kicker = "Toda tu cuenta")
-            val grants = data.grants.sortedWith(compareByDescending<ConsentGrant> { it.activeAt(now) }.thenByDescending { it.issuedAtMs }).take(12)
+            var showAllGrants by rememberSaveable { mutableStateOf(false) }
+            val grants = data.grants.sortedWith(compareByDescending<ConsentGrant> { it.activeAt(now) }.thenByDescending { it.issuedAtMs })
             if (grants.isEmpty()) {
                 Text("Ninguna fuente tiene permiso todavía.", style = MaterialTheme.typography.bodyMedium, color = p.muted)
             }
-            grants.forEachIndexed { i, g ->
+            val shown = if (showAllGrants) grants else grants.take(3)
+            shown.forEachIndexed { i, g ->
                 val active = g.activeAt(now)
                 // A phone grant this install did not issue (older build, other
                 // install) is real on the server but unused here — say so.
@@ -230,30 +265,52 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
                         foreignPhone -> "Vigente hasta ${fmtDate(g.expiresAtMs)} · no lo usa esta instalación"
                         else -> "Vigente hasta ${fmtDate(g.expiresAtMs)}"
                     },
-                    tone = if (active) Tone.Success else if (g.revoked) Tone.Danger else Tone.Unknown,
-                    divider = i < grants.lastIndex,
+                    divider = i < shown.lastIndex || grants.size > shown.size,
+                    leading = { GlyphTile(grantIcon(g.sourceId), if (active) Tone.Success else Tone.Muted) },
                     trailing = { if (active) QuietAction("Revocar", { confirm = Pending.RevokeGrant(g) }, Tone.Danger) },
+                )
+            }
+            if (grants.size > 3) {
+                QuietAction(
+                    if (showAllGrants) "Ver menos" else "Ver todo el registro · ${grants.size}",
+                    { showAllGrants = !showAllGrants },
                 )
             }
             Notice(listMsg)
         }
 
-        // --- devices ---------------------------------------------------------
+        // --- devices: this phone first, compact, icons per platform --------
         Gap(14.dp)
         Panel {
             PanelHead("Dispositivos vinculados")
-            val devices = data.devices.sortedWith(compareByDescending<Device> { it.active }.thenByDescending { it.registeredAtMs })
+            var showAllDevices by rememberSaveable { mutableStateOf(false) }
+            val devices = data.devices.sortedWith(
+                compareByDescending<Device> { it.deviceId == PhoneLink.deviceId }
+                    .thenByDescending { it.active }
+                    .thenByDescending { it.registeredAtMs },
+            )
             if (devices.isEmpty()) {
                 Text("No hay dispositivos registrados.", style = MaterialTheme.typography.bodyMedium, color = p.muted)
             }
-            devices.forEachIndexed { i, d ->
+            val shown = if (showAllDevices) devices else devices.take(3)
+            shown.forEachIndexed { i, d ->
                 val here = d.deviceId == PhoneLink.deviceId
                 Line(
-                    d.label.ifBlank { Humanize.platform(d.platform) } + if (here) " · este teléfono" else "",
-                    "${Humanize.platform(d.platform)} · " + if (d.active) "desde ${fmtDate(d.registeredAtMs)}" else "revocado",
-                    tone = if (d.active) Tone.Success else Tone.Unknown,
-                    divider = i < devices.lastIndex,
-                    trailing = { if (d.active) QuietAction("Revocar", { confirm = Pending.RevokeDevice(d) }, Tone.Danger) },
+                    if (here) "Este teléfono" else d.label.ifBlank { Humanize.platform(d.platform) },
+                    "${Humanize.platform(d.platform)} · " + when {
+                        here && d.active -> "vinculado y en uso"
+                        d.active -> "desde ${fmtDate(d.registeredAtMs)}"
+                        else -> "revocado"
+                    },
+                    divider = i < shown.lastIndex || devices.size > shown.size,
+                    leading = { GlyphTile(deviceIcon(d.platform), if (d.active) Tone.Success else Tone.Muted) },
+                    trailing = { if (d.active && !here) QuietAction("Revocar", { confirm = Pending.RevokeDevice(d) }, Tone.Danger) },
+                )
+            }
+            if (devices.size > 3) {
+                QuietAction(
+                    if (showAllDevices) "Ver menos" else "Ver todos · ${devices.size}",
+                    { showAllDevices = !showAllDevices },
                 )
             }
         }
@@ -367,39 +424,69 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
         })
     }
 
-    // --- emergent app exclusion picker ---------------------------------------
+    // --- app explorer: every installed app, grouped by observation state ---
     if (showAppPicker) {
         val pm = ctx.packageManager
         val apps = remember { launchableApps(pm) }
         var excluded by remember { mutableStateOf(AppExclusions.excludedPackages) }
+        var included by remember { mutableStateOf(AppExclusions.sensitiveIncluded) }
+        val refresh = {
+            excluded = AppExclusions.excludedPackages
+            included = AppExclusions.sensitiveIncluded
+        }
+        val (observed, notObserved) = apps.partition { !AppExclusions.skips(it.second) }
         AlertDialog(
             onDismissRequest = { showAppPicker = false },
             containerColor = p.surface,
             titleContentColor = p.ink,
-            title = { Text("Excluir una app", style = MaterialTheme.typography.titleLarge) },
+            title = { Text("Explorar apps", style = MaterialTheme.typography.titleLarge) },
             text = {
                 Column {
                     Text(
-                        "Su pantalla nunca se lee. Toca para marcar o quitar.",
+                        "Toca Incluir o Excluir para mover una app de grupo. Las sensibles siempre empiezan sin observarse.",
                         style = MaterialTheme.typography.bodySmall, color = p.muted,
                     )
                     Gap(10.dp)
-                    Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
-                        apps.forEach { (label, pkg) ->
-                            val isExcluded = pkg in excluded
+                    Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                        Kicker("Se observan · ${observed.size}")
+                        Gap(2.dp)
+                        observed.forEach { (label, pkg) ->
+                            val sensitive = AppExclusions.isSensitive(pkg)
                             Line(
                                 label,
-                                pkg,
-                                tone = if (isExcluded) Tone.Success else null,
+                                if (sensitive) "Sensible · la incluiste" else "Se observa",
                                 divider = true,
-                                onClick = {
-                                    excluded = if (isExcluded) excluded - pkg else excluded + pkg
-                                    AppExclusions.setExcluded(excluded)
-                                },
+                                leading = { AppIcon(pkg) },
                                 trailing = {
-                                    if (isExcluded) Chip("Excluida", Tone.Success, dot = false)
+                                    QuietAction("Excluir", {
+                                        if (sensitive) AppExclusions.setSensitiveIncluded(pkg, false)
+                                        else AppExclusions.setExcluded(excluded + pkg)
+                                        refresh()
+                                    })
                                 },
                             )
+                        }
+                        if (notObserved.isNotEmpty()) {
+                            Gap(14.dp)
+                            Kicker("Sin observar · ${notObserved.size}")
+                            Gap(2.dp)
+                            notObserved.forEach { (label, pkg) ->
+                                Line(
+                                    label,
+                                    if (pkg in excluded) "Excluida por ti" else "Protegida por defecto",
+                                    divider = true,
+                                    leading = { AppIcon(pkg) },
+                                    trailing = {
+                                        QuietAction("Incluir", {
+                                            if (pkg in excluded) AppExclusions.setExcluded(excluded - pkg)
+                                            if (AppExclusions.isSensitive(pkg) && AppExclusions.skips(pkg)) {
+                                                AppExclusions.setSensitiveIncluded(pkg, true)
+                                            }
+                                            refresh()
+                                        })
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -417,6 +504,20 @@ private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 
 private fun appLabel(pm: PackageManager, pkg: String): String? =
     runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
+
+/** Which glyph identifies a signal source in the grants list. */
+private fun grantIcon(sourceId: String) = when {
+    "android" in sourceId -> Glyphs.devicePhone
+    "ext" in sourceId || "browser" in sourceId -> Glyphs.browser
+    else -> Glyphs.key
+}
+
+/** Which glyph identifies a linked device by platform. */
+private fun deviceIcon(platform: String) = when (platform) {
+    "ANDROID", "IOS" -> Glyphs.devicePhone
+    "BROWSER_EXTENSION" -> Glyphs.browser
+    else -> Glyphs.monitor
+}
 
 private fun launchableApps(pm: PackageManager): List<Pair<String, String>> {
     val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)

@@ -51,7 +51,7 @@ enum class Tab(val label: String, val icon: ImageVector, val tag: String) {
     Home("Resumen", Glyphs.home, "tab-home"),
     Alerts("Alertas", Glyphs.bell, "tab-alerts"),
     Activity("Actividad", Glyphs.pulse, "tab-activity"),
-    Protection("Protección", Glyphs.sliders, "tab-protection"),
+    Protection("Protección", Glyphs.shield, "tab-protection"),
     Account("Cuenta", Glyphs.person, "tab-account"),
 }
 

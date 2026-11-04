@@ -66,6 +66,28 @@ object Humanize {
         "no_pattern_detected" to "sin patrón de riesgo",
     )
 
+    /** Relative alarm weight — drives which signal names an observation. */
+    private val SEVERITY = mapOf(
+        "EXTORTION_LANGUAGE" to 100, "SEED_PHRASE_REQUEST" to 98,
+        "GIFT_CARD_PAYMENT" to 96, "SCAREWARE_CLAIM" to 94,
+        "AUTHORITY_IMPERSONATION" to 92, "CREDENTIAL_REQUEST" to 90,
+        "PRIZE_LOTTERY_CLAIM" to 88, "PAYMENT_REQUEST" to 86,
+        "HIDDEN_FEE_PATTERN" to 84, "DELIVERY_CUSTOMS_FEE" to 82,
+        "INVESTMENT_PROMISE" to 80, "JOB_SCAM_OFFER" to 78,
+        "ROMANCE_BAIT" to 76, "MIRACLE_CURE_CLAIM" to 74,
+        "OFF_PLATFORM_MOVE" to 72, "BULK_BUYER_LURE" to 70,
+        "DOM_BRAND_MISMATCH" to 68, "LINK_DESTINATION_MISMATCH" to 66,
+        "SUSPICIOUS_DOMAIN" to 64, "IDENTITY_UNVERIFIED" to 62,
+        "URGENT_ACTION" to 60, "SCARCITY_PRESSURE" to 58,
+        "QR_PRESENT" to 40, "DATA_HARVESTING" to 36,
+        "CONSENT_DARK_PATTERN" to 34, "TRACKING_OBSERVED" to 32,
+        "USER_DEFINED_EXPOSURE_LIMIT" to 30,
+    )
+
+    /** The signal that should name an observation — most alarming first. */
+    fun dominantSignal(signals: List<String>): String? =
+        signals.maxByOrNull { SEVERITY[it] ?: 50 }
+
     fun signal(id: String) = SIGNALS[id] ?: id.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
     fun hypothesis(id: String) = HYPOTHESES[id] ?: id.replace('_', ' ')
     fun isBenign(hypotheses: List<String>) = hypotheses.isEmpty() || hypotheses.all { it == "no_pattern_detected" }
