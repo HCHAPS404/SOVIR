@@ -33,6 +33,7 @@ la materia prima para recalibrar/reentrenar mañana.
 | TikTok (incluida por-app) | señales si patrón | silencio en caption benigno ("#opsec #techtok") | Inclusión individual verificada: la app YA se observa; correctamente callada en contenido benigno. |
 | Gmail inbox (app nativa) | señales si patrón | silencio — lee subjects reales ("Vence hoy", "Run failed CI", ofertas de empleo) | Lectura real de app no-navegador confirmada. **Gap de vocabulario**: "Vence hoy" = urgencia real no cubierta por la tabla (`expira` sí, `vence`/`caduca` no). |
 | Facebook login, Instagram feed | señales si patrón | silencio | Incluidas por-app; plausible — login sin campo password visible, feed sin patrones. |
+| **Gmail carpeta Spam (scroll real)** | detección positiva | `URGENT_ACTION` ×2, `PAYMENT_REQUEST` ×3, `PRIZE_LOTTERY_CLAIM` | **Primera detección real de spam en app nativa**: correos de estafa reales emiten señales tipadas que llegan al servidor (~10s latencia). El corpus móvil ya no es solo sintético. |
 
 ## Hallazgos operativos del dispositivo real
 
