@@ -553,6 +553,78 @@ async fn evidence_window_escalates_hook_then_payment() {
     assert_eq!(items[0].kind, sovir_domain::InterventionKind::WarnBanner);
 }
 
+// ---- H5 scope: no intervention outside grant scope, ever ----
+
+#[tokio::test]
+async fn rejected_ingest_never_enqueues_intervention() {
+    // Every consent-scope rejection (no grant, wrong source, wrong device)
+    // must leave the intervention queue empty — a warn can never leak to a
+    // surface the user did not consent to.
+    let service = service();
+    let p = principal("p-scope");
+    // (a) No grant at all.
+    assert!(service.ingest(&p, event()).await.is_err());
+    // (b) Grant exists for "browser"; event claims another source.
+    service.grant(&p, grant()).await.unwrap();
+    let mut wrong_source = event();
+    wrong_source.event_id = "ws".into();
+    wrong_source.source_id = "screen-observer:android".into();
+    assert!(service.ingest(&p, wrong_source).await.is_err());
+    // (c) Bound grant, event from a different device.
+    let mut g_bound = grant();
+    g_bound.grant_id = "grant-bound".into();
+    g_bound.device_id = "device-a".into();
+    service.grant(&p, g_bound).await.unwrap();
+    let mut pa = principal("p-scope");
+    pa.device_id = "device-b".into();
+    let mut e = event();
+    e.event_id = "wd".into();
+    e.consent_grant_id = "grant-bound".into();
+    assert!(service.ingest(&pa, e).await.is_err());
+    assert!(service.list_interventions(&p).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn device_revocation_expires_pending_interventions() {
+    // H5 fail-closed: revoking a device must kill its queued notifications —
+    // a warn already enqueued for it expires, never delivers.
+    let service = service();
+    let p = principal("p-rev");
+    let mut pa = principal("p-rev");
+    pa.device_id = "dev-rev".into();
+    service
+        .register_device(&pa, Some("dev-rev"), Platform::Android, "phone")
+        .await
+        .unwrap();
+    let mut g = grant();
+    g.grant_id = "grant-rev".into();
+    g.expires_at_ms = 20_000;
+    // Bound grant: created under the device-bound principal so the seal
+    // carries dev-rev.
+    service.grant(&pa, g).await.unwrap();
+    // Escalated event -> pending warn intervention bound to the device.
+    let mut hook = event();
+    hook.event_id = "rv-hook".into();
+    hook.consent_grant_id = "grant-rev".into();
+    hook.observed_at_ms = 9_000;
+    hook.content_digest = "sha256:rh".into();
+    hook.signals = vec![RiskSignal::UrgentAction];
+    service.ingest(&pa, hook).await.unwrap();
+    let mut pay = event();
+    pay.event_id = "rv-pay".into();
+    pay.consent_grant_id = "grant-rev".into();
+    pay.observed_at_ms = 10_000;
+    pay.content_digest = "sha256:rp".into();
+    pay.signals = vec![RiskSignal::PaymentRequest];
+    service.ingest(&pa, pay).await.unwrap();
+    assert!(!service.list_interventions(&p).await.unwrap().is_empty());
+    // Revoke the device -> every pending delivery for it expires.
+    service.revoke_device(&p, "dev-rev").await.unwrap();
+    for i in service.list_interventions(&p).await.unwrap() {
+        assert_eq!(i.state, sovir_domain::DeliveryState::Expired);
+    }
+}
+
 // ---- H4 correlation eval: linked, ambiguously-unlinked, unprovable-order ----
 
 #[tokio::test]
