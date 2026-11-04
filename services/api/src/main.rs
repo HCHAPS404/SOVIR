@@ -181,9 +181,16 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 async fn require_principal(headers: &HeaderMap, state: &AppState) -> Result<Principal, ApiError> {
     let token = bearer_token(headers)
         .ok_or_else(|| api_err(StatusCode::UNAUTHORIZED, "unauthorized", headers, false))?;
+    // Optional self-declared device binding for OIDC bearers: the header
+    // names the caller's own registered device so last_seen/event
+    // attribution work. Bookkeeping only — it is verified against the
+    // principal's own device registry inside authenticate_bearer.
+    let device_hint = headers
+        .get("x-sovir-device")
+        .and_then(|v| v.to_str().ok());
     state
         .service
-        .authenticate_bearer(token)
+        .authenticate_bearer(token, device_hint)
         .await
         .map_err(|e| map_error(e, headers))
 }

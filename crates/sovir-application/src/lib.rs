@@ -260,10 +260,17 @@ impl SovirService {
     /// the dev `SessionStore` (local/test only, self-declared tenant).
     ///
     /// Verified principals carry the same dev scope set for now: claim→scope
-    /// mapping is a pending maintainer decision, and `device_id` is empty —
-    /// OIDC device binding is unsolved, so device-revocation checks do not
-    /// apply on this path yet.
-    pub async fn authenticate_bearer(&self, token: &str) -> Result<Principal, AppError> {
+    /// mapping is a pending maintainer decision. `device_hint` is the
+    /// self-declared `x-sovir-device` header: sealed into the principal only
+    /// when it names a live device already registered to THIS principal —
+    /// it is bookkeeping (last_seen, event attribution), never proof of
+    /// authorization, and device-revocation checks still do not apply on
+    /// this path.
+    pub async fn authenticate_bearer(
+        &self,
+        token: &str,
+        device_hint: Option<&str>,
+    ) -> Result<Principal, AppError> {
         if token.matches('.').count() == 2 {
             let v = self.identity.as_ref().ok_or(AppError::Unauthorized)?;
             let id = v.verify(token).await.map_err(|_| AppError::Unauthorized)?;
@@ -272,10 +279,21 @@ impl SovirService {
             {
                 return Err(AppError::Unauthorized);
             }
+            let device_id = match device_hint {
+                Some(h) if sovir_domain::valid_identifier(h) => match self
+                    .devices
+                    .get(&id.tenant_id, &id.principal_id, h)
+                    .await?
+                {
+                    Some(d) if d.revoked_at_ms.is_none() => h.to_string(),
+                    _ => String::new(),
+                },
+                _ => String::new(),
+            };
             return Ok(Principal {
                 principal_id: id.principal_id,
                 tenant_id: id.tenant_id,
-                device_id: String::new(),
+                device_id,
                 session_id: String::new(),
                 scopes: vec![
                     Scope::ConsentWrite,

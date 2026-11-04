@@ -1374,11 +1374,13 @@ pub fn validate_consent(
         || grant.expires_at_ms <= now_ms
         || grant.grant_id != event.consent_grant_id
         || grant.source_id != event.source_id
-        // The grant's server-sealed principal/device binding must match the
-        // event's. Both default to "" when unbound (legacy/in-test objects),
-        // so equality still holds for unbound pairs.
+        // The grant's server-sealed principal binding must match the
+        // event's. Device binding is strict only when the grant itself was
+        // device-bound: grants sealed before OIDC device-binding existed
+        // carry "" and remain valid for the same principal+source, while a
+        // bound grant only ever authorizes its own device.
         || grant.principal_id != event.principal_id
-        || grant.device_id != event.device_id
+        || (!grant.device_id.is_empty() && grant.device_id != event.device_id)
         // Tenant isolation (B19): a grant sealed to one tenant can never
         // authorize an event sealed to another.
         || grant.tenant_id != event.tenant_id
