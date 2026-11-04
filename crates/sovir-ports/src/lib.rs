@@ -420,3 +420,29 @@ pub trait DeletionReceiptStore: Send + Sync {
         principal_id: &str,
     ) -> Result<Vec<DeletionReceipt>, PortError>;
 }
+/// Billing provider boundary (H9 scaffold, PAYMENTS_OPTIONS.md). The domain
+/// never sees provider SDKs, card data or prices — a plan id and verified
+/// webhook events only. Wired behind SOVIR_BILLING: `disabled` (default)
+/// selects the Noop adapter and every call fails closed.
+pub struct BillingEvent {
+    /// Provider-normalized kind, e.g. "subscription.created".
+    pub kind: String,
+    /// Raw event payload JSON — interpretation is the service's job; the
+    /// gateway only proves the webhook is authentic.
+    pub payload: String,
+}
+#[async_trait]
+pub trait BillingGateway: Send + Sync {
+    /// Hosted-checkout URL for a plan — the provider's own page; SOVIR
+    /// never collects card data.
+    async fn checkout_url(&self, plan_id: &str, principal_id: &str) -> Result<String, PortError>;
+    /// Verify a provider webhook signature. Returns the event only when the
+    /// signature is valid — unsigned or tampered payloads never interpret.
+    async fn verify_webhook(
+        &self,
+        msg_id: &str,
+        timestamp: &str,
+        signature: &str,
+        body: &[u8],
+    ) -> Result<BillingEvent, PortError>;
+}

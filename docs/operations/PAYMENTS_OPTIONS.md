@@ -32,11 +32,14 @@ gratis e inmediato, pero deja la carga fiscal sobre ti (o requiere Stripe Tax
 
 ## Lo que se implementaría (tras aprobación)
 
-1. `sovir-ports`: trait `BillingGateway` (checkout session, webhook verify,
-   plan lookup) — dominio no importa SDKs del proveedor.
-2. `sovir-adapters`: `PolarBillingGateway` (sandbox) + `NoopBillingGateway`.
+1. ~~`sovir-ports`: trait `BillingGateway`~~ — **hecho** (scaffold commit).
+2. ~~`sovir-adapters`: `PolarBillingGateway` + `NoopBillingGateway`~~ —
+   **hecho**: verify Standard Webhooks (HMAC-SHA256 `whsec_`, firma
+   `v1,<b64>`) + hosted-checkout link con `customer_external_id`; Noop
+   fail-closed; 3 tests, cero red.
 3. `services/api`: `POST /v1/billing/checkout`, `POST /v1/billing/webhook`
-   (verificación de firma), plan en `whoami`/entitlements.
+   (verificación de firma), plan en `whoami`/entitlements — **pendiente ADR
+   de rutas**; el adapter ya está listo para cablear.
 4. Console: página de plan; extension/Android: lectura de entitlement, sin
    gating de funciones en scaffold.
 

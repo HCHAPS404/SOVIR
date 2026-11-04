@@ -10,6 +10,7 @@ sovir-ports = { path = "../sovir-ports" }
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
+base64 = "0.22"
 serde.workspace = true
 serde_json.workspace = true
 async-trait = "0.1.92"

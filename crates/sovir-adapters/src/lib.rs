@@ -4298,3 +4298,178 @@ mod tests {
         );
     }
 }
+
+// ---- H9 billing adapters (scaffold; SOVIR_BILLING=disabled by default) ----
+
+/// Disabled billing: every call fails closed. This is the DEFAULT adapter —
+/// absence of billing can never grant or deny anything it shouldn't.
+pub struct NoopBillingGateway;
+#[async_trait]
+impl sovir_ports::BillingGateway for NoopBillingGateway {
+    async fn checkout_url(&self, _plan_id: &str, _principal_id: &str) -> Result<String, PortError> {
+        Err(PortError::Unavailable)
+    }
+    async fn verify_webhook(
+        &self,
+        _msg_id: &str,
+        _timestamp: &str,
+        _signature: &str,
+        _body: &[u8],
+    ) -> Result<sovir_ports::BillingEvent, PortError> {
+        Err(PortError::Unavailable)
+    }
+}
+
+/// Polar merchant-of-record gateway (PAYMENTS_OPTIONS.md). Webhook
+/// verification follows the Standard Webhooks scheme Polar signs with:
+/// HMAC-SHA256 over `{msg_id}.{timestamp}.{body}` using the raw bytes of the
+/// `whsec_`-prefixed secret (base64), signature header `v1,<b64>` possibly
+/// space-separated. Timestamp freshness is the service's concern — this
+/// adapter only proves authenticity. Hosted-checkout URLs come from Polar's
+/// prebuilt checkout links plus `customer_external_id`, so no API call is
+/// needed in the scaffold.
+pub struct PolarBillingGateway {
+    webhook_secret: Vec<u8>,
+    /// e.g. "https://buy.polar.sh/polar_cl_xxx" — configured, not derived.
+    checkout_base: Option<String>,
+}
+impl PolarBillingGateway {
+    /// `secret` accepts the `whsec_`-prefixed or raw-base64 form.
+    pub fn new(secret: &str) -> Result<Self, PortError> {
+        use base64::Engine;
+        let s = secret.strip_prefix("whsec_").unwrap_or(secret);
+        let key = base64::engine::general_purpose::STANDARD
+            .decode(s)
+            .map_err(|_| PortError::Unavailable)?;
+        Ok(Self {
+            webhook_secret: key,
+            checkout_base: None,
+        })
+    }
+    pub fn with_checkout_base(mut self, url: impl Into<String>) -> Self {
+        self.checkout_base = Some(url.into());
+        self
+    }
+}
+#[async_trait]
+impl sovir_ports::BillingGateway for PolarBillingGateway {
+    async fn checkout_url(&self, _plan_id: &str, principal_id: &str) -> Result<String, PortError> {
+        let base = self.checkout_base.as_ref().ok_or(PortError::Unavailable)?;
+        // Static hosted checkout link + external customer reference; Polar
+        // reconciles the payer to our principal id.
+        Ok(format!("{base}?customer_external_id={principal_id}"))
+    }
+    async fn verify_webhook(
+        &self,
+        msg_id: &str,
+        timestamp: &str,
+        signature: &str,
+        body: &[u8],
+    ) -> Result<sovir_ports::BillingEvent, PortError> {
+        use base64::Engine;
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.webhook_secret)
+            .map_err(|_| PortError::Unavailable)?;
+        mac.update(msg_id.as_bytes());
+        mac.update(b".");
+        mac.update(timestamp.as_bytes());
+        mac.update(b".");
+        mac.update(body);
+        let expected = mac.finalize().into_bytes();
+        // Header may carry several space-separated v1 signatures.
+        let valid = signature.split(' ').any(|part| {
+            part.strip_prefix("v1,")
+                .and_then(|s| base64::engine::general_purpose::STANDARD.decode(s).ok())
+                .map(|sig| sig.as_slice() == expected.as_slice())
+                .unwrap_or(false)
+        });
+        if !valid {
+            return Err(PortError::Unauthorized);
+        }
+        let payload = String::from_utf8(body.to_vec()).map_err(|_| PortError::Storage)?;
+        let kind = serde_json::from_slice::<serde_json::Value>(body)
+            .ok()
+            .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
+            .unwrap_or_else(|| "unknown".into());
+        Ok(sovir_ports::BillingEvent { kind, payload })
+    }
+}
+
+#[cfg(test)]
+mod billing_tests {
+    use super::*;
+
+    fn sign(secret: &[u8], msg_id: &str, ts: &str, body: &[u8]) -> String {
+        use base64::Engine;
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(secret).unwrap();
+        mac.update(msg_id.as_bytes());
+        mac.update(b".");
+        mac.update(ts.as_bytes());
+        mac.update(b".");
+        mac.update(body);
+        format!(
+            "v1,{}",
+            base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes())
+        )
+    }
+
+    #[tokio::test]
+    async fn polar_webhook_verifies_real_signature_and_rejects_tampering() {
+        use base64::Engine;
+        use sovir_ports::BillingGateway;
+        let secret_raw = b"sovir-test-webhook-secret-32byte";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(secret_raw);
+        let gw = PolarBillingGateway::new(&b64).unwrap();
+        let body = br#"{"type":"subscription.created","data":{"id":"sub_1"}}"#.to_vec();
+        let sig = sign(secret_raw, "msg-1", "1700000000", &body);
+        let ev = gw
+            .verify_webhook("msg-1", "1700000000", &sig, &body)
+            .await
+            .unwrap();
+        assert_eq!(ev.kind, "subscription.created");
+        // Tampered body never verifies.
+        let mut bad = body.clone();
+        bad[10] = b'X';
+        assert!(matches!(
+            gw.verify_webhook("msg-1", "1700000000", &sig, &bad).await,
+            Err(PortError::Unauthorized)
+        ));
+        // Forged signature never verifies.
+        assert!(matches!(
+            gw.verify_webhook("msg-1", "1700000000", "v1,AAAA", &body)
+                .await,
+            Err(PortError::Unauthorized)
+        ));
+    }
+
+    #[tokio::test]
+    async fn noop_billing_fails_closed() {
+        use sovir_ports::BillingGateway;
+        let g = NoopBillingGateway;
+        assert!(matches!(
+            g.checkout_url("plan", "p").await,
+            Err(PortError::Unavailable)
+        ));
+        assert!(matches!(
+            g.verify_webhook("m", "t", "s", b"{}").await,
+            Err(PortError::Unavailable)
+        ));
+    }
+
+    #[tokio::test]
+    async fn polar_checkout_url_carries_external_customer_ref() {
+        use base64::Engine;
+        use sovir_ports::BillingGateway;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(b"key-material-16b");
+        let gw = PolarBillingGateway::new(&b64)
+            .unwrap()
+            .with_checkout_base("https://buy.polar.sh/polar_cl_test");
+        let url = gw.checkout_url("plan-pro", "principal-9").await.unwrap();
+        assert!(url.ends_with("customer_external_id=principal-9"));
+        // Without a configured checkout base the call refuses honestly.
+        let gw2 = PolarBillingGateway::new(&b64).unwrap();
+        assert!(matches!(
+            gw2.checkout_url("plan", "p").await,
+            Err(PortError::Unavailable)
+        ));
+    }
+}
