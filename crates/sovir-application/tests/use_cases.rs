@@ -149,6 +149,64 @@ async fn consent_is_bound_to_principal_and_device() {
     ));
 }
 #[tokio::test]
+async fn bound_grant_only_authorizes_its_own_device() {
+    // Same principal, two devices: a grant created on dev-a must not
+    // authorize an event arriving through dev-b — intervention scope stays
+    // inside the consent's device boundary.
+    let service = service();
+    let mut pa = principal("p-1");
+    pa.device_id = "dev-a".into();
+    let mut pb = principal("p-1");
+    pb.device_id = "dev-b".into();
+    service
+        .register_device(&pa, Some("dev-a"), Platform::Android, "phone")
+        .await
+        .unwrap();
+    service.grant(&pa, grant()).await.unwrap();
+    assert!(matches!(
+        service.ingest(&pb, event()).await,
+        Err(AppError::Domain(DomainError::ConsentRequired))
+    ));
+    // The granting device itself works.
+    service.ingest(&pa, event()).await.unwrap();
+}
+#[tokio::test]
+async fn legacy_unbound_grant_still_authorizes_bound_device_events() {
+    // Migration path: grants sealed before OIDC device-binding existed carry
+    // "". They remain valid for the same principal+source once that
+    // principal's device starts arriving bound.
+    let service = service();
+    let mut unbound = principal("p-1");
+    unbound.device_id = String::new();
+    let mut bound = principal("p-1");
+    bound.device_id = "dev-phone".into();
+    service
+        .register_device(&bound, Some("dev-phone"), Platform::Android, "phone")
+        .await
+        .unwrap();
+    service.grant(&unbound, grant()).await.unwrap();
+    service.ingest(&bound, event()).await.unwrap();
+}
+#[tokio::test]
+async fn bound_grant_does_not_authorize_unbound_event() {
+    // The asymmetric side: a device-bound grant never authorizes an event
+    // that arrives with no device binding at all.
+    let service = service();
+    let mut bound = principal("p-1");
+    bound.device_id = "dev-a".into();
+    let mut unbound = principal("p-1");
+    unbound.device_id = String::new();
+    service
+        .register_device(&bound, Some("dev-a"), Platform::Android, "phone")
+        .await
+        .unwrap();
+    service.grant(&bound, grant()).await.unwrap();
+    assert!(matches!(
+        service.ingest(&unbound, event()).await,
+        Err(AppError::Domain(DomainError::ConsentRequired))
+    ));
+}
+#[tokio::test]
 async fn dev_session_lifecycle_and_device_revocation_fail_closed() {
     let service = service();
     let session = service
