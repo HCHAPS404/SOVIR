@@ -1777,6 +1777,53 @@ mod tests {
         }
     }
     #[test]
+    fn fraud_shield_pack_is_reinforced_superset_not_default() {
+        // H6 candidate pack: fraud-shield-0.1 = every dev-2 warning PLUS four
+        // reinforced rules for deception shapes dev leaves at review. It is
+        // a versioned contract artifact, NOT the default — activation is a
+        // protection-level decision pending its own ADR.
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../packages/contracts/policy/fraud-shield-pack.v0.json"
+        );
+        let json = std::fs::read_to_string(path).expect("read fraud-shield pack");
+        let fs = PolicyPack::from_json(&json).expect("parse fraud-shield pack");
+        assert_eq!(fs.version, "fraud-shield-0.1");
+        assert_ne!(fs.version, PolicyPack::dev_pack().version);
+        // Reinforced: verdicts dev leaves below Warn now warn.
+        for signals in [
+            vec![RiskSignal::ExtortionLanguage],
+            vec![RiskSignal::PaymentRequest, RiskSignal::HiddenFeePattern],
+            vec![RiskSignal::QrPresent, RiskSignal::SuspiciousDomain],
+            vec![RiskSignal::DomBrandMismatch, RiskSignal::IdentityUnverified],
+        ] {
+            assert_eq!(
+                fs.evaluate(&signals).decision,
+                DecisionKind::Warn,
+                "fraud-shield must warn on {signals:?}"
+            );
+            assert_ne!(
+                PolicyPack::dev_pack().evaluate(&signals).decision,
+                DecisionKind::Warn,
+                "dev pack stays non-warn on {signals:?} (superset, not alias)"
+            );
+        }
+        // Superset: nothing dev warns on may warn less under fraud-shield.
+        for signals in [
+            vec![RiskSignal::CredentialRequest, RiskSignal::UrgentAction],
+            vec![RiskSignal::SeedPhraseRequest],
+            vec![RiskSignal::RomanceBait, RiskSignal::PaymentRequest],
+        ] {
+            assert_eq!(fs.evaluate(&signals).decision, DecisionKind::Warn);
+        }
+        // Benign restraint: a lone tracking observation stays below warn —
+        // reinforced does not mean everything fires.
+        assert_ne!(
+            fs.evaluate(&[RiskSignal::TrackingObserved]).decision,
+            DecisionKind::Warn
+        );
+    }
+    #[test]
     fn eval_corpus_reports_agreement_metrics() {
         // B3 eval: replay the labeled corpus through the dev pack and
         // measure agreement. Threshold 100% — the pack is the dev baseline;
