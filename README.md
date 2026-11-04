@@ -3,7 +3,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="apps/website/public/brand/icon-paper.png">
   <source media="(prefers-color-scheme: light)" srcset="apps/website/public/brand/icon-ink.png">
-  <img alt="SOVIR — símbolo Umbral" src="apps/website/public/brand/icon-ink.png" width="132">
+  <img alt="SOVIR — Umbral symbol" src="apps/website/public/brand/icon-ink.png" width="132">
 </picture>
 
 <h1>SOVIR</h1>
@@ -12,8 +12,8 @@
 <em>See clearly. Decide freely.</em></p>
 
 <p>
-Escudo local-first contra estafas, suplantación, rastreo y diseño manipulativo —<br>
-sensores consentidos, concilio de votantes y decisiones explicables, auditables y revocables.
+A local-first shield against scams, impersonation, tracking and manipulative design —<br>
+consented sensors, a council of voters, and explainable, auditable, revocable decisions.
 </p>
 
 <p>
@@ -32,13 +32,13 @@ sensores consentidos, concilio de votantes y decisiones explicables, auditables 
 </p>
 
 <p>
-<a href="#qué-es-sovir">Producto</a> ·
-<a href="#cómo-se-usa">Cómo se usa</a> ·
-<a href="#estado-real">Estado real</a> ·
-<a href="#arquitectura">Arquitectura</a> ·
+<a href="#what-is-sovir">Product</a> ·
+<a href="#how-its-used">How it's used</a> ·
+<a href="#real-status">Real status</a> ·
+<a href="#architecture">Architecture</a> ·
 <a href="#quickstart">Quickstart</a> ·
-<a href="#documentación">Docs</a> ·
-<a href="docs/product/PRODUCT_SPEC.md"><strong>Especificación maestra</strong></a>
+<a href="#documentation">Docs</a> ·
+<a href="docs/product/PRODUCT_SPEC.md"><strong>Master specification</strong></a>
 </p>
 
 </div>
@@ -46,150 +46,148 @@ sensores consentidos, concilio de votantes y decisiones explicables, auditables 
 ---
 
 > [!IMPORTANT]
-> **Esto es un scaffold local-producción verificado, no un producto publicado.**
-> El pipeline completo funciona en local hoy (sensor → consentimiento → concilio →
-> decisión → consola), pero no hay instaladores, tiendas, multi-tenant real ni un
-> modelo visual listo. Todo lo afirmado aquí tiene evidencia o se marca explícito
-> como `NOT_IMPLEMENTED` / `NOT READY`. La especificación completa del producto
-> objetivo vive en [`docs/product/PRODUCT_SPEC.md`](docs/product/PRODUCT_SPEC.md).
+> **This is a verified local-production scaffold, not a shipped product.**
+> The full pipeline works locally today (sensor → consent → council →
+> decision → console), but there are no installers, stores, real multi-tenancy
+> or a production-ready visual model. Everything claimed here has evidence or
+> is explicitly marked `NOT_IMPLEMENTED` / `NOT READY`. The full target-product
+> specification lives in [`docs/product/PRODUCT_SPEC.md`](docs/product/PRODUCT_SPEC.md).
 
-## Qué es SOVIR
+## What is SOVIR
 
-Un **escudo de autonomía digital**: observa — con permiso explícito — lo que las
-páginas y apps le piden al usuario, detecta mecanismos de ingeniería social y
-fraude, y devuelve una decisión explicable. No es antivirus, no es un chatbot al
-que pegar capturas, y no es vigilancia.
+A **digital-autonomy shield**: it observes — with explicit permission — what
+pages and apps ask of the user, detects social-engineering and fraud
+mechanisms, and returns an explainable decision. It is not an antivirus, not a
+chatbot you paste screenshots into, and not surveillance.
 
 | | |
 |---|---|
-| **Consent-first** | Nada se observa sin grant por fuente y dispositivo; revocar detiene todo en el siguiente ciclo de evento. |
-| **Local-first** | Señales tipadas y digests — nunca texto crudo, píxeles ni PII salen del dispositivo por defecto. |
-| **Concilio, no oráculo** | Votantes independientes (heurística, ONNX texto, ONNX visual, remoto autorizado) emiten hipótesis con `votes[]` auditable; la política determinista decide. |
-| **Explicable** | Cada veredicto lleva evidencia, procedencia e incertidumbre. Hechos ≠ hipótesis ≠ acciones. |
-| **Coste gobernado** | Inferencia remota detrás de allowlist + hard cap de presupuesto; agotar tokens jamás apaga la protección local. |
+| **Consent-first** | Nothing is observed without a per-source, per-device grant; revoking stops everything on the next event cycle. |
+| **Local-first** | Typed signals and digests — raw text, pixels and PII never leave the device by default. |
+| **Council, not oracle** | Independent voters (heuristic, text ONNX, visual ONNX, authorized remote) emit hypotheses with an auditable `votes[]`; the deterministic policy decides. |
+| **Explainable** | Every verdict carries evidence, provenance and uncertainty. Facts ≠ hypotheses ≠ actions. |
+| **Governed cost** | Remote inference behind allowlist + hard budget cap; running out of tokens never turns off local protection. |
 
-## Qué detecta
+## What it detects
 
-El concilio reconoce hoy familias de señales tipadas, no texto libre:
+The council recognizes families of typed signals today, not free text:
 
-| Familia | Ejemplos de señal |
+| Family | Example signals |
 |---|---|
-| Urgencia y coerción | `URGENT_ACTION`, `EXTORTION_LANGUAGE`, `OFF_PLATFORM_MOVE` |
-| Petición de secretos | `CREDENTIAL_REQUEST`, `SEED_PHRASE_REQUEST`, `PAYMENT_REQUEST` |
-| Suplantación | `LINK_DESTINATION_MISMATCH`, `IDENTITY_UNVERIFIED`, `BRAND_IMPERSONATION` |
-| Contexto visual | Logo/marca sobre fondo ajeno, UI que imita diálogos del sistema |
+| Urgency and coercion | `URGENT_ACTION`, `EXTORTION_LANGUAGE`, `OFF_PLATFORM_MOVE` |
+| Secret requests | `CREDENTIAL_REQUEST`, `SEED_PHRASE_REQUEST`, `PAYMENT_REQUEST` |
+| Impersonation | `LINK_DESTINATION_MISMATCH`, `IDENTITY_UNVERIFIED`, `BRAND_IMPERSONATION` |
+| Visual context | Brand/logo on a foreign background, UI mimicking system dialogs |
 
-Cada señal es un hecho observable ("esta pantalla pide una contraseña"), nunca
-una afirmación sobre la persona. La decisión sale de la combinación, no de una
-señal sola.
+Every signal is an observable fact ("this screen asks for a password"), never
+a claim about the person. The decision comes from the combination, not from a
+single signal.
 
-## Cómo se usa
+## How it's used
 
-### Extensión de navegador
+### Browser extension
 
-1. Carga la extensión (ver [Quickstart](#quickstart)). Chrome muestra **un único
-   diálogo de instalación**: "leer datos en todos los sitios" — ese es el
-   consentimiento amplio, una sola vez.
-2. Desde ahí, la extensión observa la pestaña que estás viendo — cualquiera de
-   ellas, sin preguntar de nuevo.
-3. Si una página muestra señales de riesgo, aparece un aviso en el icono y en
-   la consola, con explicación en lenguaje claro.
-4. **Sitios sensibles protegidos por defecto**: banca, mensajería y redes
-   sociales no se observan. El popup permite incluir uno concreto si lo decides
-   ("Observarla de todos modos"), y excluir cualquier sitio normal con
-   "No observar esta página".
-5. En Opciones: interruptor maestro de pausa, lista de excepciones y de sitios
-   sensibles editables.
+1. Load the extension (see [Quickstart](#quickstart)). Chrome shows **one
+   install dialog**: "read data on all sites" — that is the broad consent,
+   once.
+2. From then on, the extension observes the tab you are viewing — any of
+   them, without asking again.
+3. If a page shows risk signals, a notice appears on the icon and in the
+   console, explained in plain language.
+4. **Sensitive sites protected by default**: banking, messaging and social
+   networks are not observed. The popup lets you include a specific one if
+   you choose ("Observe it anyway"), and exclude any normal site with
+   "Don't observe this page".
+5. In Options: master pause switch, editable exception list and sensitive-site
+   list.
 
-### App Android
+### Android app
 
-1. Instala el APK y abre la app. **La instalación no pide nada por sí sola.**
-2. Inicia sesión o regístrate. Solo entonces aparece la pantalla
-   "Activa tu protección", una sola vez, con los tres pasos:
-   - **Observador de pantalla** — el servicio de accesibilidad de Android.
-     El sistema operativo exige activarlo a mano en Ajustes; SOVIR no puede ni
-     quiere evadirlo.
-   - **Permiso de envío SOVIR** — grant explícito y con caducidad
-     (24 h / 7 días / 30 días). Sin él, el observador no sube nada aunque la
-     accesibilidad esté activa: dos puertas, no una.
-   - **Notificaciones** — el diálogo estándar de Android, para que los avisos
-     lleguen.
-3. En funcionamiento, el observador lee metadatos de la pantalla que ves —
-   **nunca texto íntegro, campos de contraseña ni capturas** — y emite señales
-   tipadas. Las apps sensibles (banca, mensajería, redes) están excluidas por
-   defecto y la lista es editable desde la propia app.
-4. En **Cuenta** ves tus dispositivos ("Este teléfono · Móvil", "Ordenador"),
-   cuándo observaron por última vez, y puedes **retirar** cualquiera.
+1. Install the APK and open the app. **Installation asks for nothing by itself.**
+2. Sign in or register. Only then does the "Activate your protection" screen
+   appear, once, with the three steps:
+   - **Screen observer** — the Android accessibility service. The OS requires
+     enabling it by hand in Settings; SOVIR cannot and will not bypass that.
+   - **SOVIR send permission** — explicit, expiring grant
+     (24 h / 7 days / 30 days). Without it, the observer uploads nothing even
+     with accessibility on: two gates, not one.
+   - **Notifications** — the standard Android dialog, so alerts reach you.
+3. While running, the observer reads metadata of the screen you see —
+   **never full text, password fields or screenshots** — and emits typed
+   signals. Sensitive apps (banking, messaging, social) are excluded by
+   default and the list is editable inside the app.
+4. In **Account** you see your devices ("This phone · Mobile", "Computer"),
+   when each last observed, and you can **remove** any of them.
 
-### Consola web
+### Web console
 
-El centro de control en el navegador: incidentes con su evidencia,
-investigaciones, políticas activas, webhooks, presupuesto de análisis remoto y
-exportación/borrado de datos. Todo lo que el móvil o la extensión observan se
-refleja aquí, atado a tu cuenta y a cada dispositivo.
+The control center in your browser: incidents with their evidence,
+investigations, active policies, webhooks, remote-analysis budget and data
+export/erasure. Everything the phone or the extension observes shows up here,
+bound to your account and to each device.
 
-## Qué no hace SOVIR
+## What SOVIR does not do
 
-| No es | Porque |
+| It is not | Because |
 |---|---|
-| Antivirus ni bloqueador | No toca el sistema ni otras apps; informa y avisa |
-| Grabadora | No guarda texto, capturas ni pulsaciones — solo señales tipadas y digests |
-| Vigilancia encubierta | Cada sensor exige un grant visible y revocable en cualquier momento |
-| Perfilador | No infiere vulnerabilidades ni rasgos de la persona — evalúa la pantalla, no al usuario |
+| Antivirus or blocker | It does not touch the system or other apps; it informs and warns |
+| A recorder | It stores no text, screenshots or keystrokes — only typed signals and digests |
+| Covert surveillance | Every sensor requires a visible grant, revocable at any time |
+| A profiler | It infers no vulnerabilities or traits of the person — it evaluates the screen, not the user |
 
-## Estado real
+## Real status
 
-Lo que corre hoy, con la prueba que lo respalda:
+What runs today, with the evidence behind it:
 
-| Pieza | Estado | Evidencia |
+| Piece | Status | Evidence |
 |---|:---:|---|
-| API Rust (Axum) + PostgreSQL 17 | Verificado local | Migraciones 0001–0012, RLS activo, eventos reales persistidos |
-| OIDC / Keycloak 26.4 | Verificado | JWT reales validados por JWKS (`JwksIdentityVerifier`), PKCE en clientes |
-| Extensión (MV3) → backend | Verificado E2E | `live_check.mjs`: connect → observación → Postgres → `warn/high` → badge |
-| ONNX en service worker | Verificado | `ort` 1.16.3 wasm, modelo visual 3.7 MB corre en el worker MV3 |
-| Consentimiento | Verificado | Captura rechazada sin grant; renovación 24 h sin resucitar tombstones |
-| Consola web | Verificado | Incidents, investigations, webhooks, backup cifrado, `/v1/metrics`, feedback |
-| Android (Compose) | Verificado E2E | Login OIDC, observer de accesibilidad, grant, evento → intervención → notificación en vivo |
-| Binding OIDC→dispositivo | Verificado | `x-sovir-device` sella eventos a su dispositivo; `last_seen` real en Cuenta |
-| Sitio público (`apps/website`) | Servido local | Landing Umbral por funnel `/web` |
-| URL pública estable | Activa | Tailscale Funnel → [`docs/operations/TAILSCALE_FUNNEL.md`](docs/operations/TAILSCALE_FUNNEL.md) |
-| Modelo visual ONNX | **NOT READY** | Corre, pero 13 % FP benigno / ~3 % recall → [`model card`](ml/model-cards/sovir-onnx-visual.md) |
-| iOS / Desktop | `NOT_IMPLEMENTED` | Scaffold UI solamente; sin toolchains en esta máquina |
+| Rust API (Axum) + PostgreSQL 17 | Verified local | Migrations 0001–0012, RLS active, real events persisted |
+| OIDC / Keycloak 26.4 | Verified | Real JWTs validated via JWKS (`JwksIdentityVerifier`), PKCE in clients |
+| Extension (MV3) → backend | Verified E2E | `live_check.mjs`: connect → observation → Postgres → `warn/high` → badge |
+| ONNX in service worker | Verified | `ort` 1.16.3 wasm, 3.7 MB visual model runs in the MV3 worker |
+| Consent | Verified | Capture rejected without grant; 24 h renewal without resurrecting tombstones |
+| Web console | Verified | Incidents, investigations, webhooks, encrypted backup, `/v1/metrics`, feedback |
+| Android (Compose) | Verified E2E | OIDC login, accessibility observer, grant, event → intervention → live notification |
+| OIDC→device binding | Verified | `x-sovir-device` seals events to their device; real `last_seen` in Account |
+| Public site (`apps/website`) | Served locally | Umbral landing via funnel `/web` |
+| Stable public URL | Active | Tailscale Funnel → [`docs/operations/TAILSCALE_FUNNEL.md`](docs/operations/TAILSCALE_FUNNEL.md) |
+| Visual ONNX model | **NOT READY** | Runs, but 13% benign FP / ~3% recall → [`model card`](ml/model-cards/sovir-onnx-visual.md) |
+| iOS / Desktop | `NOT_IMPLEMENTED` | Scaffold UI only; no toolchains on this machine |
 
-## Superficies
+## Surfaces
 
-| App | Stack | Rol | Estado |
+| App | Stack | Role | Status |
 |---|---|---|---|
-| `apps/extension` | MV3 · TS · ONNX Runtime Web | Observador de navegador: señales DOM + visión local por sitio autorizado | Verificado en vivo |
-| `apps/console` | Next.js · React | Centro de control: incidentes, investigaciones, políticas, webhooks, backup | Datos reales |
-| `apps/website` | Next.js | Marketing público identidad Umbral | Servida |
-| `apps/android` | Kotlin · Compose | Observador + consola móvil; tokens sellados con Keystore | Verificado E2E |
-| `apps/desktop` | Tauri · React | Shell escritorio | `NOT_IMPLEMENTED` |
-| `apps/ios` | SwiftUI | Cliente iOS | `NOT_IMPLEMENTED` (sin Xcode en Windows) |
+| `apps/extension` | MV3 · TS · ONNX Runtime Web | Browser observer: DOM signals + local vision on authorized sites | Verified live |
+| `apps/console` | Next.js · React | Control center: incidents, investigations, policies, webhooks, backup | Real data |
+| `apps/website` | Next.js | Umbral-identity public marketing | Served |
+| `apps/android` | Kotlin · Compose | Observer + mobile console; Keystore-sealed tokens | Verified E2E |
+| `apps/desktop` | Tauri · React | Desktop shell | `NOT_IMPLEMENTED` |
+| `apps/ios` | SwiftUI | iOS client | `NOT_IMPLEMENTED` (no Xcode on Windows) |
 
-## Arquitectura
+## Architecture
 
-Hexagonal local-first: el dominio nunca importa UI, SQL ni proveedores; la
-inferencia remota es un puerto opcional detrás de presupuesto y allowlist.
+Hexagonal local-first: the domain never imports UI, SQL or providers; remote
+inference is an optional port behind budget and allowlist.
 
 ```mermaid
 flowchart LR
-    subgraph surfaces["Superficies — señales tipadas solamente"]
-        ext["Extension MV3<br/>DOM + ONNX visual local"]
+    subgraph surfaces["Surfaces — typed signals only"]
+        ext["Extension MV3<br/>DOM + local ONNX vision"]
         droid["Android<br/>accessibility observer"]
-        console["Consola<br/>incidentes · investigacion"]
+        console["Console<br/>incidents · investigation"]
     end
 
     subgraph api["API — Axum :8787"]
-        consent["Privacy gate<br/>grant por fuente+dispositivo"]
-        council["Concilio de votantes<br/>heuristico · ONNX texto · ONNX visual"]
-        policy["Policy engine<br/>decision autoritativa"]
+        consent["Privacy gate<br/>grant per source+device"]
+        council["Voter council<br/>heuristic · text ONNX · visual ONNX"]
+        policy["Policy engine<br/>authoritative decision"]
     end
 
-    pg[("PostgreSQL 17<br/>grants · eventos · decisiones · RLS")]
-    kc["Keycloak 26<br/>realm sovir · JWKS"]
-    meta["Meta Model API<br/>senales tipadas · hard cap"]
-    cache["Cache inferencia<br/>digest senales · TTL"]
+    pg[("PostgreSQL 17<br/>grants · events · decisions · RLS")]
+    kc["Keycloak 26<br/>sovir realm · JWKS"]
+    meta["Meta Model API<br/>typed signals · hard cap"]
+    cache["Inference cache<br/>signal digest · TTL"]
 
     ext -->|POST /v1/events| consent
     droid -->|POST /v1/events| consent
@@ -200,107 +198,107 @@ flowchart LR
     api --- kc
 ```
 
-| Capa | Crates / servicios |
+| Layer | Crates / services |
 |---|---|
-| Dominio | `sovir-domain` — invariantes, sin efectos |
-| Aplicación | `sovir-application` — casos de uso, decisión, consentimiento |
-| Puertos | `sovir-ports` — traits de persistencia, inferencia, consentimiento |
-| Adaptadores | `sovir-adapters`, `sovir-persistence` — Pg, ONNX, votantes, egress |
-| Servicio | `services/api` — HTTP, auth, council, métricas |
-| Contratos | `packages/contracts` OpenAPI `backend-dev.v0` + SDK TS generado |
+| Domain | `sovir-domain` — invariants, no effects |
+| Application | `sovir-application` — use cases, decision, consent |
+| Ports | `sovir-ports` — traits for persistence, inference, consent |
+| Adapters | `sovir-adapters`, `sovir-persistence` — Pg, ONNX, voters, egress |
+| Service | `services/api` — HTTP, auth, council, metrics |
+| Contracts | `packages/contracts` OpenAPI `backend-dev.v0` + generated TS SDK |
 
 ## Quickstart
 
 ```powershell
-# 1. Stack local — Postgres portable + Keycloak + API + frontends
-scripts\db-dev.ps1       # Postgres portable + migraciones
-scripts\api-dev.ps1      # API en :8787 (ver docs/operations/B21_LOCAL_DEV.md)
+# 1. Local stack — portable Postgres + Keycloak + API + frontends
+scripts\db-dev.ps1       # portable Postgres + migrations
+scripts\api-dev.ps1      # API on :8787 (see docs/operations/B21_LOCAL_DEV.md)
 
-# 2. Gates backend
+# 2. Backend gates
 make backend-check        # cargo fmt/clippy/test + harness
 
 # 3. Extension: chrome://extensions -> Developer mode -> Load unpacked -> apps/extension
-#    Live-check automatizado (Chromium real, sin interaccion):
+#    Automated live check (real Chromium, no interaction):
 node apps/extension/scripts/live_check.mjs
 
-# 4. Android (device con adb):
+# 4. Android (device over adb):
 cd apps\android ; gradlew.bat installDebug
-#    Servicio de accesibilidad: app.sovir.android/.observer.SovirAccessibilityService
+#    Accessibility service: app.sovir.android/.observer.SovirAccessibilityService
 
-# 5. Consola web:
+# 5. Web console:
 cd apps\console ; npm run dev -- -p 3001
 ```
 
-**Acceso público estable** (demo, PC encendido):
-`https://hell.taile32c7d.ts.net` — `/` consola · `/api` API · `/sso` Keycloak · `/web` sitio.
-Configuración y límites: [`docs/operations/TAILSCALE_FUNNEL.md`](docs/operations/TAILSCALE_FUNNEL.md).
-*No es producción: es la máquina de desarrollo expuesta para pruebas reales.*
+**Stable public access** (demo, PC powered on):
+`https://hell.taile32c7d.ts.net` — `/` console · `/api` API · `/sso` Keycloak · `/web` site.
+Configuration and limits: [`docs/operations/TAILSCALE_FUNNEL.md`](docs/operations/TAILSCALE_FUNNEL.md).
+*Not production: it is the development machine exposed for real testing.*
 
-## Estructura del repositorio
+## Repository layout
 
 ```
 apps/          extension · console · website · android · desktop · ios
 crates/        sovir-domain · sovir-ports · sovir-application
                sovir-adapters · sovir-persistence          (hexagonal, Rust)
-services/api   API HTTP + auth + council + metrics         (Axum)
-packages/      contracts (OpenAPI backend-dev.v0) · ui-web · SDK TS
-ml/            pipelines de entrenamiento · model cards
+services/api   HTTP API + auth + council + metrics         (Axum)
+packages/      contracts (OpenAPI backend-dev.v0) · ui-web · TS SDK
+ml/            training pipelines · model cards
 docs/          product (spec, ADRs) · backend · design · operations · ml
-scripts/       arranque local, migraciones, harness, gates
-infra/         postgres portable, keycloak realm
+scripts/       local startup, migrations, harness, gates
+infra/         portable postgres, keycloak realm
 ```
 
-## Verificación
+## Verification
 
-| Comando | Qué cubre |
+| Command | What it covers |
 |---|---|
-| `python3 scripts/harness.py check` | Gates estáticos: contratos, secretos, estructura |
-| `python3 scripts/harness.py eval` | Evaluaciones del concilio y detectores |
+| `python3 scripts/harness.py check` | Static gates: contracts, secrets, structure |
+| `python3 scripts/harness.py eval` | Council and detector evaluations |
 | `make backend-check` | cargo fmt · clippy · tests + harness |
-| `node apps/extension/scripts/live_check.mjs` | E2E extensión → API → Postgres → badge, en Chromium real |
-| `gradlew.bat testDebugUnitTest` (en `apps/android`) | Suite JVM del cliente Android |
+| `node apps/extension/scripts/live_check.mjs` | E2E extension → API → Postgres → badge, real Chromium |
+| `gradlew.bat testDebugUnitTest` (in `apps/android`) | Android client JVM suite |
 
-Si una verificación no está implementada se reporta `NOT_IMPLEMENTED` — nunca `PASS`.
+Any check that is not implemented is reported `NOT_IMPLEMENTED` — never `PASS`.
 
-## Documentación
+## Documentation
 
-| Área | Documento |
+| Area | Document |
 |---|---|
-| **Producto** | [Especificación maestra §0–§28](docs/product/PRODUCT_SPEC.md) · [ADRs](docs/adr/) |
+| **Product** | [Master specification §0–§28](docs/product/PRODUCT_SPEC.md) · [ADRs](docs/adr/) |
 | **Backend** | [Master plan](docs/backend/BACKEND_MASTER_PLAN.md) · [Bootstrap](docs/operations/BACKEND_BOOTSTRAP.md) · [ENV reference](docs/operations/ENV_REFERENCE.md) |
-| **Frontend/diseño** | [Master plan](docs/design/FRONTEND_MASTER_PLAN.md) · [Gobernanza](docs/design/FRONTEND_GOVERNANCE.md) · [Figma workflow](docs/design/FIGMA_WORKFLOW.md) |
-| **Operaciones** | [SLOs](docs/operations/SLOS.md) · [Tailscale Funnel](docs/operations/TAILSCALE_FUNNEL.md) · [Named tunnel](docs/operations/NAMED_TUNNEL_MIGRATION.md) · [Toolchains diferidos](docs/operations/DEFERRED_TOOLCHAINS.md) · [Branches](docs/operations/BRANCHES.md) |
+| **Frontend/design** | [Master plan](docs/design/FRONTEND_MASTER_PLAN.md) · [Governance](docs/design/FRONTEND_GOVERNANCE.md) · [Figma workflow](docs/design/FIGMA_WORKFLOW.md) |
+| **Operations** | [SLOs](docs/operations/SLOS.md) · [Performance baseline](docs/operations/PERFORMANCE_BASELINE.md) · [Payments options](docs/operations/PAYMENTS_OPTIONS.md) · [Requires human](docs/operations/REQUIRES_HUMAN.md) · [Tailscale Funnel](docs/operations/TAILSCALE_FUNNEL.md) · [Named tunnel](docs/operations/NAMED_TUNNEL_MIGRATION.md) · [Deferred toolchains](docs/operations/DEFERRED_TOOLCHAINS.md) · [Branches](docs/operations/BRANCHES.md) |
 | **ML** | [Model cards](ml/model-cards/) · [Pipelines](ml/pipelines/) · [docs/ml](docs/ml/) |
-| **Auditoría** | [Auditoría pre-commit](docs/audits/AUDITORIA_PRECOMMIT_2026-10-27.md) |
+| **Audit** | [Pre-commit audit](docs/audits/AUDITORIA_PRECOMMIT_2026-10-27.md) |
 
 ## Roadmap
 
-| Hito | Capacidad | Estado |
+| Milestone | Capability | Status |
 |---|---|---|
-| H0–H1 | Fundación + core Rust + privacy gateway | Hecho |
-| H2 | Sensores: extensión (hecho) · Android (hecho) · desktop/iOS | Parcial |
-| H3 | Semantic delta + motor local | Parcial |
-| H4 | Evidence graph + razonamiento remoto tipado | Parcial |
-| H5 | Autonomy center + intervenciones | Parcial |
-| H6 | Packs de dominio (FraudShield, MarketShield…) | Pendiente |
-| H7 | Predicción adaptativa + cost engine | Parcial |
-| H8 | Sync cifrada + collective intel + SDK | Pendiente |
-| H9 | Hardening + comercialización | Pendiente |
+| H0–H1 | Foundation + Rust core + privacy gateway | Done |
+| H2 | Sensors: extension (done) · Android (done) · desktop/iOS | Partial |
+| H3 | Semantic delta + local engine | Partial |
+| H4 | Evidence graph + typed remote reasoning | Partial |
+| H5 | Autonomy center + interventions | Partial |
+| H6 | Domain packs (FraudShield, MarketShield…) | Pending |
+| H7 | Adaptive prediction + cost engine | Partial |
+| H8 | Encrypted sync + collective intel + SDK | Pending |
+| H9 | Hardening + commercialization | Pending |
 
-Detalle y criterios de aceptación: [espec §23](docs/product/PRODUCT_SPEC.md#23-hitos-y-orden-de-implementación).
+Detail and acceptance criteria: [spec §23](docs/product/PRODUCT_SPEC.md#23-hitos-y-orden-de-implementación).
 
-## Invariantes
+## Invariants
 
-- **Consentimiento específico y revocable** antes de cualquier observación.
-- **Nada de texto crudo/píxeles/PII** en logs, fixtures, egress o Git.
-- **Fail-closed**: revocado → detiene colección y transmisión.
-- **Proveedor = puerto**; jamás dependencia del dominio.
-- **Claims medidos o marcados** `NOT_IMPLEMENTED` — nunca inventados.
+- **Specific, revocable consent** before any observation.
+- **No raw text/pixels/PII** in logs, fixtures, egress or Git.
+- **Fail-closed**: revoked → collection and transmission stop.
+- **Provider = port**; never a domain dependency.
+- **Claims measured or marked** `NOT_IMPLEMENTED` — never invented.
 
 ---
 
 <div align="center">
-<sub><strong>SOVIR</strong> — nombre de trabajo pendiente de validación legal ·
-infraestructura protectora para que cada persona conserve el control de su vida digital.<br>
-Reportes de seguridad: ver política en desarrollo · © 2026 SOVIR</sub>
+<sub><strong>SOVIR</strong> — working name pending legal validation ·
+protective infrastructure so every person keeps control of their digital life.<br>
+Security reports: see policy in development · © 2026 SOVIR</sub>
 </div>
