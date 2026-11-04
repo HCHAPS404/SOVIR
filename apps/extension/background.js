@@ -575,9 +575,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     const u = new URL(url);
     const host = u.hostname;
+    // Chrome match-pattern host semantics: `*.d` covers d + subdomains;
+    // a bare host is exact only. Accepts `*://d/*` and `https://d/*` alike.
     const hostMatch = (pattern) => {
-      const m = /^\*:\/\/(\*\.)?([^/]+)\/\*$/.exec(pattern);
-      return !!m && (host === m[2] || host.endsWith(`.${m[2]}`));
+      const m = /^[^:]+:\/\/(\*\.)?([^/*]+)\/\*?$/.exec(pattern);
+      if (!m) return false;
+      const d = m[2].toLowerCase();
+      return m[1] ? host === d || host.endsWith(`.${d}`) : host === d;
     };
     Promise.all([
       chrome.permissions.contains({ origins: ["*://*/*"] }),

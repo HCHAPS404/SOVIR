@@ -5,6 +5,7 @@ const siteEl = document.querySelector("#site");
 const siteText = document.querySelector("#site-text");
 const alertEl = document.querySelector("#alert");
 const observeBtn = document.querySelector("#observe");
+const excludeBtn = document.querySelector("#exclude");
 const pauseBtn = document.querySelector("#pause");
 const errorEl = document.querySelector("#error");
 const stPages = document.querySelector("#st-pages");
@@ -88,6 +89,16 @@ async function paint() {
 
   observeBtn.hidden = !(host && siteReason === "not_granted" && state?.ready && !state?.paused);
 
+  // Voluntary per-site exclusion: shown while a site is observed, and as
+  // an undo path when it sits on the user's own blocklist.
+  excludeBtn.hidden = !(
+    host &&
+    (siteReason === "observed" || siteReason === "excluded") &&
+    state?.ready
+  );
+  excludeBtn.textContent =
+    siteReason === "excluded" ? "Volver a observarla" : "No observar esta página";
+
   // --- latest warning -----------------------------------------------------
   const d = state?.lastDecision;
   const obs = state?.lastObservation;
@@ -113,6 +124,22 @@ observeBtn.addEventListener("click", async () => {
     target: { tabId: currentTab.id },
     files: ["brand-domains.js", "extractor.js", "content.js"],
   });
+  await paint();
+});
+
+// The user's own blocklist is the same store Options edits — the popup
+// just toggles the current origin in it; syncScripts re-registers the
+// exclusion on storage change, no extra plumbing.
+const BLOCKLIST_KEY = "sovir-observe-blocklist";
+excludeBtn.addEventListener("click", async () => {
+  if (!currentTab?.url) return;
+  const pattern = `${new URL(currentTab.url).origin}/*`;
+  const s = await chrome.storage.local.get(BLOCKLIST_KEY);
+  const list = s[BLOCKLIST_KEY] ?? [];
+  const next = list.includes(pattern)
+    ? list.filter((p) => p !== pattern)
+    : [...list, pattern];
+  await chrome.storage.local.set({ [BLOCKLIST_KEY]: next });
   await paint();
 });
 
