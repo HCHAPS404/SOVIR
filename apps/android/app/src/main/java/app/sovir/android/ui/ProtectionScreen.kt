@@ -173,8 +173,8 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
         // --- notifications -----------------------------------------------
         Gap(14.dp)
         Panel {
-            PanelHead("Notificaciones") {
-                Chip(if (coverage.notifications) "Permitidas" else "Bloqueadas", if (coverage.notifications) Tone.Success else Tone.Warning)
+            PanelHead("Avisos en pantalla") {
+                Chip(if (coverage.notifications) "Permitidos" else "Bloqueados", if (coverage.notifications) Tone.Success else Tone.Warning)
             }
             Text(
                 "Avisos de alertas nuevas de todos tus dispositivos. En segundo plano el teléfono consulta tu servidor " +
@@ -183,7 +183,7 @@ fun ProtectionScreen(model: AppModel, coverage: Coverage, onCoverageChanged: () 
             )
             if (!coverage.notifications) {
                 Gap(12.dp)
-                SecondaryButton("Permitir notificaciones", {
+                SecondaryButton("Permitir avisos", {
                     if (Build.VERSION.SDK_INT >= 33 && !askedNotif) {
                         notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     } else {

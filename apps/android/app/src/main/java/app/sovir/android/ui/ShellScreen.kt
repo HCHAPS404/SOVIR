@@ -176,9 +176,9 @@ private fun AlertBar(model: AppModel, coverage: Coverage, pending: Int, onTab: (
             model::refresh,
         )
         model.sync == Sync.Error -> Triple("El servidor respondió con un error", "Reintentar", model::refresh)
-        pending > 0 -> Triple(plural(pending, "alerta pendiente", "alertas pendientes"), "Ver") { onTab(Tab.Alerts) }
-        !coverage.observing -> Triple("Este teléfono no está observando", "Revisar") { onTab(Tab.Protection) }
-        !coverage.notifications -> Triple("Notificaciones bloqueadas", "Revisar") { onTab(Tab.Protection) }
+        pending > 0 -> Triple(plural(pending, "aviso pendiente", "avisos pendientes"), "Ver") { onTab(Tab.Alerts) }
+        !coverage.observing -> Triple("La protección de este teléfono está en pausa", "Revisar") { onTab(Tab.Protection) }
+        !coverage.notifications -> Triple("Avisos bloqueados", "Revisar") { onTab(Tab.Protection) }
         else -> null
     }
     if (item == null) return

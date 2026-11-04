@@ -42,7 +42,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class AlertFilter(val label: String) { All("Todas"), Pending("Pendientes"), Shown("Mostradas") }
+private enum class AlertFilter(val label: String) { All("Todas"), Pending("Nuevas"), Shown("Vistas") }
 
 @Composable
 fun AlertsScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) { data ->
@@ -58,9 +58,9 @@ fun AlertsScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) { 
     DayGroupedList(
         header = {
             PageHeader(
-                "Alertas",
-                kicker = "Decisiones de la política",
-                sub = "Cuando lo observado cruza las reglas, la política de SOVIR emite una alerta. Cada una enlaza la evidencia que la causó.",
+                "Avisos",
+                kicker = "Cuando algo parece riesgo",
+                sub = "SOVIR te avisa cuando lo observado cruza sus reglas de riesgo. Toca un aviso para ver qué lo causó.",
             )
             Segmented(AlertFilter.entries, filter, { f ->
                 val n = when (f) {
@@ -74,9 +74,8 @@ fun AlertsScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) { 
             if (list.isEmpty()) {
                 StateBlock(
                     StateKind.Empty,
-                    if (filter == AlertFilter.All) "Sin alertas" else "Nada en este filtro",
-                    "Ninguna observación cruzó las reglas de alerta. Eso no garantiza que todo sea seguro: " +
-                        "SOVIR solo ve lo que tus fuentes activas observan.",
+                    if (filter == AlertFilter.All) "Sin avisos" else "Nada en este filtro",
+                    "Nada observado cruzó el nivel de aviso. Ten en cuenta que SOVIR solo ve lo que tus dispositivos activos observan.",
                 )
             }
         },
@@ -87,7 +86,7 @@ fun AlertsScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) { 
         val event = data.eventFor(i)
         val state = Humanize.interventionState(i.state)
         Line(
-            title = event?.signals?.firstOrNull()?.let(Humanize::signal) ?: "Alerta de protección",
+            title = event?.signals?.firstOrNull()?.let(Humanize::signal) ?: "Aviso de protección",
             sub = "${event?.let { Humanize.source(it.sourceId) } ?: "Origen no disponible"} · ${timeAgo(i.createdAtMs, now)}",
             tone = state.tone,
             divider = !last,
@@ -97,7 +96,7 @@ fun AlertsScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) { 
     }
 }
 
-private enum class SourceFilter(val label: String) { All("Todas"), Phone("Teléfono"), Browser("Navegador"), Other("Otras") }
+private enum class SourceFilter(val label: String) { All("Todas"), Phone("Este teléfono"), Browser("Navegador"), Other("Otras") }
 
 @Composable
 fun ActivityScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) { data ->
@@ -117,7 +116,7 @@ fun ActivityScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) 
             PageHeader(
                 "Actividad",
                 kicker = "Lo observado",
-                sub = "Señales que registraron tus dispositivos. SOVIR guarda el tipo de señal y una huella; nunca el texto ni capturas.",
+                sub = "Señales que detectaron tus dispositivos. SOVIR guarda el tipo de señal y una huella; nunca el texto ni capturas.",
             )
             Segmented(SourceFilter.entries, filter, { it.label }) { filter = it }
             Gap(8.dp)
@@ -125,7 +124,7 @@ fun ActivityScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) 
                 StateBlock(
                     StateKind.Empty,
                     "Todavía no hay observaciones",
-                    "Activa el observador de este teléfono en Protección, o la extensión del navegador en tu ordenador.",
+                    "Activa la protección de este teléfono en Protección, o la extensión del navegador en tu ordenador.",
                 )
             }
         },
@@ -135,7 +134,7 @@ fun ActivityScreen(model: AppModel, onOpen: (String) -> Unit) = DataGate(model) 
     ) { e, last ->
         val labels = e.signals.map(Humanize::signal)
         val badge: (@Composable RowScope.() -> Unit)? =
-            if (e.eventId in alerted) ({ Chip("Alerta", Tone.Warning, dot = false) }) else null
+            if (e.eventId in alerted) ({ Chip("Aviso", Tone.Warning, dot = false) }) else null
         Line(
             title = labels.take(2).joinToString(" · ").ifEmpty { "Sin señales de riesgo" } +
                 if (labels.size > 2) " +${labels.size - 2}" else "",
@@ -176,38 +175,38 @@ private fun <T> DayGroupedList(
 
 @Composable
 fun AlertDetailScreen(model: AppModel, id: String, onBack: () -> Unit, onOpenEvent: (String) -> Unit) {
-    DetailFrame("Alerta", onBack) {
+    DetailFrame("Aviso", onBack) {
         DataGate(model) { data ->
             val i = data.interventions.firstOrNull { it.interventionId == id }
             if (i == null) {
-                ScreenScroll { StateBlock(StateKind.Empty, "Esta alerta ya no existe", "Puede haberse borrado del servidor.") }
+                ScreenScroll { StateBlock(StateKind.Empty, "Este aviso ya no existe", "Puede haberse borrado del servidor.") }
                 return@DataGate
             }
             val event = data.eventFor(i)
             val state = Humanize.interventionState(i.state)
             ScreenScroll {
                 PageHeader(
-                    event?.signals?.firstOrNull()?.let(Humanize::signal) ?: "Alerta de protección",
-                    kicker = "Alerta · ${state.label}",
+                    event?.signals?.firstOrNull()?.let(Humanize::signal) ?: "Aviso de protección",
+                    kicker = "Aviso · ${state.label}",
                     kickerTone = state.tone,
                     sub = fmtDateTime(i.createdAtMs),
                 )
                 if (event != null) {
                     EvidencePanel(event, data)
                     Gap(8.dp)
-                    QuietAction("Abrir el evento completo", { onOpenEvent(event.eventId) })
+                    QuietAction("Ver la observación completa", { onOpenEvent(event.eventId) })
                 } else {
-                    Panel { StateBlock(StateKind.Empty, "Evidencia no disponible", "El evento que causó esta alerta no está en tus datos.") }
+                    Panel { StateBlock(StateKind.Empty, "Evidencia no disponible", "La observación que causó este aviso no está en tus datos.") }
                 }
                 Gap(14.dp)
-                DecisionPanel(i)
+                ActionPanel(i)
                 if (event != null && event.signals.isNotEmpty()) {
                     Gap(14.dp)
                     CouncilPanel(model, event.signals)
                 }
                 Gap(18.dp)
                 Text(
-                    "Las alertas las decide la política de SOVIR con reglas auditables. Los modelos solo aportan hipótesis.",
+                    "Ningún aviso lo inventa un modelo: SOVIR aplica reglas fijas y auditables sobre lo observado.",
                     style = MaterialTheme.typography.bodySmall,
                     color = LocalPalette.current.muted,
                 )
@@ -218,11 +217,11 @@ fun AlertDetailScreen(model: AppModel, id: String, onBack: () -> Unit, onOpenEve
 
 @Composable
 fun EventDetailScreen(model: AppModel, id: String, onBack: () -> Unit, onOpenAlert: (String) -> Unit) {
-    DetailFrame("Evento observado", onBack) {
+    DetailFrame("Observación", onBack) {
         DataGate(model) { data ->
             val e = data.events.firstOrNull { it.eventId == id }
             if (e == null) {
-                ScreenScroll { StateBlock(StateKind.Empty, "Este evento ya no existe", "Puede haberse borrado por retención o a petición tuya.") }
+                ScreenScroll { StateBlock(StateKind.Empty, "Esta observación ya no existe", "Puede haberse borrado por retención o a petición tuya.") }
                 return@DataGate
             }
             val alerts = data.interventionsFor(e)
@@ -235,17 +234,17 @@ fun EventDetailScreen(model: AppModel, id: String, onBack: () -> Unit, onOpenAle
                 EvidencePanel(e, data)
                 Gap(14.dp)
                 Panel {
-                    PanelHead("Alertas emitidas", kicker = "Política")
+                    PanelHead("Avisos que generó")
                     if (alerts.isEmpty()) {
                         Text(
-                            "Ninguna. Las señales se registraron pero no cruzaron las reglas de alerta.",
+                            "Ninguno. Las señales quedaron registradas pero no cruzaron el nivel de aviso.",
                             style = MaterialTheme.typography.bodyMedium, color = LocalPalette.current.muted,
                         )
                         Gap(6.dp)
                     }
                     alerts.forEachIndexed { n, a ->
                         val s = Humanize.interventionState(a.state)
-                        Line("Alerta · ${s.label}", fmtDateTime(a.createdAtMs), tone = s.tone, divider = n < alerts.lastIndex, onClick = { onOpenAlert(a.interventionId) })
+                        Line("Aviso · ${s.label}", fmtDateTime(a.createdAtMs), tone = s.tone, divider = n < alerts.lastIndex, onClick = { onOpenAlert(a.interventionId) })
                     }
                 }
                 if (e.signals.isNotEmpty()) {
@@ -267,31 +266,24 @@ private fun EvidencePanel(e: ObservedEvent, data: DataExport) {
         }
         e.signals.forEach { s -> Line(Humanize.signal(s), s, tone = Tone.Muted) }
         Gap(4.dp)
-        Fact("Fuente", Humanize.source(e.sourceId))
-        Fact("Tipo", Humanize.modality(e.modality))
-        Fact("Clase de dato", Humanize.dataClass(e.sensitiveDataClass))
-        Fact("Permiso", grant?.let { if (it.revoked) "Revocado después" else "Vigente al observar" } ?: e.consentGrantId)
-        Fact("Huella", shortDigest(e.contentDigest), mono = true, divider = false)
+        Fact("Dónde", Humanize.source(e.sourceId))
+        Fact("Qué", Humanize.modality(e.modality))
+        Fact("Cuándo", fmtDateTime(e.observedAtMs))
+        Fact(
+            "Tu permiso",
+            grant?.let { if (it.revoked) "Lo revocaste después" else "Vigente cuando se observó" } ?: "Ya no está en tus datos",
+            divider = false,
+        )
     }
 }
 
 @Composable
-private fun DecisionPanel(i: Intervention) {
-    val p = LocalPalette.current
+private fun ActionPanel(i: Intervention) {
     Panel {
-        PanelHead("Decisión", kicker = "Política")
-        Fact("Acción", if (i.kind == "warn_banner") "Aviso en pantalla" else i.kind)
-        Fact("Estado", Humanize.interventionState(i.state).label, Humanize.interventionState(i.state).tone)
-        Fact("Intentos de entrega", i.attempts.toString(), divider = i.lastError != null || i.audit.isNotEmpty())
-        i.lastError?.let { Fact("Último error", it, Tone.Danger, divider = i.audit.isNotEmpty()) }
-        if (i.audit.isNotEmpty()) {
-            Gap(10.dp)
-            Kicker("Historial")
-            Gap(4.dp)
-            i.audit.forEachIndexed { n, a ->
-                Line("${Humanize.interventionState(a.from).label} → ${Humanize.interventionState(a.to).label}", a.detail.ifBlank { null }, divider = n < i.audit.lastIndex)
-            }
-        }
+        PanelHead("Qué hizo SOVIR")
+        Fact("Acción", if (i.kind == "warn_banner") "Te mostró un aviso" else i.kind)
+        Fact("Estado", Humanize.interventionState(i.state).label, Humanize.interventionState(i.state).tone, divider = i.lastError != null)
+        i.lastError?.let { Fact("Último error", it, Tone.Danger, divider = false) }
         Gap(4.dp)
     }
 }
@@ -311,10 +303,10 @@ fun CouncilPanel(model: AppModel, signals: List<String>) {
     var error by remember { mutableStateOf<String?>(null) }
 
     Panel {
-        PanelHead("Análisis del concilio", trailing = { EvidenceTag("Inferido") })
+        PanelHead("Análisis detallado", trailing = { EvidenceTag("Inferido") })
         Text(
-            "Varios modelos votan sobre las señales de este evento y un árbitro determinista combina los votos. " +
-                "Ninguno ve el texto original: el servidor no lo guarda.",
+            "Varios análisis votan sobre las señales de esta observación y un árbitro combina los votos. " +
+                "Ninguno ve el texto original: SOVIR no lo guarda.",
             style = MaterialTheme.typography.bodyMedium,
             color = p.muted,
         )
@@ -327,9 +319,9 @@ fun CouncilPanel(model: AppModel, signals: List<String>) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Permitir modelo remoto", style = MaterialTheme.typography.bodyLarge, color = p.ink)
+                Text("Usar análisis remoto", style = MaterialTheme.typography.bodyLarge, color = p.ink)
                 Text(
-                    model.budget?.let { "Consume presupuesto · disponible ${fmtUsd(it.remainingUsd)}" } ?: "Consume presupuesto de análisis",
+                    model.budget?.let { "Gasta saldo · disponible ${fmtUsd(it.remainingUsd)}" } ?: "Gasta saldo de análisis",
                     style = MaterialTheme.typography.bodySmall,
                     color = p.muted,
                 )
@@ -378,13 +370,13 @@ private fun VerdictView(v: Verdict) {
     )
     Gap(4.dp)
     Text(
-        "Puntuación de evidencia ${fmtPct(v.confidenceBp)} · no es una probabilidad calibrada",
+        "Nivel de evidencia ${fmtPct(v.confidenceBp)} — orientativo, no una probabilidad exacta",
         style = MaterialTheme.typography.bodySmall,
         color = p.muted,
     )
     if (v.votes.isNotEmpty()) {
         Gap(12.dp)
-        Kicker("Votos")
+        Kicker("Votos del análisis")
         Gap(2.dp)
         Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
             v.votes.forEachIndexed { n, vote ->
@@ -400,8 +392,6 @@ private fun VerdictView(v: Verdict) {
     }
     v.costMicroUsd?.takeIf { it > 0 }?.let {
         Gap(8.dp)
-        Fact("Costo del análisis", fmtMicroUsd(it), divider = false)
+        Fact("Costo de este análisis", fmtMicroUsd(it), divider = false)
     }
-    Gap(8.dp)
-    Text("Modelo: ${v.modelId}", style = MaterialTheme.typography.labelSmall, color = p.muted, modifier = Modifier.padding(top = 2.dp))
 }

@@ -124,8 +124,8 @@ object Humanize {
     data class StateCopy(val label: String, val tone: Tone)
 
     fun interventionState(state: String) = when (state) {
-        "pending" -> StateCopy("Pendiente", Tone.Warning)
-        "delivered" -> StateCopy("Mostrada", Tone.Brand)
+        "pending" -> StateCopy("Nueva", Tone.Warning)
+        "delivered" -> StateCopy("Vista", Tone.Brand)
         "failed" -> StateCopy("No se pudo mostrar", Tone.Danger)
         "cancelled" -> StateCopy("Cancelada", Tone.Unknown)
         else -> StateCopy(state, Tone.Unknown)
