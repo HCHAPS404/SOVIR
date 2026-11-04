@@ -870,6 +870,7 @@ fn infer_req(cost: u64) -> InferenceRequest {
         est_cost_micro_usd: cost,
         text_hint: None,
         visual_hint: None,
+            event_id: None,
     }
 }
 
@@ -1365,4 +1366,125 @@ async fn purge_scrubs_feedback_labels_and_counts_them() {
     let report = s.purge_data(&p).await.unwrap();
     assert_eq!(report.labels_scrubbed, 1);
     assert!(s.export_data(&p).await.unwrap().feedback_labels.is_empty());
+}
+
+// ---- ADR-0028: council-derived signal writeback ----------------------------
+
+/// A stub gateway that always answers with the fused cross-modal
+/// hypothesis — the council's pixel+DOM agreement the writeback keys on.
+struct FusedGateway;
+#[async_trait::async_trait]
+impl sovir_ports::InferenceGateway for FusedGateway {
+    async fn assess(
+        &self,
+        req: &sovir_domain::InferenceRequest,
+    ) -> Result<sovir_domain::InferenceVerdict, sovir_ports::PortError> {
+        Ok(sovir_domain::InferenceVerdict {
+            request_id: req.request_id.clone(),
+            model_id: "fused-stub".into(),
+            hypotheses: vec!["cross_modal_brand_impersonation".into()],
+            confidence_bp: 9_000,
+            provenance: "council:test".into(),
+            usage: None,
+            votes: None,
+        })
+    }
+    fn serves(&self, _mode: sovir_domain::PrivacyMode) -> bool {
+        true
+    }
+}
+
+#[tokio::test]
+async fn fused_verdict_injects_visual_brand_match_and_escalates() {
+    let mut p = ports();
+    p.inference = Some(Arc::new(FusedGateway));
+    let s = SovirService::new(Arc::new(FixedClock), p);
+    let pr = principal("p-1");
+    s.grant(&pr, grant()).await.unwrap();
+
+    // Event with only the DOM modality's claim — no visual corroboration.
+    let mut ev = event();
+    ev.signals = vec![RiskSignal::DomBrandMismatch];
+    s.ingest(&pr, ev).await.unwrap();
+
+    let req = sovir_domain::InferenceRequest {
+        request_id: "req-fused".into(),
+        signals: vec![RiskSignal::DomBrandMismatch],
+        privacy: sovir_domain::PrivacyMode::Private,
+        est_cost_micro_usd: 0,
+        text_hint: None,
+        visual_hint: None,
+        event_id: Some("event-1".into()),
+    };
+    let verdict = s.assess_with_inference(&pr, req).await.unwrap();
+    assert!(verdict
+        .hypotheses
+        .contains(&"cross_modal_brand_impersonation".to_string()));
+
+    // The stored event gained the council-derived signal and the
+    // cross-modal policy rule escalated it to a Warn — DomBrandMismatch
+    // alone yields only RequireReview at ingest; the fusion adds a
+    // WarnBanner on top.
+    let events = s.list_events(&pr).await.unwrap();
+    assert!(events[0].signals.contains(&RiskSignal::VisualBrandMatch));
+    let interventions = s.list_interventions(&pr).await.unwrap();
+    assert!(
+        interventions
+            .iter()
+            .any(|i| i.kind == InterventionKind::WarnBanner && i.event_id == "event-1"),
+        "fusion must enqueue a warn banner"
+    );
+
+    // Idempotent: a replayed fused verdict does not duplicate the signal.
+    let req2 = sovir_domain::InferenceRequest {
+        request_id: "req-fused-2".into(),
+        signals: vec![RiskSignal::DomBrandMismatch],
+        privacy: sovir_domain::PrivacyMode::Private,
+        est_cost_micro_usd: 0,
+        text_hint: None,
+        visual_hint: None,
+        event_id: Some("event-1".into()),
+    };
+    s.assess_with_inference(&pr, req2).await.unwrap();
+    let events = s.list_events(&pr).await.unwrap();
+    let n = events[0]
+        .signals
+        .iter()
+        .filter(|s| **s == RiskSignal::VisualBrandMatch)
+        .count();
+    assert_eq!(n, 1);
+}
+
+#[tokio::test]
+async fn fused_verdict_without_event_link_stays_advisory() {
+    let mut p = ports();
+    p.inference = Some(Arc::new(FusedGateway));
+    let s = SovirService::new(Arc::new(FixedClock), p);
+    let pr = principal("p-1");
+    s.grant(&pr, grant()).await.unwrap();
+    let mut ev = event();
+    ev.signals = vec![RiskSignal::DomBrandMismatch];
+    s.ingest(&pr, ev).await.unwrap();
+
+    let req = sovir_domain::InferenceRequest {
+        request_id: "req-fused-nolink".into(),
+        signals: vec![RiskSignal::DomBrandMismatch],
+        privacy: sovir_domain::PrivacyMode::Private,
+        est_cost_micro_usd: 0,
+        text_hint: None,
+        visual_hint: None,
+        event_id: None,
+    };
+    s.assess_with_inference(&pr, req).await.unwrap();
+    let events = s.list_events(&pr).await.unwrap();
+    assert!(!events[0].signals.contains(&RiskSignal::VisualBrandMatch));
+    // The ingest-time RequireReview exists, but no WarnBanner — the
+    // fused verdict stayed advisory without the event linkage.
+    let interventions = s.list_interventions(&pr).await.unwrap();
+    assert!(
+        !interventions
+            .iter()
+            .any(|i| i.kind == InterventionKind::WarnBanner),
+        "no warn without the event linkage"
+    );
 }

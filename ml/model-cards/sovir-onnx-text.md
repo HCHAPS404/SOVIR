@@ -48,6 +48,19 @@ PRIZE_LOTTERY_CLAIM — los tres con heurístico en `no_pattern`).
 - Nota honesta: la dedup expuso que el corpus v2 tenía ~55% de textos
   duplicados — sus métricas comparan sobre un set inflado
 
+### v5 — rechazado (no se promovió, 2026-11-04)
+
+- 1597 train / 584 val / 497 benign — incluye ~230 **pares mínimos**
+  pago-fraude vs pago-legítimo ("transfiere $X por SPEI para liberar tu
+  premio" vs "...para la renta"). Resultado: `PAYMENT_REQUEST` F1
+  **0.136** (thr 0.94 — colapsó), micro-R 0.87, benign FP 10.7%.
+- Conclusión estructural: el contexto fraude-vs-legítimo no es
+  distinguible por superficie léxica — los pares lo probaron. La señal
+  se cubre por compañeras + política (pago + urgencia + no-verificado
+  escala). Fix real futuro: features contextuales (dominio, remitente
+  verificado, canal) o reformular la etiqueta como "solicitud de pago"
+  factual y dejar la discriminación a la política.
+
 ### v4 — rechazado (no se promovió, 2026-11-04)
 
 - 1481 train / 568 val / 379 benign (+76 positivos pago-scam, +154

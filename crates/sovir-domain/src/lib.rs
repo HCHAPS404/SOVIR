@@ -105,6 +105,14 @@ pub enum RiskSignal {
     /// Exploiting body/social/economic insecurity to sell or hook —
     /// "with that face nobody takes you seriously, you need this".
     InsecurityExploitation,
+    /// Council-derived (ADR-0028): the visual voter's pixel match fused
+    /// with the DOM brand/domain mismatch on the same request — two
+    /// independent modalities confirming brand impersonation. Injected
+    /// into the stored event by the application layer when the council
+    /// emits `cross_modal_brand_impersonation`; never an extractor
+    /// claim, though a client could emit it under the same
+    /// unverified-sensor posture as every signal.
+    VisualBrandMatch,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -249,6 +257,20 @@ impl Device {
     }
 }
 
+/// Aggregate, non-personal counters for the public site. Whole-installation
+/// totals only — never per-principal rows, never content. Synthetic
+/// principals minted by harnesses/dev checks are excluded by the caller so
+/// the numbers reflect humans, not automation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicCounters {
+    /// Distinct non-synthetic principals with at least one session.
+    pub accounts: u64,
+    /// Registered devices not yet revoked.
+    pub devices_active: u64,
+    /// Observed events ingested from non-synthetic principals.
+    pub events_seen: u64,
+}
+
 /// Human verdict on an emitted decision — the eval-loop label (B3).
 /// Closed taxonomy; anything else fails deserialization, never guesses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -379,6 +401,14 @@ pub struct InferenceRequest {
     /// pixels. Absent ⇒ the visual voter abstains.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visual_hint: Option<String>,
+    /// Optional event linkage (ADR-0028 fusion): when the council emits
+    /// the fused `cross_modal_brand_impersonation` hypothesis AND this
+    /// id names one of the caller's stored events, the app layer may
+    /// inject the council-derived `VISUAL_BRAND_MATCH` signal back into
+    /// that event and re-evaluate policy. Absent ⇒ verdict stays
+    /// advisory, no writeback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<String>,
 }
 
 /// Typed explanation request (A1): asks an explainer to turn typed
@@ -752,7 +782,49 @@ pub fn risk_signal_label(s: RiskSignal) -> &'static str {
         RiskSignal::ImpulseFunnel => "IMPULSE_FUNNEL",
         RiskSignal::DoomReinforcement => "DOOM_REINFORCEMENT",
         RiskSignal::InsecurityExploitation => "INSECURITY_EXPLOITATION",
+        RiskSignal::VisualBrandMatch => "VISUAL_BRAND_MATCH",
     }
+}
+/// Reverse of `risk_signal_label` — None for unknown labels (forward-
+/// compatible: newer emitters may send signals this build predates).
+pub fn risk_signal_from_label(s: &str) -> Option<RiskSignal> {
+    Some(match s {
+        "CREDENTIAL_REQUEST" => RiskSignal::CredentialRequest,
+        "PAYMENT_REQUEST" => RiskSignal::PaymentRequest,
+        "URGENT_ACTION" => RiskSignal::UrgentAction,
+        "IDENTITY_UNVERIFIED" => RiskSignal::IdentityUnverified,
+        "TRACKING_OBSERVED" => RiskSignal::TrackingObserved,
+        "HIDDEN_FEE_PATTERN" => RiskSignal::HiddenFeePattern,
+        "CONSENT_DARK_PATTERN" => RiskSignal::ConsentDarkPattern,
+        "USER_DEFINED_EXPOSURE_LIMIT" => RiskSignal::UserDefinedExposureLimit,
+        "LINK_DESTINATION_MISMATCH" => RiskSignal::LinkDestinationMismatch,
+        "SUSPICIOUS_DOMAIN" => RiskSignal::SuspiciousDomain,
+        "EXTORTION_LANGUAGE" => RiskSignal::ExtortionLanguage,
+        "SCAREWARE_CLAIM" => RiskSignal::ScarewareClaim,
+        "PRIZE_LOTTERY_CLAIM" => RiskSignal::PrizeLotteryClaim,
+        "INVESTMENT_PROMISE" => RiskSignal::InvestmentPromise,
+        "GIFT_CARD_PAYMENT" => RiskSignal::GiftCardPayment,
+        "SEED_PHRASE_REQUEST" => RiskSignal::SeedPhraseRequest,
+        "DELIVERY_CUSTOMS_FEE" => RiskSignal::DeliveryCustomsFee,
+        "AUTHORITY_IMPERSONATION" => RiskSignal::AuthorityImpersonation,
+        "SCARCITY_PRESSURE" => RiskSignal::ScarcityPressure,
+        "JOB_SCAM_OFFER" => RiskSignal::JobScamOffer,
+        "ROMANCE_BAIT" => RiskSignal::RomanceBait,
+        "MIRACLE_CURE_CLAIM" => RiskSignal::MiracleCureClaim,
+        "DATA_HARVESTING" => RiskSignal::DataHarvesting,
+        "OFF_PLATFORM_MOVE" => RiskSignal::OffPlatformMove,
+        "BULK_BUYER_LURE" => RiskSignal::BulkBuyerLure,
+        "QR_PRESENT" => RiskSignal::QrPresent,
+        "DOM_BRAND_MISMATCH" => RiskSignal::DomBrandMismatch,
+        "POLARIZATION_BAIT" => RiskSignal::PolarizationBait,
+        "RAGE_BAIT_CONTENT" => RiskSignal::RageBaitContent,
+        "EMOTIONAL_COERCION" => RiskSignal::EmotionalCoercion,
+        "IMPULSE_FUNNEL" => RiskSignal::ImpulseFunnel,
+        "DOOM_REINFORCEMENT" => RiskSignal::DoomReinforcement,
+        "INSECURITY_EXPLOITATION" => RiskSignal::InsecurityExploitation,
+        "VISUAL_BRAND_MATCH" => RiskSignal::VisualBrandMatch,
+        _ => return None,
+    })
 }
 
 /// Contract bound shared with `observed-event.schema.json`
@@ -804,6 +876,9 @@ pub fn risk_signal_priority(s: RiskSignal) -> u8 {
         RiskSignal::ImpulseFunnel => 30,
         RiskSignal::DoomReinforcement => 31,
         RiskSignal::InsecurityExploitation => 32,
+        // Same rank as DomBrandMismatch — council-derived corroboration
+        // is top evidence, never the first thing dropped.
+        RiskSignal::VisualBrandMatch => 6,
     }
 }
 /// Stable metadata label for a sensitive-data class (matches serde name).
@@ -1293,6 +1368,16 @@ impl PolicyPack {
                     risk_level: RiskLevel::High,
                     decision: DecisionKind::Warn,
                 },
+                // Cross-modal brand impersonation (ADR-0028): the pixel
+                // voter AND the DOM evidence agreed — near-certain
+                // phishing. Stronger than either modality alone; sits
+                // ahead of the single-modal lure rule.
+                PolicyRule {
+                    name: "cross_modal_brand_impersonation".into(),
+                    clauses: vec![vec![RiskSignal::VisualBrandMatch]],
+                    risk_level: RiskLevel::High,
+                    decision: DecisionKind::Warn,
+                },
                 PolicyRule {
                     name: "sensitive_or_manipulative".into(),
                     clauses: vec![vec![
@@ -1387,6 +1472,9 @@ impl PolicyPack {
                     RiskSignal::ImpulseFunnel => "Signal: manufactured impulse-buy sequence",
                     RiskSignal::DoomReinforcement => "Signal: serialized fatalist framing",
                     RiskSignal::InsecurityExploitation => "Signal: insecurity exploited to sell",
+                    RiskSignal::VisualBrandMatch => {
+                        "Signal: brand logo pixel-match confirmed on foreign domain"
+                    }
                 }
                 .to_string()
             })

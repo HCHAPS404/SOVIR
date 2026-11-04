@@ -85,8 +85,10 @@ class SovirAccessibilityService : AccessibilityService() {
             return
         }
         // Local council only (PRIVATE): the hint never reaches a remote model.
+        // eventId links the assess to the stored event so a fused council
+        // verdict can write VISUAL_BRAND_MATCH back onto it (ADR-0028).
         if (hint.isNotBlank()) {
-            runCatching { Api.assess(signals.toList(), remoteAllowed = false, textHint = hint) }
+            runCatching { Api.assess(signals.toList(), remoteAllowed = false, textHint = hint, eventId = eventId) }
                 .onSuccess {
                     PhoneLink.markNotified(eventId)
                     Notifier.verdict(this, it, eventId)

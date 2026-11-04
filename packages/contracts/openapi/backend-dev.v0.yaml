@@ -226,7 +226,8 @@ components:
                    MIRACLE_CURE_CLAIM, DATA_HARVESTING, OFF_PLATFORM_MOVE,
                    BULK_BUYER_LURE, QR_PRESENT, DOM_BRAND_MISMATCH,
                    POLARIZATION_BAIT, RAGE_BAIT_CONTENT, EMOTIONAL_COERCION,
-                   IMPULSE_FUNNEL, DOOM_REINFORCEMENT, INSECURITY_EXPLOITATION]
+                   IMPULSE_FUNNEL, DOOM_REINFORCEMENT, INSECURITY_EXPLOITATION,
+                   VISUAL_BRAND_MATCH]
         privacy: {type: string, enum: [standard, private]}
         est_cost_micro_usd: {type: integer}
         text_hint:
@@ -237,6 +238,9 @@ components:
           type: string
           maxLength: 360000
           description: LOCAL-ONLY base64 PNG logo-crop for the visual voter (ADR-0028, ~256KB decoded bound). Never egressed — the remote envelope is built field-by-field without it. Absent => the visual voter abstains.
+        event_id:
+          type: string
+          description: Optional writeback linkage (ADR-0028). When the council emits the fused cross_modal_brand_impersonation hypothesis AND this id names one of the caller's stored events, the server injects the derived VISUAL_BRAND_MATCH signal into that event and re-evaluates policy. Absent => verdict stays advisory.
     InferenceVerdict:
       type: object
       description: Typed hypotheses only — never an authorized action.

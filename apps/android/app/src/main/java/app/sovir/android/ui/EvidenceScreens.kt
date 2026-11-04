@@ -236,7 +236,7 @@ fun AlertDetailScreen(model: AppModel, id: String, onBack: () -> Unit, onOpenEve
                 ActionPanel(i)
                 if (event != null && event.signals.isNotEmpty()) {
                     Gap(14.dp)
-                    CouncilPanel(model, event.signals)
+                    CouncilPanel(model, event.signals, event.eventId)
                 }
                 Gap(18.dp)
                 Text(
@@ -382,7 +382,7 @@ private fun ActionPanel(i: Intervention) {
  * default — it spends budget — and only ever sees typed signals.
  */
 @Composable
-fun CouncilPanel(model: AppModel, signals: List<String>) {
+fun CouncilPanel(model: AppModel, signals: List<String>, eventId: String? = null) {
     val p = LocalPalette.current
     val scope = rememberCoroutineScope()
     var remote by remember { mutableStateOf(false) }
@@ -429,7 +429,7 @@ fun CouncilPanel(model: AppModel, signals: List<String>) {
             busy = true
             error = null
             scope.launch {
-                runCatching { withContext(Dispatchers.IO) { Api.assess(signals, remote) } }
+                runCatching { withContext(Dispatchers.IO) { Api.assess(signals, remote, eventId = eventId) } }
                     .onSuccess { verdict = it }
                     .onFailure { error = describeError(it) }
                 busy = false

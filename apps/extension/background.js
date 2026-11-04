@@ -403,7 +403,7 @@ async function emitEvent(tabId, { signals, digest, observed_at_ms, modality = "T
 // defensive ceiling — an oversized or non-string hint is dropped before
 // the local request, never forwarded anywhere else.
 const VISUAL_HINT_MAX_CHARS = 360_000;
-async function assessWithHint(st, message) {
+async function assessWithHint(st, message, eventId) {
   const visualHint =
     typeof message.visual_hint === "string" &&
     message.visual_hint.length > 0 &&
@@ -423,6 +423,9 @@ async function assessWithHint(st, message) {
           ? message.text_hint
           : undefined,
       visual_hint: visualHint,
+      // ADR-0028 writeback linkage: lets the council inject the
+      // derived VISUAL_BRAND_MATCH back into this event on fusion.
+      event_id: eventId,
     },
   });
   await setState({ lastVerdict: verdict });
@@ -725,10 +728,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const hasHint =
           (typeof message.text_hint === "string" && message.text_hint.length > 0) ||
           (typeof message.visual_hint === "string" && message.visual_hint.length > 0);
-        if (hasHint) {
-          assessWithHint(st, message).catch(() => {});
+        // Emit first — the assess request carries the produced
+        // event_id so a fused council verdict can write its derived
+        // signal back onto the stored event (ADR-0028). A deduped
+        // emit yields no event_id and no writeback target anyway.
+        const result = await emitEvent(sender.tab?.id ?? 0, message);
+        if (hasHint && result?.event_id) {
+          assessWithHint(st, message, result.event_id).catch(() => {});
         }
-        return emitEvent(sender.tab?.id ?? 0, message);
+        return result;
       })
       .then(sendResponse)
       .catch((e) =>

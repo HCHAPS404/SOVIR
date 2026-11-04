@@ -369,6 +369,7 @@ fn signal_str(s: RiskSignal) -> &'static str {
         RiskSignal::ImpulseFunnel => "IMPULSE_FUNNEL",
         RiskSignal::DoomReinforcement => "DOOM_REINFORCEMENT",
         RiskSignal::InsecurityExploitation => "INSECURITY_EXPLOITATION",
+        RiskSignal::VisualBrandMatch => "VISUAL_BRAND_MATCH",
     }
 }
 fn feedback_verdict_str(v: FeedbackVerdict) -> &'static str {
@@ -443,35 +444,9 @@ fn class_from(s: &str) -> SensitiveDataClass {
     }
 }
 fn signal_from(s: &str) -> Option<RiskSignal> {
-    match s {
-        "CREDENTIAL_REQUEST" => Some(RiskSignal::CredentialRequest),
-        "PAYMENT_REQUEST" => Some(RiskSignal::PaymentRequest),
-        "URGENT_ACTION" => Some(RiskSignal::UrgentAction),
-        "IDENTITY_UNVERIFIED" => Some(RiskSignal::IdentityUnverified),
-        "TRACKING_OBSERVED" => Some(RiskSignal::TrackingObserved),
-        "HIDDEN_FEE_PATTERN" => Some(RiskSignal::HiddenFeePattern),
-        "CONSENT_DARK_PATTERN" => Some(RiskSignal::ConsentDarkPattern),
-        "USER_DEFINED_EXPOSURE_LIMIT" => Some(RiskSignal::UserDefinedExposureLimit),
-        "LINK_DESTINATION_MISMATCH" => Some(RiskSignal::LinkDestinationMismatch),
-        "SUSPICIOUS_DOMAIN" => Some(RiskSignal::SuspiciousDomain),
-        "EXTORTION_LANGUAGE" => Some(RiskSignal::ExtortionLanguage),
-        "SCAREWARE_CLAIM" => Some(RiskSignal::ScarewareClaim),
-        "PRIZE_LOTTERY_CLAIM" => Some(RiskSignal::PrizeLotteryClaim),
-        "INVESTMENT_PROMISE" => Some(RiskSignal::InvestmentPromise),
-        "GIFT_CARD_PAYMENT" => Some(RiskSignal::GiftCardPayment),
-        "SEED_PHRASE_REQUEST" => Some(RiskSignal::SeedPhraseRequest),
-        "DELIVERY_CUSTOMS_FEE" => Some(RiskSignal::DeliveryCustomsFee),
-        "AUTHORITY_IMPERSONATION" => Some(RiskSignal::AuthorityImpersonation),
-        "SCARCITY_PRESSURE" => Some(RiskSignal::ScarcityPressure),
-        "JOB_SCAM_OFFER" => Some(RiskSignal::JobScamOffer),
-        "ROMANCE_BAIT" => Some(RiskSignal::RomanceBait),
-        "MIRACLE_CURE_CLAIM" => Some(RiskSignal::MiracleCureClaim),
-        "DATA_HARVESTING" => Some(RiskSignal::DataHarvesting),
-        "OFF_PLATFORM_MOVE" => Some(RiskSignal::OffPlatformMove),
-        "BULK_BUYER_LURE" => Some(RiskSignal::BulkBuyerLure),
-        "QR_PRESENT" => Some(RiskSignal::QrPresent),
-        _ => None,
-    }
+    // Single source of truth: the domain's canonical reverse map —
+    // covers every signal incl. ADR-0027 wellbeing and DOM/cross-modal.
+    sovir_domain::risk_signal_from_label(s)
 }
 fn kind_str(k: InterventionKind) -> &'static str {
     match k {
@@ -627,6 +602,107 @@ impl EventRepository for PgStore {
                     },
                 )
                 .collect())
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
+    }
+    async fn get(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        event_id: &str,
+    ) -> Result<Option<ObservedEvent>, PortError> {
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            let row = sqlx::query_as::<
+                _,
+                (
+                    String,
+                    String,
+                    String,
+                    String,
+                    i64,
+                    String,
+                    String,
+                    String,
+                    Vec<String>,
+                ),
+            >(
+                "SELECT event_id, device_id, source_id, consent_grant_id, observed_at_ms,
+                    modality, sensitive_data_class, content_digest, signals
+             FROM observation_events
+             WHERE tenant_id = $1 AND principal_id = $2 AND event_id = $3",
+            )
+            .bind(tenant_id)
+            .bind(principal_id)
+            .bind(event_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(row.map(
+                |(
+                    event_id,
+                    device_id,
+                    source_id,
+                    consent_grant_id,
+                    observed_at_ms,
+                    modality,
+                    data_class,
+                    content_digest,
+                    signals,
+                )| ObservedEvent {
+                    event_id,
+                    source_id,
+                    observed_at_ms: observed_at_ms as u64,
+                    modality: modality_from(&modality),
+                    content_digest,
+                    consent_grant_id,
+                    sensitive_data_class: class_from(&data_class),
+                    payload_ref: None,
+                    signals: signals.iter().filter_map(|s| signal_from(s)).collect(),
+                    principal_id: principal_id.to_string(),
+                    device_id,
+                    tenant_id: tenant_id.to_string(),
+                },
+            ))
+        })
+        .await;
+        if res.is_ok() {
+            tx.commit().await.map_err(map_storage)?;
+        }
+        res
+    }
+    async fn append_derived_signal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        event_id: &str,
+        signal: &str,
+    ) -> Result<Option<Vec<String>>, PortError> {
+        let mut tx = self.tenant_tx(tenant_id).await?;
+        let res = (async {
+            // Atomic append-if-absent scoped to the caller's principal:
+            // returns the new signal list only when this UPDATE actually
+            // changed the row — a foreign event or a duplicate yields
+            // zero rows and therefore None.
+            let row: Option<(Vec<String>,)> = sqlx::query_as(
+                "UPDATE observation_events
+                 SET signals = array_append(signals, $4)
+                 WHERE tenant_id = $1 AND principal_id = $2 AND event_id = $3
+                   AND NOT ($4 = ANY(signals))
+                 RETURNING signals",
+            )
+            .bind(tenant_id)
+            .bind(principal_id)
+            .bind(event_id)
+            .bind(signal)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_storage)?;
+            Ok(row.map(|(signals,)| signals))
         })
         .await;
         if res.is_ok() {
@@ -2330,5 +2406,46 @@ impl InvestigationStore for PgStore {
             tx.commit().await.map_err(map_storage)?;
         }
         res
+    }
+}
+
+/// Public marketing counters — installation-wide aggregates on the
+/// privileged pool (same class of op as global sweeps: the numbers span
+/// tenants by design). Returns counts only; `exclude` drops synthetic
+/// principals minted by dev checks so the public number counts humans.
+#[async_trait]
+impl sovir_ports::PublicStats for PgStore {
+    async fn counters(
+        &self,
+        exclude: &[&str],
+    ) -> Result<sovir_domain::PublicCounters, PortError> {
+        let excluded: Vec<String> = exclude.iter().map(|s| s.to_string()).collect();
+        let accounts: i64 = sqlx::query_scalar(
+            "SELECT count(DISTINCT principal_id) FROM sessions
+             WHERE NOT (principal_id = ANY($1))",
+        )
+        .bind(&excluded)
+        .fetch_one(self.global())
+        .await
+        .map_err(map_storage)?;
+        let devices_active: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM devices WHERE revoked_at_ms IS NULL",
+        )
+        .fetch_one(self.global())
+        .await
+        .map_err(map_storage)?;
+        let events_seen: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM observation_events
+             WHERE NOT (principal_id = ANY($1))",
+        )
+        .bind(&excluded)
+        .fetch_one(self.global())
+        .await
+        .map_err(map_storage)?;
+        Ok(sovir_domain::PublicCounters {
+            accounts: accounts.max(0) as u64,
+            devices_active: devices_active.max(0) as u64,
+            events_seen: events_seen.max(0) as u64,
+        })
     }
 }

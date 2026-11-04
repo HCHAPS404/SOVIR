@@ -98,6 +98,27 @@ pub trait EventRepository: Send + Sync {
         principal_id: &str,
         since_ms: u64,
     ) -> Result<Vec<ObservedEvent>, PortError>;
+    /// Fetches one event owned by this tenant+principal — `None` for
+    /// foreign or missing events (no existence oracle across
+    /// principals).
+    async fn get(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        event_id: &str,
+    ) -> Result<Option<ObservedEvent>, PortError>;
+    /// Council-derived signal injection (ADR-0028): appends a signal
+    /// the council computed server-side (e.g. VISUAL_BRAND_MATCH after
+    /// the pixel+DOM fusion) to a stored event and returns the updated
+    /// signal labels. `None` = foreign/missing event or signal already
+    /// present — never duplicates, never crosses principal boundaries.
+    async fn append_derived_signal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        event_id: &str,
+        signal: &str,
+    ) -> Result<Option<Vec<String>>, PortError>;
     /// Human eval-loop label on an event (B3). `false` = the referenced
     /// event does not exist for this tenant+principal — labels never
     /// attach to foreign or missing events.
@@ -434,6 +455,16 @@ pub trait DeletionReceiptStore: Send + Sync {
         principal_id: &str,
     ) -> Result<Vec<DeletionReceipt>, PortError>;
 }
+/// Public aggregate counters for the marketing site (no auth). Read-only,
+/// installation-wide totals — the port exposes counts only, so an adapter
+/// cannot leak rows, tenants or principal ids through this path.
+/// `exclude` lists synthetic principal ids minted by dev checks and
+/// harnesses; adapters drop them so the public number counts humans.
+#[async_trait]
+pub trait PublicStats: Send + Sync {
+    async fn counters(&self, exclude: &[&str]) -> Result<sovir_domain::PublicCounters, PortError>;
+}
+
 /// Billing provider boundary (H9 scaffold, PAYMENTS_OPTIONS.md). The domain
 /// never sees provider SDKs, card data or prices — a plan id and verified
 /// webhook events only. Wired behind SOVIR_BILLING: `disabled` (default)

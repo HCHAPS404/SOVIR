@@ -126,8 +126,61 @@ pub struct InMemoryEventRepository {
     events: Mutex<HashMap<String, ObservedEvent>>,
     feedback: Mutex<HashMap<String, EventFeedback>>,
 }
+impl InMemoryEventRepository {
+    /// Events held, skipping synthetic principals (public counters path).
+    pub fn count_excluding(&self, exclude: &[&str]) -> usize {
+        self.events
+            .lock()
+            .map(|e| {
+                e.values()
+                    .filter(|ev| !exclude.contains(&ev.principal_id.as_str()))
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+}
 #[async_trait]
 impl EventRepository for InMemoryEventRepository {
+    async fn get(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        event_id: &str,
+    ) -> Result<Option<ObservedEvent>, PortError> {
+        self.events
+            .lock()
+            .map(|e| {
+                e.get(event_id).filter(|x| {
+                    x.tenant_id == tenant_id && x.principal_id == principal_id
+                }).cloned()
+            })
+            .map_err(|_| PortError::Storage)
+    }
+    async fn append_derived_signal(
+        &self,
+        tenant_id: &str,
+        principal_id: &str,
+        event_id: &str,
+        signal: &str,
+    ) -> Result<Option<Vec<String>>, PortError> {
+        let mut events = self.events.lock().map_err(|_| PortError::Storage)?;
+        let Some(e) = events.get_mut(event_id).filter(|x| {
+            x.tenant_id == tenant_id && x.principal_id == principal_id
+        }) else {
+            return Ok(None);
+        };
+        let sig = sovir_domain::risk_signal_from_label(signal).ok_or(PortError::Unavailable)?;
+        if e.signals.contains(&sig) {
+            return Ok(None);
+        }
+        e.signals.push(sig);
+        Ok(Some(
+            e.signals
+                .iter()
+                .map(|s| sovir_domain::risk_signal_label(*s).to_string())
+                .collect(),
+        ))
+    }
     async fn put_feedback(&self, fb: EventFeedback) -> Result<bool, PortError> {
         let events = self.events.lock().map_err(|_| PortError::Storage)?;
         let owned = events
@@ -240,6 +293,22 @@ impl EventRepository for InMemoryEventRepository {
 }
 #[derive(Default)]
 pub struct InMemorySessionStore(RwLock<HashMap<String, Session>>);
+impl InMemorySessionStore {
+    /// Distinct principals with any session, minus synthetic ids
+    /// (public counters path).
+    pub fn principal_count_excluding(&self, exclude: &[&str]) -> usize {
+        self.0
+            .read()
+            .map(|g| {
+                g.values()
+                    .map(|s| s.principal_id.as_str())
+                    .filter(|p| !exclude.contains(p))
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+            })
+            .unwrap_or(0)
+    }
+}
 #[async_trait]
 impl SessionStore for InMemorySessionStore {
     async fn issue(&self, session: Session) -> Result<(), PortError> {
@@ -309,6 +378,15 @@ fn device_key(tenant_id: &str, principal_id: &str, device_id: &str) -> DeviceKey
 }
 #[derive(Default)]
 pub struct InMemoryDeviceRegistry(RwLock<HashMap<DeviceKey, Device>>);
+impl InMemoryDeviceRegistry {
+    /// Registered devices not yet revoked (public counters path).
+    pub fn active_count(&self) -> usize {
+        self.0
+            .read()
+            .map(|g| g.values().filter(|d| d.is_active()).count())
+            .unwrap_or(0)
+    }
+}
 #[async_trait]
 impl DeviceRegistry for InMemoryDeviceRegistry {
     async fn register(&self, device: Device) -> Result<(), PortError> {
@@ -2987,6 +3065,7 @@ fn signal_phrase_es(s: sovir_domain::RiskSignal) -> &'static str {
         R::ImpulseFunnel => "combina urgencia y escasez para que compres sin pensar",
         R::DoomReinforcement => "encadena contenido fatalista sin salida",
         R::InsecurityExploitation => "explotaría tus inseguridades para venderte",
+        R::VisualBrandMatch => "su logo coincide con la marca pero el dominio no es el oficial",
     }
 }
 /// Deterministic local explainer: always available, zero egress, used
@@ -3304,6 +3383,7 @@ mod tests {
             est_cost_micro_usd: 10_000,
             text_hint: None,
             visual_hint: None,
+            event_id: None,
         }
     }
 
@@ -3988,6 +4068,7 @@ mod tests {
             est_cost_micro_usd: 0,
             text_hint: None,
             visual_hint: None,
+            event_id: None,
         }
     }
     #[tokio::test]
@@ -4632,6 +4713,7 @@ mod tests {
             est_cost_micro_usd: 10,
             text_hint: None,
             visual_hint: None,
+            event_id: None,
         }
     }
 
@@ -4777,6 +4859,7 @@ mod tests {
                     est_cost_micro_usd: 0,
                     text_hint: None,
                     visual_hint: None,
+            event_id: None,
                 })
                 .await
                 .unwrap();
@@ -5202,6 +5285,7 @@ mod tests {
             est_cost_micro_usd: 0,
             text_hint: hint.map(str::to_string),
             visual_hint: None,
+            event_id: None,
         }
     }
     #[tokio::test]
@@ -5428,5 +5512,40 @@ mod billing_tests {
             gw2.checkout_url("plan", "p").await,
             Err(PortError::Unavailable)
         ));
+    }
+}
+
+/// Aggregate counters over the three in-memory stores — same shape as the
+/// PgStore `PublicStats` impl so the public site path works without
+/// Postgres (tests, dev runs). Counts only, synthetic principals excluded.
+pub struct InMemoryPublicStats {
+    sessions: std::sync::Arc<InMemorySessionStore>,
+    devices: std::sync::Arc<InMemoryDeviceRegistry>,
+    events: std::sync::Arc<InMemoryEventRepository>,
+}
+impl InMemoryPublicStats {
+    pub fn new(
+        sessions: std::sync::Arc<InMemorySessionStore>,
+        devices: std::sync::Arc<InMemoryDeviceRegistry>,
+        events: std::sync::Arc<InMemoryEventRepository>,
+    ) -> Self {
+        Self {
+            sessions,
+            devices,
+            events,
+        }
+    }
+}
+#[async_trait]
+impl sovir_ports::PublicStats for InMemoryPublicStats {
+    async fn counters(
+        &self,
+        exclude: &[&str],
+    ) -> Result<sovir_domain::PublicCounters, PortError> {
+        Ok(sovir_domain::PublicCounters {
+            accounts: self.sessions.principal_count_excluding(exclude) as u64,
+            devices_active: self.devices.active_count() as u64,
+            events_seen: self.events.count_excluding(exclude) as u64,
+        })
     }
 }

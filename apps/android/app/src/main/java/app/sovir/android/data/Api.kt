@@ -37,13 +37,21 @@ object Api {
 
     fun version(): String = JSONObject(call("GET", "/v1/version", auth = false)).optString("version")
 
-    fun assess(signals: List<String>, remoteAllowed: Boolean, textHint: String? = null): Verdict {
+    fun assess(
+        signals: List<String>,
+        remoteAllowed: Boolean,
+        textHint: String? = null,
+        eventId: String? = null,
+    ): Verdict {
         val body = JSONObject()
             .put("request_id", "and-assess-${shortId()}")
             .put("signals", JSONArray(signals))
             // Wire values are snake_case (sovir-domain PrivacyMode).
             .put("privacy", if (remoteAllowed) "standard" else "private")
         if (!textHint.isNullOrBlank()) body.put("text_hint", textHint)
+        // ADR-0028 writeback linkage — fused council verdicts can inject
+        // VISUAL_BRAND_MATCH back into this stored event.
+        if (!eventId.isNullOrBlank()) body.put("event_id", eventId)
         return parseVerdict(JSONObject(call("POST", "/v1/inference/assess", body)))
     }
 

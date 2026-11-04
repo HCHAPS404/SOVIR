@@ -98,7 +98,8 @@
           "EMOTIONAL_COERCION",
           "IMPULSE_FUNNEL",
           "DOOM_REINFORCEMENT",
-          "INSECURITY_EXPLOITATION"
+          "INSECURITY_EXPLOITATION",
+          "VISUAL_BRAND_MATCH"
         ]
       },
       "uniqueItems": true,

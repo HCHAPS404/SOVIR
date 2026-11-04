@@ -39,6 +39,8 @@ const SIGNAL_WORDS = {
   impulse_funnel: "arma un embudo de compra impulsiva",
   doom_reinforcement: "encadena contenido fatalista",
   insecurity_exploitation: "explota inseguridades para vender",
+  // ADR-0028 — council-derived pixel+DOM corroboration.
+  visual_brand_match: "logo de marca confirmado en dominio ajeno",
 };
 
 function fmtTime(ms) {

@@ -40,6 +40,7 @@ object Humanize {
         "IMPULSE_FUNNEL" to "Embudo de compra impulsiva manufacturado",
         "DOOM_REINFORCEMENT" to "Cadena de contenido fatalista",
         "INSECURITY_EXPLOITATION" to "Explotación de inseguridades para vender",
+        "VISUAL_BRAND_MATCH" to "Logo de marca confirmado en dominio ajeno",
     )
 
     private val HYPOTHESES = mapOf(

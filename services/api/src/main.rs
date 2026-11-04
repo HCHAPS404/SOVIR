@@ -67,6 +67,10 @@ struct AppState {
     /// atomics, incremented at handler success points — not telemetry, they
     /// never leave the loopback API.
     counters: std::sync::Arc<Counters>,
+    /// Aggregate installation counters for the public marketing site
+    /// (`/v1/public/stats`). Counts only — the port contract cannot
+    /// return rows, tenants or principal ids.
+    public_stats: std::sync::Arc<dyn sovir_ports::PublicStats>,
 }
 #[derive(Default)]
 struct Counters {
@@ -557,6 +561,7 @@ async fn compose_service(
     SovirService,
     Option<PgStore>,
     std::sync::Arc<dyn sovir_ports::BudgetLedger>,
+    std::sync::Arc<dyn sovir_ports::PublicStats>,
 ) {
     if let Some(url) = database_url {
         // SOVIR_INFERENCE_BUDGET_USD: per-tenant hard cap in whole USD.
@@ -613,14 +618,15 @@ async fn compose_service(
             },
         )
         .with_window_caps(window_caps_env());
-        return (service, Some(pg), budget);
+        let public_stats: std::sync::Arc<dyn sovir_ports::PublicStats> = Arc::new(pg.clone());
+        return (service, Some(pg), budget, public_stats);
     }
     let registry: std::sync::Arc<dyn sovir_ports::WebhookRegistry> =
         std::sync::Arc::new(InMemoryWebhookRegistry::default());
     let transport_allowlist = egress_allowlist_env(webhook_allowlist);
     let egress = pick_egress(&transport_allowlist, sovir_env);
-    let (service, _, budget) = dev_service_with(Some((registry, egress)));
-    (service, None, budget)
+    let (service, _, budget, public_stats) = dev_service_with(Some((registry, egress)));
+    (service, None, budget, public_stats)
 }
 /// Rolling-window inference caps from env (USD → micro-USD). Absent/0
 /// means no window limit; the all-time SOVIR_INFERENCE_BUDGET_USD cap
@@ -652,6 +658,7 @@ fn dev_service_with(
     SovirService,
     Option<std::sync::Arc<dyn sovir_ports::WebhookRegistry>>,
     std::sync::Arc<dyn sovir_ports::BudgetLedger>,
+    std::sync::Arc<dyn sovir_ports::PublicStats>,
 ) {
     let registry = webhooks.as_ref().map(|(r, _)| r.clone());
     // The reporting ledger and the enforcement gate share ONE spend
@@ -680,15 +687,26 @@ fn dev_service_with(
         ])),
         None => Arc::new(RecordingDeliveryChannel::default()),
     };
+    // Same in-memory stores feed both the service ports and the public
+    // counter view, so the number the site shows matches what the
+    // instance actually holds.
+    let mem_sessions = Arc::new(InMemorySessionStore::default());
+    let mem_devices = Arc::new(InMemoryDeviceRegistry::default());
+    let mem_events = Arc::new(InMemoryEventRepository::default());
+    let public_stats = Arc::new(sovir_adapters::InMemoryPublicStats::new(
+        mem_sessions.clone(),
+        mem_devices.clone(),
+        mem_events.clone(),
+    ));
     (
         SovirService::new(
             Arc::new(SystemClock),
             ServicePorts {
                 grants: Arc::new(InMemoryConsentRepository::default()),
-                events: Arc::new(InMemoryEventRepository::default()),
+                events: mem_events,
                 risk: risk_analyzer(),
-                sessions: Arc::new(InMemorySessionStore::default()),
-                devices: Arc::new(InMemoryDeviceRegistry::default()),
+                sessions: mem_sessions,
+                devices: mem_devices,
                 sink: Arc::new(InMemoryInterventionSink::default()),
                 channel,
                 webhooks: registry.clone().unwrap_or_else(|| {
@@ -715,6 +733,7 @@ fn dev_service_with(
         .with_window_caps(window_caps_env()),
         registry,
         budget,
+        public_stats,
     )
 }
 async fn live() -> Json<ApiMessage> {
@@ -947,6 +966,44 @@ async fn count_requests(
 }
 /// Build/version disclosure (ops + debugging): package version and the
 /// contract revision served. No secrets, no config values.
+/// Principal ids minted by dev checks, harnesses and fixture runs —
+/// excluded from the public tester counter so it counts humans.
+/// `console-*` stays: those are real people typing a name on the
+/// console sign-in, which IS the account-creation path in this build.
+const SYNTHETIC_PRINCIPALS: &[&str] = &[
+    "dev-check",
+    "dev-test",
+    "demo-user",
+    "ext-demo",
+    "ext-test",
+    "livecheck-baseten",
+    "fb-e2e",
+    "budget-check",
+    "console-ext-demo",
+    "seq-user",
+    "hook-user",
+    "erase-me",
+    "other-user",
+];
+/// Public counters for the marketing site — unauthenticated by design.
+/// Returns only whole-installation counts; the port cannot emit rows,
+/// tenant ids or principal ids through this path.
+async fn public_stats(
+    State(s): State<AppState>,
+) -> Result<Json<sovir_domain::PublicCounters>, ApiError> {
+    let counters = s
+        .public_stats
+        .counters(SYNTHETIC_PRINCIPALS)
+        .await
+        .map_err(|_| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: "stats_unavailable",
+            request_id: "-".to_string(),
+            retryable: true,
+            retry_after: None,
+        })?;
+    Ok(Json(counters))
+}
 async fn version() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "name": "sovir-api",
@@ -1392,6 +1449,7 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/events/{id}/feedback", post(post_feedback))
         .route("/v1/events/{id}/explanation", get(explain_event))
         .route("/v1/version", get(version))
+        .route("/v1/public/stats", get(public_stats))
         .route("/v1/interventions", get(list_interventions))
         .route("/v1/interventions/dispatch", post(dispatch))
         .route("/v1/me/data", get(export_data).delete(purge_data))
@@ -1500,7 +1558,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let (service, pg, budget) =
+    let (service, pg, budget, public_stats) =
         compose_service(database_url.as_deref(), &webhook_allowlist, &sovir_env).await;
     // Master-user mapping: comma-separated principal ids that carry the
     // admin flag in whoami (console unlocks developer surfaces for them).
@@ -1638,6 +1696,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         webhook_allowlist,
         admin_principals,
         counters: std::sync::Arc::new(Counters::default()),
+        public_stats,
     };
     let app = build_router(state);
     tracing::info!(addr = %addr, env = %sovir_env, deploy = %deploy_mode, dev_session = dev_session_enabled, "starting SOVIR development API");
@@ -1683,11 +1742,12 @@ mod tests {
             std::sync::Arc::new(InMemoryWebhookRegistry::default());
         let egress: std::sync::Arc<dyn sovir_ports::HttpEgress> =
             std::sync::Arc::new(RecordingHttpEgress::default());
-        let (service, _, budget) = dev_service_with(Some((registry, egress)));
+        let (service, _, budget, public_stats) = dev_service_with(Some((registry, egress)));
         AppState {
             service,
             dev_session_enabled: true,
             pg: None,
+            public_stats,
             limits: std::sync::Arc::new(Mutex::new(HashMap::new())),
             rate_limit_per_min: 60,
             idem: std::sync::Arc::new(InMemoryIdempotencyStore::default()),
@@ -1753,6 +1813,31 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn public_stats_counts_humans_without_auth() {
+        let mut app = build_router(test_state());
+        // A real sign-in (kept) and a synthetic harness id (excluded).
+        session_token(&mut app, "maria").await;
+        session_token(&mut app, "dev-check").await;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/public/stats")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["accounts"], 1, "synthetic principals must not count");
+        assert_eq!(v["devices_active"], 0);
+        assert_eq!(v["events_seen"], 0);
     }
 
     #[tokio::test]

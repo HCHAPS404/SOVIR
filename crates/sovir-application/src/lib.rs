@@ -1199,7 +1199,100 @@ impl SovirService {
             ),
         )
         .await?;
+        self.apply_council_writeback(principal, &req, &verdict).await?;
         Ok(verdict)
+    }
+
+    /// Council-derived signal writeback (ADR-0028): when the council
+    /// fused a pixel `brand_logo_impersonation` with the event's DOM
+    /// brand/domain mismatch, the verdict carries
+    /// `cross_modal_brand_impersonation`. If the request named the
+    /// stored event, inject `VISUAL_BRAND_MATCH`, re-evaluate policy
+    /// and escalate exactly like an ingest-time assessment would —
+    /// the cross-modal rule fires only on this injected signal. The
+    /// writeback is idempotent (append-if-absent) and scoped to the
+    /// caller's principal — a foreign event_id silently does nothing.
+    async fn apply_council_writeback(
+        &self,
+        principal: &Principal,
+        req: &InferenceRequest,
+        verdict: &InferenceVerdict,
+    ) -> Result<(), AppError> {
+        if !verdict
+            .hypotheses
+            .iter()
+            .any(|h| h == "cross_modal_brand_impersonation")
+        {
+            return Ok(());
+        }
+        let Some(event_id) = req.event_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(labels) = self
+            .events
+            .append_derived_signal(
+                &principal.tenant_id,
+                &principal.principal_id,
+                event_id,
+                "VISUAL_BRAND_MATCH",
+            )
+            .await?
+        else {
+            return Ok(());
+        };
+        let Some(mut event) = self
+            .events
+            .get(&principal.tenant_id, &principal.principal_id, event_id)
+            .await?
+        else {
+            return Ok(());
+        };
+        event.signals = labels
+            .iter()
+            .filter_map(|s| sovir_domain::risk_signal_from_label(s))
+            .collect();
+        let mut assessment = self.risk.analyze(&event);
+        assessment
+            .reasons
+            .push("Council-derived: pixel and DOM modalities corroborate brand impersonation".into());
+        let now = self.clock.now_ms();
+        if let Some(kind) = intervention_for(&EventDecision {
+            event_id: event_id.to_string(),
+            assessment: assessment.clone(),
+            protected_action_executed: false,
+            sequence_findings: vec![],
+            correlation_notes: vec![],
+        }) {
+            self.sink
+                .enqueue(Intervention {
+                    intervention_id: self.dev_token("int", &[event_id, "council"]),
+                    event_id: event_id.to_string(),
+                    principal_id: principal.principal_id.clone(),
+                    device_id: principal.device_id.clone(),
+                    tenant_id: principal.tenant_id.clone(),
+                    kind,
+                    state: DeliveryState::Pending,
+                    attempts: 0,
+                    created_at_ms: now,
+                    next_attempt_at_ms: now,
+                    last_error: None,
+                    audit: vec![],
+                })
+                .await?;
+        }
+        self.audit(
+            &principal.tenant_id,
+            &principal.principal_id,
+            AuditAction::EventIngested,
+            &format!(
+                "council-writeback event:{} decision:{:?} signals:{}",
+                event_id,
+                assessment.decision,
+                labels.len()
+            ),
+        )
+        .await?;
+        Ok(())
     }
 
     /// Threat-intel ingest (B5): pulls candidates and keeps only
