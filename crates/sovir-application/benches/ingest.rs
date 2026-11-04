@@ -175,6 +175,58 @@ fn bench_investigation_over_events(c: &mut Criterion) {
     });
 }
 
+/// H3 dedup path: a second view with identical digest+signals skips the
+/// whole analysis — this measures the skip, which must be cheaper than a
+/// real ingest, not a disguised full pass.
+fn bench_ingest_dedup_skip(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let service = service();
+    let p = principal();
+    rt.block_on(service.grant(&p, grant())).unwrap();
+    rt.block_on(service.ingest(
+        &p,
+        ObservedEvent {
+            event_id: "bench-seed".into(),
+            source_id: "browser.synthetic".into(),
+            observed_at_ms: now_ms(),
+            modality: Modality::Url,
+            content_digest: "sha256:dedup-fixed".into(),
+            consent_grant_id: "bench-grant".into(),
+            sensitive_data_class: SensitiveDataClass::Public,
+            payload_ref: None,
+            signals: vec![RiskSignal::PaymentRequest],
+            principal_id: String::new(),
+            device_id: String::new(),
+            tenant_id: String::new(),
+        },
+    ))
+    .unwrap();
+    let mut seq: u64 = 0;
+    c.bench_function("ingest_dedup_skip", |b| {
+        b.iter(|| {
+            seq += 1;
+            rt.block_on(service.ingest(
+                &p,
+                ObservedEvent {
+                    event_id: format!("bench-dedup-{seq}"),
+                    source_id: "browser.synthetic".into(),
+                    observed_at_ms: now_ms(),
+                    modality: Modality::Url,
+                    content_digest: "sha256:dedup-fixed".into(),
+                    consent_grant_id: "bench-grant".into(),
+                    sensitive_data_class: SensitiveDataClass::Public,
+                    payload_ref: None,
+                    signals: vec![RiskSignal::PaymentRequest],
+                    principal_id: String::new(),
+                    device_id: String::new(),
+                    tenant_id: String::new(),
+                },
+            ))
+            .unwrap()
+        })
+    });
+}
+
 fn bench_ingest_after_revocation(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let service = service();
@@ -211,6 +263,7 @@ criterion_group!(
     bench_ingest_synthetic_event,
     bench_assess_inference_private,
     bench_investigation_over_events,
+    bench_ingest_dedup_skip,
     bench_ingest_after_revocation
 );
 criterion_main!(benches);

@@ -17,6 +17,7 @@ Máquina: estación de desarrollo Windows del maintainer, 2026-07-25, commit `42
 | `assess_inference_private` | ~1.29 ms | 1.25–1.33 ms | scope check + reserva presupuesto + heurístico + settle + audit |
 | `investigation_over_100_events` | ~3.2 µs | 3.02–3.32 µs | scan acotado + agregación + secuencias + audit |
 | `ingest_after_revocation` | ~856 ns | 852–861 ns | rechazo fail-closed tras revocar grant |
+| `ingest_dedup_skip` | ~1.6 µs | 1.59–1.63 µs | dedup H3: vista idéntica salta análisis |
 
 ## Límites adoptados (revisables por ADR)
 
