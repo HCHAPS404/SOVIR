@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { oidcConfig } from "../../../../../lib/oidc";
+import { oidcConfig, requestOrigin } from "../../../../../lib/oidc";
 
 // OIDC Authorization Code + PKCE callback. Verifies the state cookie,
 // exchanges the code for tokens at the IdP token endpoint and stores the
@@ -8,8 +8,8 @@ import { oidcConfig } from "../../../../../lib/oidc";
 // verifies it against the realm JWKS). On any failure we fail closed
 // back to sign-in; no token ever reaches the browser JS context.
 export async function GET(request: Request) {
-  const cfg = oidcConfig();
-  if (!cfg) return new Response("OIDC not configured", { status: 404 });
+  const cfg = oidcConfig(requestOrigin(request));
+  if (!cfg?.redirectUri) return new Response("OIDC not configured", { status: 404 });
 
   const url = new URL(request.url);
   const jar = await cookies();

@@ -33,7 +33,7 @@ export default async function SignInPage({
         <h1>{s.signin.title}</h1>
         {note ? <p role="alert">{note}</p> : null}
         <p>{s.signin.sub}</p>
-        <form className="register-email" action="/api/session" method="post">
+        <form className="register-email" action="/bff/session" method="post">
           <label>
             {s.signin.inputLabel}
             <input
@@ -52,7 +52,7 @@ export default async function SignInPage({
           </button>
         </form>
         {oidc ? (
-          <form className="register-email" action="/api/auth/oidc/login" method="get">
+          <form className="register-email" action="/bff/auth/oidc/login" method="get">
             <button className="button secondary" type="submit">
               {s.signin.oidcButton}
             </button>

@@ -20,7 +20,7 @@ function fromAcceptLanguage(header: string): Locale | null {
 }
 
 // Resolution order: explicit user choice (cookie) > browser/OS locale
-// (Accept-Language) > product default. The cookie is set by /api/lang.
+// (Accept-Language) > product default. The cookie is set by /bff/lang.
 export async function getLocale(): Promise<Locale> {
   const jar = await cookies();
   const chosen = jar.get(COOKIE)?.value as Locale | undefined;

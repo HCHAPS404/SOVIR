@@ -12,7 +12,7 @@ export function LanguageSwitcher({ current, label }: { current: Locale; label: s
     if (next === current || busy) return;
     setBusy(true);
     try {
-      await fetch("/api/lang", {
+      await fetch("/bff/lang", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ lang: next }),

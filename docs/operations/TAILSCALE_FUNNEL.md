@@ -52,6 +52,17 @@ Base URLs para clientes: extension/Android usan `https://hell.taile32c7d.ts.net/
 
 - Funnel (beta): sin SLA; para producción real, named tunnel con dominio
   propio sigue siendo la vía documentada (`NAMED_TUNNEL_MIGRATION.md`).
-- El OIDC `iss` queda fijado a la URL de funnel — quien acceda a Keycloak
-  por `localhost:8080` directo tendrá un issuer distinto y fallará la
-  verificación; usar siempre la URL de funnel para flujos OIDC.
+
+## Auth por el funnel (resuelto 2026-11-03)
+
+- **Issuer fijado**: Keycloak arranca con
+  `--hostname=https://hell.taile32c7d.ts.net/sso` (en `start-sovir.ps1`);
+  el `iss` es el público en ambos accesos (local y funnel) → una sola
+  identidad. `restart-keycloak.ps1` en `sovir-local/` aplica el restart.
+- **Consola `/api` → `/bff`**: las rutas internas de Next.js se movieron
+  fuera de `/api` porque ese prefijo del funnel pertenece al backend.
+  Login OIDC: `/bff/auth/oidc/{login,callback}`; session/lang/export igual.
+- **Redirect URI derivada del request** (`lib/oidc.ts::requestOrigin`) —
+  x-forwarded aware; sirve `127.0.0.1:3001` y el funnel sin env fijo.
+- **Realm**: `sovir-console` tiene callbacks `/bff/...` (funnel + local);
+  `sovir-extension` incluye `app.sovir.android://oauth` para el PKCE móvil.

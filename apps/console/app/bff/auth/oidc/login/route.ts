@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { oidcConfig } from "../../../../../lib/oidc";
+import { oidcConfig, requestOrigin } from "../../../../../lib/oidc";
 import { createHash, randomBytes } from "node:crypto";
 
 // OIDC Authorization Code + PKCE start. Redirects the user to the IdP
@@ -11,9 +11,9 @@ import { createHash, randomBytes } from "node:crypto";
 const b64url = (buf: Buffer) =>
   buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
-export async function GET() {
-  const cfg = oidcConfig();
-  if (!cfg) return new Response("OIDC not configured", { status: 404 });
+export async function GET(request: Request) {
+  const cfg = oidcConfig(requestOrigin(request));
+  if (!cfg?.redirectUri) return new Response("OIDC not configured", { status: 404 });
 
   const verifier = b64url(randomBytes(32));
   const challenge = b64url(createHash("sha256").update(verifier).digest());

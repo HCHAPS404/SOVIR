@@ -43,7 +43,7 @@ export function BackupTool() {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetch("/api/me/export", { cache: "no-store" });
+      const res = await fetch("/bff/me/export", { cache: "no-store" });
       if (!res.ok) throw new Error(`export ${res.status}`);
       const plaintext = new TextEncoder().encode(await res.text());
       const salt = crypto.getRandomValues(new Uint8Array(16));

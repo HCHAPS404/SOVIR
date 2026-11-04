@@ -181,7 +181,7 @@ export async function ConsoleFrame({
             <strong>{dev ? principal : nick}</strong>
             <small>{dev ? s.nav.techView : s.signin.title}</small>
           </span>
-          <form action="/api/session" method="post">
+          <form action="/bff/session" method="post">
             <input type="hidden" name="intent" value="sign-out" />
             <button className="ghost" type="submit">
               {s.nav.signOut}
