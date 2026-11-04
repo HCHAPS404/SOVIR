@@ -1749,23 +1749,33 @@ impl InferenceGateway for OnnxVisualVoter {
 /// envelope is built field-by-field and cannot carry `text_hint`
 /// (asserted in `remote_envelope_never_carries_text_hint`).
 ///
-/// Artifact dir (SOVIR_ONNX_TEXT_DIR) must contain:
-///   model_quantized.onnx — the classifier graph
-///   tokenizer.json       — HF tokenizer for the model
-///   config.json          — HF config carrying `id2label` (class order
-///                          is read, never guessed)
+/// Artifact dir (SOVIR_ONNX_TEXT_DIR) — two accepted layouts:
+///   legacy softmax: model_quantized.onnx + tokenizer.json + config.json
+///                   (id2label read, never guessed)
+///   multi-label v1: model.onnx + tokenizer.json + thresholds.json
+///                   (signals[] + per-signal calibrated thresholds; sigmoid
+///                   decode — the council's typed-signal taxonomy directly)
 pub struct OnnxTextVoter {
     artifact_dir: Option<std::path::PathBuf>,
     #[cfg(feature = "onnx")]
     inner: std::sync::Mutex<Option<OnnxTextInner>>,
 }
 #[cfg(feature = "onnx")]
+enum TextDecode {
+    /// index -> label, from config.json id2label (softmax argmax).
+    Softmax { id2label: Vec<String> },
+    /// thresholds.json: signals[] + thresholds{signal: prob} (sigmoid).
+    MultiLabel {
+        signals: Vec<String>,
+        thresholds: Vec<f32>,
+    },
+}
+#[cfg(feature = "onnx")]
 struct OnnxTextInner {
     _env: ort::environment::Environment,
     session: ort::session::Session,
     tokenizer: tokenizers::Tokenizer,
-    /// index -> label, from config.json id2label.
-    id2label: Vec<String>,
+    decode: TextDecode,
 }
 impl OnnxTextVoter {
     pub fn from_env() -> Self {
@@ -1773,7 +1783,8 @@ impl OnnxTextVoter {
             .ok()
             .map(std::path::PathBuf::from)
             .filter(|p| {
-                p.join("model_quantized.onnx").is_file() && p.join("tokenizer.json").is_file()
+                (p.join("model.onnx").is_file() || p.join("model_quantized.onnx").is_file())
+                    && p.join("tokenizer.json").is_file()
             });
         Self {
             artifact_dir,
@@ -1783,45 +1794,77 @@ impl OnnxTextVoter {
     }
     #[cfg(feature = "onnx")]
     fn load(dir: &std::path::Path) -> Result<OnnxTextInner, PortError> {
+        let multilabel = dir.join("thresholds.json").is_file() && dir.join("model.onnx").is_file();
+        let model_path = if multilabel {
+            dir.join("model.onnx")
+        } else {
+            dir.join("model_quantized.onnx")
+        };
         let env = ort::init().build().map_err(|_| PortError::Unavailable)?;
         let session = ort::session::Session::builder(&env)
             .map_err(|_| PortError::Unavailable)?
-            .commit_from_file(dir.join("model_quantized.onnx"))
+            .commit_from_file(model_path)
             .map_err(|_| PortError::Unavailable)?;
         let tokenizer = tokenizers::Tokenizer::from_file(dir.join("tokenizer.json"))
             .map_err(|_| PortError::Unavailable)?;
-        let cfg: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(dir.join("config.json"))
-                .map_err(|_| PortError::Unavailable)?,
-        )
-        .map_err(|_| PortError::Unavailable)?;
-        let id2label = cfg["id2label"]
-            .as_object()
-            .map(|m| {
-                let mut v: Vec<(usize, String)> = m
-                    .iter()
-                    .filter_map(|(k, val)| {
-                        k.parse::<usize>()
-                            .ok()
-                            .map(|i| (i, val.as_str().unwrap_or("").to_string()))
-                    })
-                    .collect();
-                v.sort_by_key(|(i, _)| *i);
-                v.into_iter().map(|(_, s)| s).collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        if id2label.is_empty() {
-            return Err(PortError::Unavailable); // class order unknown = refuse
-        }
+        let decode = if multilabel {
+            let th: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(dir.join("thresholds.json"))
+                    .map_err(|_| PortError::Unavailable)?,
+            )
+            .map_err(|_| PortError::Unavailable)?;
+            let signals: Vec<String> = th["signals"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let tm = th["thresholds"].as_object();
+            let thresholds: Vec<f32> = signals
+                .iter()
+                .map(|s| {
+                    tm.and_then(|m| m.get(s))
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.9) as f32
+                })
+                .collect();
+            if signals.is_empty() {
+                return Err(PortError::Unavailable); // label space unknown = refuse
+            }
+            TextDecode::MultiLabel { signals, thresholds }
+        } else {
+            let cfg: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(dir.join("config.json"))
+                    .map_err(|_| PortError::Unavailable)?,
+            )
+            .map_err(|_| PortError::Unavailable)?;
+            let id2label = cfg["id2label"]
+                .as_object()
+                .map(|m| {
+                    let mut v: Vec<(usize, String)> = m
+                        .iter()
+                        .filter_map(|(k, val)| {
+                            k.parse::<usize>()
+                                .ok()
+                                .map(|i| (i, val.as_str().unwrap_or("").to_string()))
+                        })
+                        .collect();
+                    v.sort_by_key(|(i, _)| *i);
+                    v.into_iter().map(|(_, s)| s).collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if id2label.is_empty() {
+                return Err(PortError::Unavailable); // class order unknown = refuse
+            }
+            TextDecode::Softmax { id2label }
+        };
         Ok(OnnxTextInner {
             _env: env,
             session,
             tokenizer,
-            id2label,
+            decode,
         })
     }
     #[cfg(feature = "onnx")]
-    fn score(&self, text: &str) -> Result<(String, u16), PortError> {
+    fn score(&self, text: &str) -> Result<(Vec<String>, u16), PortError> {
         let dir = self.artifact_dir.as_ref().ok_or(PortError::Unavailable)?;
         let mut guard = self.inner.lock().map_err(|_| PortError::Storage)?;
         if guard.is_none() {
@@ -1862,17 +1905,46 @@ impl OnnxTextVoter {
             .map_err(|_| PortError::Unavailable)?
             .1
             .to_vec();
-        let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let exps: Vec<f32> = logits.iter().map(|&x| (x - max).exp()).collect();
-        let sum: f32 = exps.iter().sum();
-        let (top_i, _) = exps
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.total_cmp(b))
-            .ok_or(PortError::Unavailable)?;
-        let prob = exps[top_i] / sum;
-        let label = inner.id2label.get(top_i).cloned().unwrap_or_default();
-        Ok((label, (prob * 10_000.0).min(10_000.0) as u16))
+        match &inner.decode {
+            TextDecode::Softmax { id2label } => {
+                let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let exps: Vec<f32> = logits.iter().map(|&x| (x - max).exp()).collect();
+                let sum: f32 = exps.iter().sum();
+                let (top_i, _) = exps
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                    .ok_or(PortError::Unavailable)?;
+                let prob = exps[top_i] / sum;
+                let label = id2label.get(top_i).cloned().unwrap_or_default();
+                Ok((vec![label], (prob * 10_000.0).min(10_000.0) as u16))
+            }
+            TextDecode::MultiLabel { signals, thresholds } => {
+                // Fused export emits sigmoid probs — no softmax re-normalize.
+                let fired: Vec<(String, f32)> = signals
+                    .iter()
+                    .zip(thresholds.iter())
+                    .enumerate()
+                    .filter_map(|(i, (s, t))| {
+                        logits
+                            .get(i)
+                            .filter(|&&p| p >= *t)
+                            .map(|&p| (s.clone(), p))
+                    })
+                    .collect();
+                if fired.is_empty() {
+                    return Ok((vec!["__none__".into()], 0));
+                }
+                let best = fired
+                    .iter()
+                    .map(|(_, p)| *p)
+                    .fold(0.0_f32, f32::max);
+                Ok((
+                    fired.into_iter().map(|(s, _)| s).collect(),
+                    (best * 10_000.0).min(10_000.0) as u16,
+                ))
+            }
+        }
     }
 }
 #[async_trait]
@@ -1888,18 +1960,46 @@ impl InferenceGateway for OnnxTextVoter {
                 .as_deref()
                 .filter(|t| !t.trim().is_empty())
                 .ok_or(PortError::Unavailable)?; // no text = abstain
-            let (label, bp) = self.score(text)?;
-            let hypothesis = match label.as_str() {
-                "fraud" => "text_classifier_fraud",
-                "spam" => "text_classifier_spam",
-                _ => "no_pattern_detected",
+            let (labels, bp) = self.score(text)?;
+            let (hypotheses, model_id, prov) = if labels.first().map(String::as_str)
+                == Some("__none__")
+            {
+                (
+                    vec!["no_pattern_detected".to_string()],
+                    "sovir-onnx-text-v1",
+                    "onnx-text-v1 local; 21-signal sigmoid; no fire".to_string(),
+                )
+            } else if matches!(
+                labels.first().map(String::as_str),
+                Some("fraud") | Some("spam") | Some("legitimate")
+            ) {
+                (
+                    vec![match labels[0].as_str() {
+                        "fraud" => "text_classifier_fraud",
+                        "spam" => "text_classifier_spam",
+                        _ => "no_pattern_detected",
+                    }
+                    .to_string()],
+                    "horizon-phishing-scam-detector-base",
+                    format!("onnx-text local; label:{}; no egress", labels[0]),
+                )
+            } else {
+                // Multi-label v1: fired signal names ARE the typed taxonomy.
+                (
+                    labels.clone(),
+                    "sovir-onnx-text-v1",
+                    format!(
+                        "onnx-text-v1 local; signals:{}; no egress",
+                        labels.join(",")
+                    ),
+                )
             };
             return Ok(sovir_domain::InferenceVerdict {
                 request_id: req.request_id.clone(),
-                model_id: "horizon-phishing-scam-detector-base".into(),
-                hypotheses: vec![hypothesis.to_string()],
+                model_id: model_id.into(),
+                hypotheses,
                 confidence_bp: bp,
-                provenance: format!("onnx-text local; label:{label}; no egress"),
+                provenance: prov,
                 // Local artifact, zero provider metering — measured $0,
                 // never an unpriced None that would bill the estimate.
                 usage: Some(sovir_domain::ReportedUsage {
@@ -3996,6 +4096,69 @@ mod tests {
             voter.serves(PrivacyMode::Standard),
             "artifact present but serves()=false"
         );
+        // Multi-label v1 artifact → run the signal corpus instead of the
+        // 3-class fixture (hypotheses are typed signal names, not classes).
+        let dir = std::path::PathBuf::from(std::env::var("SOVIR_ONNX_TEXT_DIR").unwrap());
+        if dir.join("thresholds.json").is_file() {
+            let mut per_sig: std::collections::HashMap<String, (u32, u32)> =
+                std::collections::HashMap::new();
+            let mut benign_fires = 0u32;
+            let mut benign_n = 0u32;
+            for split in ["val", "benign"] {
+                let path = format!(
+                    "{}/../../ml/datasets/text-corpus/{split}.jsonl",
+                    env!("CARGO_MANIFEST_DIR")
+                );
+                let Ok(text) = std::fs::read_to_string(&path) else { continue };
+                for line in text.lines() {
+                    let row: serde_json::Value = serde_json::from_str(line).unwrap();
+                    let expected: Vec<String> = row["signals"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|s| s.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let mut req = inf_req_id("sig-eval");
+                    req.text_hint = row["text"].as_str().map(String::from);
+                    let verdict = voter.assess(&req).await.unwrap();
+                    let got: std::collections::HashSet<&str> = verdict
+                        .hypotheses
+                        .iter()
+                        .map(String::as_str)
+                        .filter(|h| *h != "no_pattern_detected")
+                        .collect();
+                    if expected.is_empty() {
+                        benign_n += 1;
+                        if !got.is_empty() {
+                            benign_fires += 1;
+                        }
+                    } else {
+                        for s in &expected {
+                            let e = per_sig.entry(s.clone()).or_default();
+                            e.1 += 1;
+                            if got.contains(s.as_str()) {
+                                e.0 += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            let hit: u32 = per_sig.values().map(|(h, _)| h).sum();
+            let tot: u32 = per_sig.values().map(|(_, t)| t).sum();
+            eprintln!("onnx-text-v1 eval: signal recall {hit}/{tot}");
+            for (s, (h, t)) in &per_sig {
+                eprintln!("  {s}: {h}/{t}");
+            }
+            eprintln!("  benign FP: {benign_fires}/{benign_n}");
+            assert!(hit * 3 >= tot * 2, "signal recall below 2/3 gate");
+            assert!(
+                benign_fires * 20 <= benign_n,
+                "benign FP above 5%: {benign_fires}/{benign_n}"
+            );
+            return;
+        }
         let mut per_class: std::collections::HashMap<String, (u32, u32)> =
             std::collections::HashMap::new();
         let mut misses: Vec<String> = Vec::new();

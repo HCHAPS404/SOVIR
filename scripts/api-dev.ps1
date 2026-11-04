@@ -16,4 +16,6 @@ Get-Content $envFile | ForEach-Object {
     }
 }
 Set-Location $repo
-cargo run -p sovir-api
+# --features onnx: local ONNX voters (ADR-0025). Heavy one-time ORT download;
+# without it every ONNX voter fails closed and simply abstains.
+cargo run -p sovir-api --features onnx

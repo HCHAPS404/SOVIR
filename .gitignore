@@ -59,3 +59,4 @@ ml/datasets/
 # Vendored/shipped model artifacts + runtime (reproducible via pipelines)
 apps/extension/models/
 apps/extension/ort/
+.venv-modal/
