@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AndroidWarning, PhoneFrame, type SequenceStep } from "./AppScreens";
 
 const STEPS: { step: SequenceStep; ms: number; caption: string }[] = [
@@ -11,7 +11,7 @@ const STEPS: { step: SequenceStep; ms: number; caption: string }[] = [
   { step: 4, ms: 4600, caption: "Te avisa y te dice por qué" },
 ];
 
-export function ThreatSequence() {
+export function ThreatSequence({ children }: { children: ReactNode }) {
   const [idx, setIdx] = useState(0);
 
   useEffect(() => {
@@ -35,18 +35,30 @@ export function ThreatSequence() {
   const { step, caption } = STEPS[idx];
 
   return (
-    <div className="threat-seq">
-      <PhoneFrame>
-        <AndroidWarning step={step} />
-      </PhoneFrame>
-      <ol className="seq-captions" aria-label="Secuencia de aviso">
-        {STEPS.map((s, i) => (
-          <li key={s.caption} className={i === idx ? "on" : i < idx ? "done" : ""}>
-            <span className="seq-num">{i + 1}</span>
-            {s.caption}
-          </li>
-        ))}
-      </ol>
+    <div className="live-grid">
+      <div className="live-side">
+        <p className="live-kicker">Del mensaje al aviso</p>
+        <p className="live-note">
+          Lo que ves ocurre dentro del teléfono. El texto del mensaje no sale
+          del aparato.
+        </p>
+        <ol className="seq-captions" aria-label="Secuencia de aviso">
+          {STEPS.map((s, i) => (
+            <li key={s.caption} className={i === idx ? "on" : i < idx ? "done" : ""}>
+              <span className="seq-num">{i + 1}</span>
+              {s.caption}
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div className="stage-composition">
+        {children}
+        <div className="stage-phone">
+          <PhoneFrame>
+            <AndroidWarning step={step} />
+          </PhoneFrame>
+        </div>
+      </div>
       <span className="sr-only">{caption}</span>
     </div>
   );

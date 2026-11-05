@@ -32,7 +32,9 @@ consented sensors, a council of voters, and explainable, auditable, revocable de
 </p>
 
 <p>
+<a href="#demo">Demo</a> ·
 <a href="#what-is-sovir">Product</a> ·
+<a href="#the-product-today">Screenshots</a> ·
 <a href="#how-its-used">How it's used</a> ·
 <a href="#real-status">Real status</a> ·
 <a href="#architecture">Architecture</a> ·
@@ -40,6 +42,28 @@ consented sensors, a council of voters, and explainable, auditable, revocable de
 <a href="#documentation">Docs</a> ·
 <a href="docs/product/PRODUCT_SPEC.md"><strong>Master specification</strong></a>
 </p>
+
+</div>
+
+## Demo
+
+<div align="center">
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     VIDEO DE PRESENTACIÓN
+     Para anclar el video en GitHub:
+       1. Arrastra el .mp4 al editor de un issue/PR (o de este README en
+          github.com) — GitHub genera una URL del tipo:
+          https://github.com/user-attachments/assets/xxxx-xxxx
+       2. Reemplaza TODO este bloque <div> por esa URL, sola en una línea.
+          GitHub la incrusta como reproductor automáticamente.
+     Mientras no haya video, esta captura real de la consola hace de portada.
+     ═══════════════════════════════════════════════════════════════════ -->
+<a href="https://github.com/user-attachments/assets/REEMPLAZAR-CON-EL-VIDEO">
+  <img src="docs/assets/readme/console-resumen.png" alt="SOVIR console — weekly protection summary" width="860">
+</a>
+
+<sub>Consola con datos reales: «esta semana te avisamos ante 2 intentos sospechosos» — evidencia, recomendación y presupuesto remoto a la vista.</sub>
 
 </div>
 
@@ -82,6 +106,12 @@ The council recognizes families of typed signals today, not free text:
 Every signal is an observable fact ("this screen asks for a password"), never
 a claim about the person. The decision comes from the combination, not from a
 single signal.
+
+## The product today
+
+| Public site — `apps/website` | Console — security notices |
+|---|---|
+| ![Umbral landing](docs/assets/readme/landing.png) | ![Avisos de seguridad](docs/assets/readme/console-avisos.png) |
 
 ## How it's used
 
@@ -141,7 +171,7 @@ What runs today, with the evidence behind it:
 
 | Piece | Status | Evidence |
 |---|:---:|---|
-| Rust API (Axum) + PostgreSQL 17 | Verified local | Migrations 0001–0012, RLS active, real events persisted |
+| Rust API (Axum) + PostgreSQL 17 | Verified local | Migrations 0001–0013, RLS active, real events persisted |
 | OIDC / Keycloak 26.4 | Verified | Real JWTs validated via JWKS (`JwksIdentityVerifier`), PKCE in clients |
 | Extension (MV3) → backend | Verified E2E | `live_check.mjs`: connect → observation → Postgres → `warn/high` → badge |
 | ONNX in service worker | Verified | `ort` 1.16.3 wasm, 3.7 MB visual model runs in the MV3 worker |

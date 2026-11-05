@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { SiteFrame } from "../../../components/SiteFrame";
 import { PlatformIcon } from "../../../components/PlatformIcon";
+import { AutoDownload } from "../../../components/AutoDownload";
 import { downloads, findDownload } from "../../../lib/downloads";
 
 export function generateStaticParams() {
@@ -53,7 +54,8 @@ export default async function PlatformDownloadPage({ params }: { params: Promise
         <h1>{item.label}</h1>
         {item.file ? (
           <>
-            <p className="lede">{item.note}.</p>
+            <AutoDownload file={item.file} />
+            <p className="lede">{item.note}. La descarga ya está en marcha — si no comenzó, usa el botón.</p>
             <p>
               <a className="button" href={item.file} download>
                 Descargar{item.size ? ` (${item.size})` : ""}

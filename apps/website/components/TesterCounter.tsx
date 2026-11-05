@@ -68,20 +68,38 @@ export function TesterCounter() {
   if (!data) return null;
 
   const items = [
-    { n: shown.accounts, label: "personas con cuenta" },
-    { n: shown.devices_active, label: "dispositivos enlazados" },
-    { n: shown.events_seen, label: "señales analizadas" },
+    {
+      n: shown.accounts,
+      label: "Personas con cuenta",
+      desc: "Registro real con contraseña — no un nombre en un campo",
+    },
+    {
+      n: shown.devices_active,
+      label: "Dispositivos enlazados",
+      desc: "Teléfonos y navegadores reportando a la misma cuenta",
+    },
+    {
+      n: shown.events_seen,
+      label: "Señales analizadas",
+      desc: "Observaciones evaluadas por el consejo local",
+    },
   ];
 
   return (
     <div className="counter-band" ref={ref}>
-      {items.map((it) => (
-        <div className="counter" key={it.label}>
-          <span className="counter-n">{it.n.toLocaleString("es-MX")}</span>
-          <span className="counter-label">{it.label}</span>
-        </div>
-      ))}
-      <p className="counter-note">Cifras reales de esta instalación, en directo.</p>
+      <p className="counter-live">
+        <span className="live-pulse" aria-hidden="true" />
+        En directo — cifras reales de esta instalación
+      </p>
+      <div className="counter-row">
+        {items.map((it) => (
+          <div className="counter" key={it.label}>
+            <span className="counter-n">{it.n.toLocaleString("es-MX")}</span>
+            <span className="counter-label">{it.label}</span>
+            <span className="counter-desc">{it.desc}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

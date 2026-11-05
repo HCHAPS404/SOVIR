@@ -72,18 +72,17 @@ export default function HomePage() {
             <h2 id="envivo">Cuando algo intenta engañarte</h2>
             <p>Un mensaje entra. SOVIR decide en el teléfono y te dice por qué.</p>
           </header>
-          <div className="stage-composition line">
-            <div className="stage-browser">
-              <BrowserFrame url="hell.taile32c7d.ts.net — avisos">
-                <ConsoleIncidents />
-              </BrowserFrame>
-            </div>
-            <div className="stage-phone">
-              <ThreatSequence />
-            </div>
-            <div className="stage-ext">
-              <ExtensionPopup />
-            </div>
+          <div className="line">
+            <ThreatSequence>
+              <div className="stage-browser">
+                <BrowserFrame url="hell.taile32c7d.ts.net — avisos">
+                  <ConsoleIncidents />
+                </BrowserFrame>
+                <div className="stage-ext">
+                  <ExtensionPopup />
+                </div>
+              </div>
+            </ThreatSequence>
           </div>
         </section>
 
@@ -125,47 +124,43 @@ export default function HomePage() {
             <h2 id="limites">Cuatro límites</h2>
             <p>Capturar, enviar, conservar y compartir no son la misma decisión.</p>
           </header>
-          <div className="quad line">
-            <article className="card">
-              <h3>Privacidad</h3>
-              <p>Esta web no pide ninguna de estas decisiones.</p>
-              <ul className="well">
-                <li>Capturar</li>
-                <li>Enviar a la nube</li>
-                <li>Conservar</li>
-                <li>Compartir indicadores</li>
-              </ul>
-              <Link href="/privacy">Ver privacidad</Link>
-            </article>
-            <article className="card">
-              <h3>Seguridad</h3>
-              <p>El contenido observado se trata como dato no confiable.</p>
-              <ul className="well">
-                <li>Permiso visible</li>
-                <li>Pausa</li>
-                <li>Revocación</li>
-                <li>Registro sin el texto de la pantalla</li>
-              </ul>
-              <Link href="/security">Ver seguridad</Link>
-            </article>
-            <article className="card">
-              <h3>Confianza</h3>
-              <p>Una advertencia tiene que decir de dónde sale.</p>
-              <ul className="well">
-                {landingReadings.map((reading) => (
-                  <li key={reading.title}>{reading.title}</li>
-                ))}
-              </ul>
-              <Link href="/trust">Ver confianza</Link>
-            </article>
-            <article className="card">
-              <h3>Investigación</h3>
-              <p>Las evaluaciones previstas usan casos sintéticos. Aquí no hay un estudio publicado.</p>
-              <div className="well">
-                <p>Método antes que cifras.</p>
+          <div className="limits-ledger line">
+            <Link href="/privacy" className="limit-row">
+              <span className="limit-num">01</span>
+              <div className="limit-body">
+                <h3>Privacidad</h3>
+                <p>Esta web no pide ninguna de estas decisiones.</p>
+                <p className="limit-items">Capturar · Enviar a la nube · Conservar · Compartir indicadores</p>
               </div>
-              <Link href="/research">Ver investigación</Link>
-            </article>
+              <span className="limit-go">Ver privacidad<span aria-hidden="true"> →</span></span>
+            </Link>
+            <Link href="/security" className="limit-row">
+              <span className="limit-num">02</span>
+              <div className="limit-body">
+                <h3>Seguridad</h3>
+                <p>El contenido observado se trata como dato no confiable.</p>
+                <p className="limit-items">Permiso visible · Pausa · Revocación · Registro sin el texto de la pantalla</p>
+              </div>
+              <span className="limit-go">Ver seguridad<span aria-hidden="true"> →</span></span>
+            </Link>
+            <Link href="/trust" className="limit-row">
+              <span className="limit-num">03</span>
+              <div className="limit-body">
+                <h3>Confianza</h3>
+                <p>Una advertencia tiene que decir de dónde sale.</p>
+                <p className="limit-items">{landingReadings.map((r) => r.title).join(" · ")}</p>
+              </div>
+              <span className="limit-go">Ver confianza<span aria-hidden="true"> →</span></span>
+            </Link>
+            <Link href="/research" className="limit-row">
+              <span className="limit-num">04</span>
+              <div className="limit-body">
+                <h3>Investigación</h3>
+                <p>Las evaluaciones previstas usan casos sintéticos. Aquí no hay un estudio publicado.</p>
+                <p className="limit-items">Método antes que cifras</p>
+              </div>
+              <span className="limit-go">Ver investigación<span aria-hidden="true"> →</span></span>
+            </Link>
           </div>
         </section>
 
@@ -236,21 +231,31 @@ export default function HomePage() {
           </header>
           <div className="photo-grid line">
             <PhotoSpot
+              src="/web/photos/mano-telefono-cafe.jpg"
               shot="mano-teléfono-café"
-              caption="El aviso llega donde estás."
+              caption="Supervisa los mensajes que recibes y distingue lo legítimo de la trampa."
               alt="Persona revisando un aviso de SOVIR en su teléfono en una mesa de café"
               ratio="3 / 4"
             />
             <PhotoSpot
+              src="/web/photos/escritorio-portatil.jpg"
               shot="escritorio-portátil"
-              caption="En la consola, el porqué completo."
+              caption="Cada aviso muestra sus razones — no solo una alerta."
               alt="Escritorio con portátil mostrando la consola de SOVIR"
               ratio="3 / 4"
             />
             <PhotoSpot
+              src="/web/photos/telefono-calle.jpg"
               shot="teléfono-calle"
-              caption="También en la calle, sin ruido."
+              caption="Un asistente que comprueba que lo que ves es legítimo, donde estés."
               alt="Persona caminando con el teléfono en la mano y un aviso visible"
+              ratio="3 / 4"
+            />
+            <PhotoSpot
+              src="/web/photos/persona-mayor-sofa.jpg"
+              shot="persona-mayor-sofá"
+              caption="Explicado en palabras simples, sin tecnicismos."
+              alt="Persona mayor usando su teléfono en el sofá de su casa"
               ratio="3 / 4"
             />
           </div>

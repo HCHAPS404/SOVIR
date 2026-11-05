@@ -25,18 +25,17 @@ const GOLD: Array<[number, number, number]> = [
   [255, 242, 206],
 ];
 
-// Paper-theme ramp: the bright end of GOLD washes out on --bg #f4f0e6,
-// so the light palette stays inside the Umbral amber family — darkest
-// tones carry the shape, the crest resolves to the brand amber.
+// Paper-theme ramp: the field reads as ink on --bg #f4f0e6 — sparse
+// edge dots stay a soft warm grey, the dense crest resolves to black.
 const GOLD_LIGHT: Array<[number, number, number]> = [
-  [74, 38, 10],
-  [96, 52, 14],
-  [122, 66, 16],
-  [148, 84, 18],
-  [168, 96, 20],
-  [184, 104, 20],
-  [184, 104, 20],
-  [196, 116, 24],
+  [120, 113, 104],
+  [100, 94, 86],
+  [80, 74, 67],
+  [62, 57, 51],
+  [48, 44, 39],
+  [36, 33, 29],
+  [28, 26, 22],
+  [20, 18, 15],
 ];
 
 function decode(): Array<{ x: number; y: number; tone: number }> {

@@ -48,7 +48,7 @@ export function AndroidWarning({ step }: { step: SequenceStep }) {
           <span className="alert-toast-chev">›</span>
         </div>
       )}
-      <div className={`chat-stage ${step >= 1 ? "is-observed" : ""}`}>
+      <div className={`chat-stage ${step >= 1 ? "is-observed" : ""} ${step >= 4 ? "with-toast" : ""}`}>
         <div className="chat-head">
           <span className="chat-back">‹</span>
           <span className="chat-peer">+52 55 •• •• •• 84</span>
@@ -136,7 +136,7 @@ export function ConsoleIncidents() {
     <div className="console-screen">
       <aside className="console-side">
         <div className="console-brand">
-          <span className="console-mark" />
+          <span className="console-mark"><span className="mark" aria-hidden="true" /></span>
           <div>
             <strong>SOVIR</strong>
             <small>Tu protección personal</small>
@@ -202,36 +202,29 @@ export function ExtensionPopup() {
   return (
     <div className="ext-screen">
       <div className="ext-head">
-        <span className="console-mark" />
+        <span className="console-mark"><span className="mark" aria-hidden="true" /></span>
         <strong>SOVIR</strong>
         <span className="ext-opts">Ajustes</span>
       </div>
-      <div className="ext-hero">
-        <p className="ext-state">Protegiendo</p>
-        <p className="ext-hero-sub">esta página está siendo observada</p>
-      </div>
+      <p className="ext-title">Protección activa</p>
+      <p className="ext-sub">Observando las páginas que visitas en busca de riesgos.</p>
       <div className="ext-stats">
-        <span><b>47</b><small>páginas revisadas</small></span>
-        <span><b>3</b><small>señales vistas</small></span>
-        <span><b className="warn-n">1</b><small>avisos</small></span>
+        <span><b>80</b><small>páginas revisadas</small></span>
+        <span><b>92</b><small>señales vistas</small></span>
+        <span><b className="warn-n">7</b><small>avisos</small></span>
       </div>
       <div className="ext-page">
         <span className="ext-dot" />
-        <p>correo-mx.verify-login.top</p>
-      </div>
-      <div className="ext-alert">
-        <span className="warn-dot" />
-        <div>
-          <strong>Dominio sospechoso</strong>
-          <small>No coincide con el remitente oficial</small>
-        </div>
+        <p>Observando hell.taile32c7d.ts.net</p>
       </div>
       <div className="ext-actions">
         <span className="ext-btn ghost">No observar esta página</span>
-        <span className="ext-btn ghost">Pausar</span>
+        <span className="ext-btn ghost">Pausar protección</span>
       </div>
       <p className="ext-foot">
-        SOVIR lee solo señales de riesgo — nunca guarda tu contenido.
+        SOVIR lee solo señales de riesgo — nunca guarda tu contenido,
+        contraseñas ni capturas. Banca y redes sociales quedan fuera salvo
+        que las actives en Ajustes.
       </p>
     </div>
   );

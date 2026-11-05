@@ -11,14 +11,14 @@ export const downloads: DownloadItem[] = [
   {
     id: "android",
     label: "Android",
-    file: "/downloads/sovir-android.apk",
+    file: "/web/downloads/sovir-android.apk",
     size: "11.7 MB",
     note: "APK de observador — instalación manual",
   },
   {
     id: "extension",
     label: "Extensión de navegador",
-    file: "/downloads/sovir-extension.zip",
+    file: "/web/downloads/sovir-extension.zip",
     size: "7.3 MB",
     note: "Chrome, Edge y navegadores Chromium",
   },

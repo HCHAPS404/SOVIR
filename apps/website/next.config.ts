@@ -22,8 +22,6 @@ const nextConfig: NextConfig = {
     return [
       { source: "/download/ios", destination: "/download/apple", permanent: false },
       { source: "/download/macos", destination: "/download/apple", permanent: false },
-      { source: "/download/android", destination: "/download", permanent: false },
-      { source: "/download/linux", destination: "/download", permanent: false },
     ];
   },
 };
