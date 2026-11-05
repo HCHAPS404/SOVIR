@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- Title cards for the pitch video. Rendered at 1280x720 by titles.mjs.
+     Colors follow the Umbral mineral route (workshop seeds, not final tokens). -->
+<html><head><meta charset="utf-8"><style>
+  * { margin: 0; box-sizing: border-box; }
+  body {
+    width: 2560px; height: 1440px;
+    background: #F5F1E9; color: #24292C;
+    font-family: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column; justify-content: center;
+    align-items: center; text-align: center; padding: 80px;
+  }
+  .kicker { font-family: "IBM Plex Mono", Consolas, monospace; font-size: 20px;
+    letter-spacing: .35em; color: #A95C43; text-transform: uppercase; margin-bottom: 34px; }
+  h1 { font-size: 96px; font-weight: 600; line-height: 1.12; max-width: 1400px; }
+  h1.acc { font-size: 72px; font-weight: 500; }
+  .sub { margin-top: 32px; font-size: 30px; color: #5b615e; max-width: 1200px; line-height: 1.5; }
+  .mark { width: 120px; height: 120px; margin-bottom: 40px; }
+  .mark img { width: 100%; height: 100%; object-fit: contain; }
+  .tag { margin-top: 52px; font-family: Consolas, monospace; font-size: 22px; color: #A95C43; }
+</style></head><body>
+  <div class="mark"><img id="logo" alt="SOVIR"></div>
+  <div class="kicker" id="k"></div>
+  <h1 id="t"></h1>
+  <p class="sub" id="s"></p>
+  <div class="tag" id="g"></div>
+  <script>
+    const q = new URLSearchParams(location.search);
+    logo.src = q.get("logo") ?? "../apps/website/public/brand/icon-ink.png";
+    k.textContent = q.get("k") ?? "";
+    t.textContent = q.get("t") ?? "";
+    t.className = q.get("c") === "1" ? "acc" : "";
+    s.textContent = q.get("s") ?? "";
+    g.textContent = q.get("g") ?? "";
+  </script>
+</body></html>

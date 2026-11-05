@@ -49,21 +49,18 @@ consented sensors, a council of voters, and explainable, auditable, revocable de
 
 <div align="center">
 
-<!-- ═══════════════════════════════════════════════════════════════════
-     VIDEO DE PRESENTACIÓN
-     Para anclar el video en GitHub:
-       1. Arrastra el .mp4 al editor de un issue/PR (o de este README en
-          github.com) — GitHub genera una URL del tipo:
-          https://github.com/user-attachments/assets/xxxx-xxxx
-       2. Reemplaza TODO este bloque <div> por esa URL, sola en una línea.
-          GitHub la incrusta como reproductor automáticamente.
-     Mientras no haya video, esta captura real de la consola hace de portada.
-     ═══════════════════════════════════════════════════════════════════ -->
-<a href="https://github.com/user-attachments/assets/REEMPLAZAR-CON-EL-VIDEO">
-  <img src="docs/assets/readme/console-resumen.png" alt="SOVIR console — weekly protection summary" width="860">
+<!-- Pitch video hosted on YouTube. GitHub cannot embed YouTube players, so
+     the thumbnail links to the video. Source script: docs/marketing/PITCH_3MIN_FINAL.md
+     Recording pipeline: pitch/ -->
+<a href="https://youtu.be/PdG3e74f0Fs">
+  <img src="https://img.youtube.com/vi/PdG3e74f0Fs/hqdefault.jpg" alt="SOVIR — 3-minute product pitch (YouTube)" width="860">
 </a>
 
-<sub>Consola con datos reales: «esta semana te avisamos ante 2 intentos sospechosos» — evidencia, recomendación y presupuesto remoto a la vista.</sub>
+<sub>**[Watch the 3-minute pitch on YouTube →](https://youtu.be/PdG3e74f0Fs)**<br>
+Real surfaces, real reported scam pages: sign-in → live phishing observation in
+Opera Air → typed signals → council decision → alerts in the console → consent
+controls → extension popup → mobile experience. Script and recording pipeline:
+[`docs/marketing/`](docs/marketing/) · [`pitch/`](pitch/)</sub>
 
 </div>
 
@@ -303,6 +300,7 @@ Any check that is not implemented is reported `NOT_IMPLEMENTED` — never `PASS`
 | **Operations** | [SLOs](docs/operations/SLOS.md) · [Performance baseline](docs/operations/PERFORMANCE_BASELINE.md) · [Payments options](docs/operations/PAYMENTS_OPTIONS.md) · [Requires human](docs/operations/REQUIRES_HUMAN.md) · [Tailscale Funnel](docs/operations/TAILSCALE_FUNNEL.md) · [Named tunnel](docs/operations/NAMED_TUNNEL_MIGRATION.md) · [Deferred toolchains](docs/operations/DEFERRED_TOOLCHAINS.md) · [Branches](docs/operations/BRANCHES.md) |
 | **ML** | [Model cards](ml/model-cards/) · [Pipelines](ml/pipelines/) · [docs/ml](docs/ml/) |
 | **Audit** | [Pre-commit audit](docs/audits/AUDITORIA_PRECOMMIT_2026-10-27.md) |
+| **Marketing** | [Pitch video scripts](docs/marketing/PITCH_VIDEO_SCRIPTS.md) · [3-min final script](docs/marketing/PITCH_3MIN_FINAL.md) · [recording pipeline](pitch/) |
 
 ## Roadmap
 

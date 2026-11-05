@@ -1,0 +1,10 @@
+# Generated media + local env — real captures stay out of git (privacy invariant)
+.venv/
+clips/
+work/
+vo/
+titles/
+*.png
+*.mp4
+*.webm
+*.srt
