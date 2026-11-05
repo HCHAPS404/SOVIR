@@ -113,6 +113,9 @@ single signal.
 |---|---|
 | ![Umbral landing](docs/assets/readme/landing.png) | ![Avisos de seguridad](docs/assets/readme/console-avisos.png) |
 
+<sub>Console screenshots use the seeded local dev principal (`jesui`) — a
+development-only identity for the local stack, not a person or collaborator.</sub>
+
 ## How it's used
 
 ### Browser extension
@@ -324,6 +327,10 @@ Detail and acceptance criteria: [spec §23](docs/product/PRODUCT_SPEC.md#23-hito
 - **Fail-closed**: revoked → collection and transmission stop.
 - **Provider = port**; never a domain dependency.
 - **Claims measured or marked** `NOT_IMPLEMENTED` — never invented.
+
+## License
+
+[MIT](LICENSE) © 2026 SOVIR contributors — use it, fork it, build on it.
 
 ---
 
