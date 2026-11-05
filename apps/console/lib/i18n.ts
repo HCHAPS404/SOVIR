@@ -43,7 +43,7 @@ export interface Strings {
   };
   signin: {
     title: string; sub: string; inputLabel: string; placeholder: string;
-    button: string; oidcButton: string; oidcHint: string; devMode: string; note: string;
+    button: string; oidcButton: string; oidcHint: string; registerButton: string; devMode: string; note: string;
     errors: {
       backend: string; session: string; name: string;
       oidcDenied: string; oidcState: string; oidcExchange: string; oidcToken: string;
@@ -72,6 +72,10 @@ export interface Strings {
     lastSeen: string; lastSeenNever: string;
     chipOn: string; chipOff: string;
   };
+  profile: {
+    kicker: string; title: string; sub: string; photo: string;
+    photoHint: string; removePhoto: string; name: string; save: string;
+  };
   common: { lastAlertAgo: string; today: string; week: string };
 }
 
@@ -90,8 +94,7 @@ const es: Strings = {
     inputLabel: "Escribe tu nombre para abrir tu espacio",
     placeholder: "p. ej. Ana",
     button: "Entrar a mi panel",
-    oidcButton: "Entrar con mi cuenta",
-    oidcHint: "¿Primera vez? Creas tu cuenta con contraseña en el paso siguiente.",
+    oidcButton: "Entrar con mi cuenta", registerButton: "Crear cuenta", oidcHint: "¿Primera vez? Creas tu cuenta con contraseña en el paso siguiente.",
     devMode: "Entorno de desarrollo",
     note: "Cada nombre tiene su propio espacio privado de avisos, dispositivos y permisos. Entorno local de demostración (sesión aislada en httpOnly, sin contraseñas ni envío de datos a terceros).",
     errors: {
@@ -160,6 +163,12 @@ const es: Strings = {
     lastSeenNever: "sin señales aún",
     chipOn: "conectado", chipOff: "desconectado",
   },
+  profile: {
+    kicker: "Tu cuenta", title: "Mi perfil",
+    sub: "Tu foto y tus ajustes. El idioma se adapta al país del dispositivo — aquí puedes cambiarlo.",
+    photo: "Cambiar foto", photoHint: "La foto se guarda solo en este navegador.",
+    removePhoto: "Quitar foto", name: "Nombre para mostrarse", save: "Guardar",
+  },
   common: { lastAlertAgo: "el último aviso fue {x}", today: "hoy", week: "esta semana" },
 };
 
@@ -178,8 +187,7 @@ const en: Strings = {
     inputLabel: "Type your name to open your space",
     placeholder: "e.g. Ana",
     button: "Enter my panel",
-    oidcButton: "Sign in with my account",
-    oidcHint: "First time? You create your password-protected account in the next step.",
+    oidcButton: "Sign in with my account", registerButton: "Create account", oidcHint: "First time? You create your password-protected account in the next step.",
     devMode: "Development environment",
     note: "Each name gets its own private space of alerts, devices and permissions. Local demo environment (isolated httpOnly session, no passwords, no data sent to third parties).",
     errors: {
@@ -247,6 +255,12 @@ const en: Strings = {
     lastSeenNever: "no signals yet",
     chipOn: "connected", chipOff: "disconnected",
   },
+  profile: {
+    kicker: "Your account", title: "My profile",
+    sub: "Your photo and settings. Language follows the device country — change it here if you like.",
+    photo: "Change photo", photoHint: "The photo is stored only in this browser.",
+    removePhoto: "Remove photo", name: "Display name", save: "Save",
+  },
   common: { lastAlertAgo: "last alert {x}", today: "today", week: "this week" },
 };
 
@@ -265,8 +279,7 @@ const pt: Strings = {
     inputLabel: "Escreva o seu nome para abrir o seu espaço",
     placeholder: "p. ex. Ana",
     button: "Entrar no meu painel",
-    oidcButton: "Entrar com a minha conta",
-    oidcHint: "Primeira vez? Cria a sua conta com palavra-passe no passo seguinte.",
+    oidcButton: "Entrar com a minha conta", registerButton: "Criar conta", oidcHint: "Primeira vez? Cria a sua conta com palavra-passe no passo seguinte.",
     devMode: "Ambiente de desenvolvimento",
     note: "Cada nome tem o seu próprio espaço privado de avisos, dispositivos e permissões. Ambiente local de demonstração (sessão isolada em httpOnly, sem senhas nem envio de dados a terceiros).",
     errors: {
@@ -335,6 +348,12 @@ const pt: Strings = {
     lastSeenNever: "sem sinais ainda",
     chipOn: "ligado", chipOff: "desligado",
   },
+  profile: {
+    kicker: "A sua conta", title: "O meu perfil",
+    sub: "A sua foto e definições. O idioma segue o país do dispositivo — pode alterá-lo aqui.",
+    photo: "Mudar foto", photoHint: "A foto fica guardada apenas neste navegador.",
+    removePhoto: "Remover foto", name: "Nome a mostrar", save: "Guardar",
+  },
   common: { lastAlertAgo: "o último aviso foi {x}", today: "hoje", week: "esta semana" },
 };
 
@@ -353,8 +372,7 @@ const fr: Strings = {
     inputLabel: "Écrivez votre nom pour ouvrir votre espace",
     placeholder: "p. ex. Ana",
     button: "Entrer dans mon panneau",
-    oidcButton: "Me connecter avec mon compte",
-    oidcHint: "Première fois ? Vous créez votre compte avec mot de passe à l’étape suivante.",
+    oidcButton: "Entrer avec mon compte", registerButton: "Créer un compte", oidcHint: "Première fois ? Vous créez votre compte avec mot de passe à l’étape suivante.",
     devMode: "Environnement de développement",
     note: "Chaque nom possède son espace privé d'alertes, d'appareils et d'autorisations. Environnement local de démonstration (session isolée en httpOnly, sans mots de passe ni envoi de données à des tiers).",
     errors: {
@@ -423,6 +441,12 @@ const fr: Strings = {
     lastSeenNever: "aucun signal pour l'instant",
     chipOn: "connecté", chipOff: "déconnecté",
   },
+  profile: {
+    kicker: "Votre compte", title: "Mon profil",
+    sub: "Votre photo et vos réglages. La langue suit le pays de l'appareil — changez-la ici si besoin.",
+    photo: "Changer la photo", photoHint: "La photo est conservée uniquement dans ce navigateur.",
+    removePhoto: "Retirer la photo", name: "Nom affiché", save: "Enregistrer",
+  },
   common: { lastAlertAgo: "dernière alerte {x}", today: "aujourd'hui", week: "cette semaine" },
 };
 
@@ -441,8 +465,7 @@ const it: Strings = {
     inputLabel: "Scrivi il tuo nome per aprire il tuo spazio",
     placeholder: "es. Ana",
     button: "Entra nel mio pannello",
-    oidcButton: "Accedi con il mio account",
-    oidcHint: "Prima volta? Crei il tuo account con password al passo successivo.",
+    oidcButton: "Accedi con il mio account", registerButton: "Crea account", oidcHint: "Prima volta? Crei il tuo account con password al passo successivo.",
     devMode: "Ambiente di sviluppo",
     note: "Ogni nome ha il suo spazio privato di avvisi, dispositivi e permessi. Ambiente demo locale (sessione isolata in httpOnly, senza password né invio di dati a terzi).",
     errors: {
@@ -511,6 +534,12 @@ const it: Strings = {
     lastSeenNever: "nessun segnale ancora",
     chipOn: "connesso", chipOff: "scollegato",
   },
+  profile: {
+    kicker: "Il tuo account", title: "Il mio profilo",
+    sub: "La tua foto e le impostazioni. La lingua segue il paese del dispositivo — puoi cambiarla qui.",
+    photo: "Cambia foto", photoHint: "La foto resta solo in questo browser.",
+    removePhoto: "Rimuovi foto", name: "Nome da mostrare", save: "Salva",
+  },
   common: { lastAlertAgo: "ultimo avviso {x}", today: "oggi", week: "questa settimana" },
 };
 
@@ -529,8 +558,7 @@ const de: Strings = {
     inputLabel: "Gib deinen Namen ein, um deinen Bereich zu öffnen",
     placeholder: "z. B. Ana",
     button: "Mein Panel öffnen",
-    oidcButton: "Mit meinem Konto anmelden",
-    oidcHint: "Zum ersten Mal? Im nächsten Schritt erstellen Sie Ihr Konto mit Passwort.",
+    oidcButton: "Mit meinem Konto anmelden", registerButton: "Konto erstellen", oidcHint: "Zum ersten Mal? Im nächsten Schritt erstellen Sie Ihr Konto mit Passwort.",
     devMode: "Entwicklungsumgebung",
     note: "Jeder Name hat seinen privaten Bereich für Warnungen, Geräte und Berechtigungen. Lokale Demo-Umgebung (isolierte httpOnly-Session, keine Passwörter, keine Daten an Dritte).",
     errors: {
@@ -599,6 +627,12 @@ const de: Strings = {
     lastSeenNever: "noch keine Signale",
     chipOn: "verbunden", chipOff: "getrennt",
   },
+  profile: {
+    kicker: "Dein Konto", title: "Mein Profil",
+    sub: "Dein Foto und deine Einstellungen. Die Sprache folgt dem Land des Geräts — hier kannst du sie ändern.",
+    photo: "Foto ändern", photoHint: "Das Foto bleibt nur in diesem Browser gespeichert.",
+    removePhoto: "Foto entfernen", name: "Anzeigename", save: "Speichern",
+  },
   common: { lastAlertAgo: "letzte Warnung {x}", today: "heute", week: "diese Woche" },
 };
 
@@ -617,8 +651,7 @@ const ja: Strings = {
     inputLabel: "名前を入力して自分のスペースを開く",
     placeholder: "例：アナ",
     button: "マイパネルに入る",
-    oidcButton: "アカウントでサインイン",
-    oidcHint: "初めての方は次のステップでパスワード付きアカウントを作成します。",
+    oidcButton: "アカウントでサインイン", registerButton: "アカウントを作成", oidcHint: "初めての方は次のステップでパスワード付きアカウントを作成します。",
     devMode: "開発環境",
     note: "名前ごとに、警告・デバイス・許可のプライベートなスペースがあります。ローカルのデモ環境です（httpOnlyの分離セッション、パスワード不要、第三者へのデータ送信なし）。",
     errors: {
@@ -684,6 +717,12 @@ const ja: Strings = {
     lastSeenNever: "まだシグナルなし",
     chipOn: "接続中", chipOff: "切断済み",
   },
+  profile: {
+    kicker: "アカウント", title: "マイプロフィール",
+    sub: "写真と設定。言語はデバイスの国に合わせます — ここで変更できます。",
+    photo: "写真を変更", photoHint: "写真はこのブラウザにのみ保存されます。",
+    removePhoto: "写真を削除", name: "表示名", save: "保存",
+  },
   common: { lastAlertAgo: "最後の警告：{x}", today: "今日", week: "今週" },
 };
 
@@ -702,8 +741,7 @@ const zh: Strings = {
     inputLabel: "输入您的名字以打开您的空间",
     placeholder: "例如 Ana",
     button: "进入我的面板",
-    oidcButton: "使用我的账户登录",
-    oidcHint: "首次使用？您将在下一步创建带密码的账户。",
+    oidcButton: "使用我的账户登录", registerButton: "创建账户", oidcHint: "首次使用？您将在下一步创建带密码的账户。",
     devMode: "开发环境",
     note: "每个名字都有自己私密的提醒、设备和权限空间。本地演示环境（httpOnly隔离会话，无密码，不向第三方发送数据）。",
     errors: {
@@ -768,6 +806,12 @@ const zh: Strings = {
     lastSeen: "最近活动",
     lastSeenNever: "暂无信号",
     chipOn: "已连接", chipOff: "已断开",
+  },
+  profile: {
+    kicker: "您的账户", title: "我的个人资料",
+    sub: "您的照片和设置。语言跟随设备所在国家——可在此更改。",
+    photo: "更换照片", photoHint: "照片仅保存在此浏览器中。",
+    removePhoto: "移除照片", name: "显示名称", save: "保存",
   },
   common: { lastAlertAgo: "最近一次提醒：{x}", today: "今天", week: "本周" },
 };

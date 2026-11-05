@@ -39,9 +39,9 @@ function DevSessionForm({ s }: { s: Strings }) {
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; dev?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, dev } = await searchParams;
   const s = stringsFor(await getLocale());
   const key = error ? ERROR_KEYS[error] : undefined;
   const note = key ? s.signin.errors[key] : null;
@@ -63,12 +63,18 @@ export default async function SignInPage({
                 {s.signin.oidcButton}
               </button>
             </form>
-            <p className="oidc-hint">{s.signin.oidcHint}</p>
-            <details className="dev-mode">
-              <summary>{s.signin.devMode}</summary>
-              <DevSessionForm s={s} />
-              <p className="register-note">{s.signin.note}</p>
-            </details>
+            <form className="register-email" action="/bff/auth/oidc/register" method="get">
+              <button className="button secondary" type="submit">
+                {s.signin.registerButton}
+              </button>
+            </form>
+            {dev ? (
+              <details className="dev-mode">
+                <summary>{s.signin.devMode}</summary>
+                <DevSessionForm s={s} />
+                <p className="register-note">{s.signin.note}</p>
+              </details>
+            ) : null}
           </>
         ) : (
           <>

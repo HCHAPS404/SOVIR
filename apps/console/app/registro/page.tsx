@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
+import { oidcConfig } from "../../lib/oidc";
 
-// Registration is hosted by the IdP (Keycloak), reached through the
-// sign-in screen's OIDC flow. This route keeps the public `/registro`
-// link stable without duplicating an account-creation form here.
+// Registration is hosted by the IdP (Keycloak). When OIDC is configured the
+// public `/registro` link jumps straight to the account-creation form — no
+// intermediate portal. Without OIDC, dev-session sign-in stays the local path.
 export default function RegistroPage() {
-  redirect("/sign-in");
+  redirect(oidcConfig() ? "/bff/auth/oidc/register" : "/sign-in");
 }

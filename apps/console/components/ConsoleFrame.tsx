@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { exportData } from "../lib/api";
 import { getLocale, stringsFor } from "../lib/i18n";
 import { live } from "../lib/live";
-import { LanguageSwitcher } from "./LanguageSwitcher";
+import { AvatarBadge } from "./AvatarBadge";
 import { RailNav } from "./RailNav";
 
 /// Presence check only — the token's validity is proven by the first
@@ -40,6 +40,7 @@ export async function ConsoleFrame({
     "/devices": s.nav.myDevices,
     "/permissions": s.nav.privacy,
     "/enterprise/audit": s.nav.audit,
+    "/perfil": s.profile.title,
   };
   const items = [
     { href: "/", label: s.nav.summary },
@@ -86,13 +87,13 @@ export async function ConsoleFrame({
         </div>
 
         <div className="rail-foot">
-          <span className="rail-avatar" aria-hidden="true">
-            <span className="mark" />
-          </span>
-          <span className="rail-who">
-            <strong>{nick}</strong>
-            <small>{s.signin.title}</small>
-          </span>
+          <Link className="rail-profile" href="/perfil" title={s.profile.title}>
+            <AvatarBadge name={nick} />
+            <span className="rail-who">
+              <strong>{nick}</strong>
+              <small>{s.profile.kicker}</small>
+            </span>
+          </Link>
           <form action="/bff/session" method="post">
             <input type="hidden" name="intent" value="sign-out" />
             <button className="ghost" type="submit">
@@ -120,7 +121,6 @@ export async function ConsoleFrame({
             <strong>{pageNames[current] ?? s.nav.summary}</strong>
           </div>
           <div className="top-tools">
-            <LanguageSwitcher current={locale} label={s.nav.language} />
             <ThemeSwitch />
           </div>
         </header>

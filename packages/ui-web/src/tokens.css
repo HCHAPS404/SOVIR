@@ -2970,3 +2970,82 @@ a.button.secondary:hover {
   .console .rail-foot button { width: auto; }
   .console .section-head { flex-direction: column; }
 }
+
+/* --- profile bubble + settings --- */
+.avatar-badge {
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  border: 1px solid var(--border);
+  display: inline-block;
+}
+.avatar-badge.is-big { width: 4.5rem; height: 4.5rem; font-size: 1.6rem; }
+.avatar-initials {
+  display: inline-grid;
+  place-items: center;
+  background: var(--register-field);
+  color: var(--register-ink);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+.rail-profile {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  flex: 1;
+  border-radius: 8px;
+  text-decoration: none;
+}
+.rail-profile:hover .rail-who strong { text-decoration: underline; }
+.rail-foot { display: flex; align-items: center; gap: 0.6rem; }
+
+.profile-card { padding: 1.4rem; }
+.profile-panel { display: flex; flex-direction: column; gap: 1.4rem; }
+.profile-block {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  padding-bottom: 1.2rem;
+  border-bottom: 1px solid var(--border);
+}
+.profile-block:last-child { border-bottom: none; padding-bottom: 0; }
+.profile-block form, form.profile-block { display: flex; gap: 0.8rem; align-items: flex-end; flex-wrap: wrap; }
+.profile-photo { flex: none; }
+.profile-photo-actions { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+.profile-hint { margin: 0; font-size: 0.8rem; color: var(--text-muted); }
+.profile-field { display: flex; flex-direction: column; gap: 0.35rem; }
+.profile-field span, .profile-field-label {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.profile-field input {
+  font: inherit;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--register-field);
+  color: var(--register-ink);
+  min-width: 16rem;
+}
+.profile-block { flex-direction: column; }
+.profile-block > * { align-self: flex-start; }
+.lang-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.lang-opt {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.lang-opt:hover { border-color: var(--text-muted); }
+.lang-opt.is-on {
+  background: var(--register-button);
+  color: var(--register-button-ink);
+  border-color: transparent;
+}
